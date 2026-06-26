@@ -1,0 +1,30 @@
+# Auto-deploy SSO (UOA) to DigitalOcean App Platform on push to main.
+# Builds the container -> DOCR, then redeploys the hugo-sso app (created once
+# out-of-band with its secrets; create-deployment preserves them).
+name: Deploy SSO (DigitalOcean)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: hugo-sso-deploy
+  cancel-in-progress: false
+env:
+  REGISTRY: registry.digitalocean.com/hugopos
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      - run: doctl registry login --expiry-seconds 1200
+      - name: Build & push SSO image
+        run: |
+          docker build -t "$REGISTRY/hugo-sso:latest" -t "$REGISTRY/hugo-sso:${{ github.sha }}" .
+          docker push --all-tags "$REGISTRY/hugo-sso"
+      - name: Redeploy
+        run: |
+          id=$(doctl apps list --no-header --format ID,Spec.Name | awk '$2=="hugo-sso"{print $1}')
+          if [ -n "$id" ]; then doctl apps create-deployment "$id" --wait; else echo "hugo-sso app not created yet — create once with secrets, then deploys are automatic"; fi
