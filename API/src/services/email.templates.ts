@@ -6,6 +6,51 @@ type EmailTemplate = {
   html: string;
 };
 
+/** Locales we hand-author email copy for. Anything else falls back to English. */
+export type EmailLocale = 'en' | 'cs';
+
+type RegistrationCopy = {
+  subject: string;
+  heading: string;
+  /** Body sentence shown above the button (HTML) and re-used as the text intro. */
+  body: string;
+  buttonLabel: string;
+  expiry: (minutes: number) => string;
+  fallbackLabel: string;
+  ignoreLabel: string;
+};
+
+/**
+ * Sign-in / registration email copy in Hugo's voice (HUGO-553). One neutral
+ * template serves login-link, verify-email, set-password and account-exists,
+ * so the wording must read naturally for both a returning login and finishing
+ * signup. English is the source; unsupported locales fall back to it.
+ */
+const REGISTRATION_COPY: Record<EmailLocale, RegistrationCopy> = {
+  en: {
+    subject: 'Your sign-in link',
+    heading: "Let's get you in",
+    body: "You're one tap away. Use the button below to reach your account or finish signing up.",
+    buttonLabel: 'Continue',
+    expiry: (minutes) => `Tick tock — this link's good for ${minutes} minutes, and one use only.`,
+    fallbackLabel: 'Button playing dead? Paste this URL into your browser:',
+    ignoreLabel: "Wasn't you? Pretend this never happened.",
+  },
+  cs: {
+    subject: 'Váš přihlašovací odkaz',
+    heading: 'Pojďme vás přihlásit',
+    body: 'Jste jen jedno kliknutí od cíle. Klikněte na tlačítko níže a dostanete se ke svému účtu nebo dokončíte registraci.',
+    buttonLabel: 'Pokračovat',
+    expiry: (minutes) => `Tik ťak — odkaz platí ${minutes} minut a použít ho lze jen jednou.`,
+    fallbackLabel: 'Tlačítko nereaguje? Zkopírujte tuto adresu do prohlížeče:',
+    ignoreLabel: 'Tohle jste nebyl/a vy? Tak na to rychle zapomeňte.',
+  },
+};
+
+function registrationCopy(locale?: EmailLocale): RegistrationCopy {
+  return REGISTRATION_COPY[locale ?? 'en'] ?? REGISTRATION_COPY.en;
+}
+
 /** Subset of config theme colors used to style emails. */
 export type EmailTheme = {
   bg: string;
@@ -94,7 +139,10 @@ function buildEmailHtml(params: {
   buttonLabel: string;
   buttonUrl: string;
   minutes: number;
+  lang?: string;
   expiryLabel?: string;
+  fallbackLabel?: string;
+  ignoreLabel?: string;
   /**
    * Notification mode for emails sent to admins (no expiry copy, no
    * copy-paste URL block, no "ignore if you did not request" footer).
@@ -105,6 +153,9 @@ function buildEmailHtml(params: {
   const escapedLink = escapeHtml(params.buttonUrl);
   const expiryLabel =
     params.expiryLabel ?? `This link expires in ${params.minutes} minutes and can only be used once.`;
+  const fallbackLabel =
+    params.fallbackLabel ?? 'If the button does not work, copy and paste this URL into your browser:';
+  const ignoreLabel = params.ignoreLabel ?? 'If you did not request this, you can ignore this email.';
 
   const fontLink = t.fontImportUrl
     ? `<link rel="stylesheet" href="${escapeHtml(t.fontImportUrl)}" />`
@@ -119,18 +170,18 @@ function buildEmailHtml(params: {
             </tr>
             <tr>
               <td style="padding:0 24px 16px 24px;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${t.muted};font-size:12px;line-height:18px;">
-                If the button does not work, copy and paste this URL into your browser:
+                ${escapeHtml(fallbackLabel)}
                 <div style="margin-top:8px;word-break:break-all;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;color:${t.text};">${escapedLink}</div>
               </td>
             </tr>
             <tr>
               <td style="padding:0 24px 24px 24px;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${t.muted};font-size:12px;line-height:18px;">
-                If you did not request this, you can ignore this email.
+                ${escapeHtml(ignoreLabel)}
               </td>
             </tr>`;
 
   return `<!doctype html>
-<html lang="en">
+<html lang="${escapeHtml(params.lang ?? 'en')}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -169,44 +220,65 @@ function buildEmailHtml(params: {
 </html>`;
 }
 
-export function buildRegistrationLinkTemplate(params: { link: string; theme?: Partial<EmailTheme> }): EmailTemplate {
+export function buildRegistrationLinkTemplate(params: {
+  link: string;
+  theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
+}): EmailTemplate {
   const minutes = tokenTtlMinutes();
   const theme = resolveTheme(params.theme);
+  const copy = registrationCopy(params.locale);
 
-  const subject = 'Your sign-in link';
+  const subject = copy.subject;
   const text = [
-    'Continue to your account',
+    copy.heading,
     '',
-    'Use this link to access your account or finish signing up:',
+    copy.body,
     params.link,
     '',
-    `This link expires in ${minutes} minutes and can only be used once.`,
+    copy.expiry(minutes),
     '',
-    'If you did not request this, you can ignore this email.',
+    copy.ignoreLabel,
   ].join('\n');
 
   const html = buildEmailHtml({
     theme,
     subject,
-    heading: 'Continue to your account',
-    body: 'Click the button below to access your account or finish signing up.',
-    buttonLabel: 'Continue',
+    heading: copy.heading,
+    body: copy.body,
+    buttonLabel: copy.buttonLabel,
     buttonUrl: params.link,
     minutes,
+    lang: params.locale ?? 'en',
+    expiryLabel: copy.expiry(minutes),
+    fallbackLabel: copy.fallbackLabel,
+    ignoreLabel: copy.ignoreLabel,
   });
 
   return { subject, text, html };
 }
 
-export function buildVerifyEmailSetPasswordTemplate(params: { link: string; theme?: Partial<EmailTheme> }): EmailTemplate {
+export function buildVerifyEmailSetPasswordTemplate(params: {
+  link: string;
+  theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
+}): EmailTemplate {
   return buildRegistrationLinkTemplate(params);
 }
 
-export function buildVerifyEmailTemplate(params: { link: string; theme?: Partial<EmailTheme> }): EmailTemplate {
+export function buildVerifyEmailTemplate(params: {
+  link: string;
+  theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
+}): EmailTemplate {
   return buildRegistrationLinkTemplate(params);
 }
 
-export function buildLoginLinkTemplate(params: { link: string; theme?: Partial<EmailTheme> }): EmailTemplate {
+export function buildLoginLinkTemplate(params: {
+  link: string;
+  theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
+}): EmailTemplate {
   return buildRegistrationLinkTemplate(params);
 }
 
@@ -289,7 +361,11 @@ export function buildAccessRequestNotificationTemplate(params: {
   return { subject, text, html };
 }
 
-export function buildAccountExistsTemplate(params: { link: string; theme?: Partial<EmailTheme> }): EmailTemplate {
+export function buildAccountExistsTemplate(params: {
+  link: string;
+  theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
+}): EmailTemplate {
   return buildRegistrationLinkTemplate(params);
 }
 

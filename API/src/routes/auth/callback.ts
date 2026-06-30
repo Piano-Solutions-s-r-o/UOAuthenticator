@@ -31,6 +31,7 @@ import { sendDeepLinkHandoff } from '../../services/auth-ui.service.js';
 import { isCustomSchemeUrl } from '../../utils/http-url.js';
 import { finalizeAuthenticatedUser } from '../../services/access-request-flow.service.js';
 import { requestRegistrationInstructions } from '../../services/auth-register.service.js';
+import { resolveEmailLocale } from '../../utils/email-locale.js';
 import { resolveTwoFaPolicy } from '../../services/twofactor-policy.service.js';
 import { signTwoFaChallenge } from '../../services/twofactor-challenge.service.js';
 import { startTwoFactorSetup } from '../../services/twofactor-setup.service.js';
@@ -247,6 +248,7 @@ export function registerAuthCallbackRoute(app: FastifyInstance): void {
               requestAccess: socialState.request_access === true,
               codeChallenge: socialState.code_challenge,
               codeChallengeMethod: socialState.code_challenge_method,
+              locale: resolveEmailLocale(request.headers['accept-language']),
             },
             { prisma },
           );

@@ -1,5 +1,5 @@
 import { getEnv } from '../config/env.js';
-import type { EmailTheme } from './email.templates.js';
+import type { EmailLocale, EmailTheme } from './email.templates.js';
 import {
   buildAccessRequestNotificationTemplate,
   buildAccountExistsTemplate,
@@ -73,9 +73,10 @@ export async function sendLoginLinkEmail(params: {
   to: string;
   link: string;
   theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
 }): Promise<void> {
   const env = getEnv();
-  const template = buildLoginLinkTemplate({ link: params.link, theme: params.theme });
+  const template = buildLoginLinkTemplate({ link: params.link, theme: params.theme, locale: params.locale });
   await dispatchEmail({
     to: params.to,
     from: env.EMAIL_FROM,
@@ -139,9 +140,10 @@ export async function sendVerifyEmailSetPasswordEmail(params: {
   to: string;
   link: string;
   theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
 }): Promise<void> {
   const env = getEnv();
-  const template = buildVerifyEmailSetPasswordTemplate({ link: params.link, theme: params.theme });
+  const template = buildVerifyEmailSetPasswordTemplate({ link: params.link, theme: params.theme, locale: params.locale });
   await dispatchEmail({
     to: params.to,
     from: env.EMAIL_FROM,
@@ -156,9 +158,10 @@ export async function sendVerifyEmailEmail(params: {
   to: string;
   link: string;
   theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
 }): Promise<void> {
   const env = getEnv();
-  const template = buildVerifyEmailTemplate({ link: params.link, theme: params.theme });
+  const template = buildVerifyEmailTemplate({ link: params.link, theme: params.theme, locale: params.locale });
   await dispatchEmail({
     to: params.to,
     from: env.EMAIL_FROM,
@@ -173,9 +176,10 @@ export async function sendAccountExistsEmail(params: {
   to: string;
   link: string;
   theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
 }): Promise<void> {
   const env = getEnv();
-  const template = buildAccountExistsTemplate({ link: params.link, theme: params.theme });
+  const template = buildAccountExistsTemplate({ link: params.link, theme: params.theme, locale: params.locale });
   await dispatchEmail({
     to: params.to,
     from: env.EMAIL_FROM,

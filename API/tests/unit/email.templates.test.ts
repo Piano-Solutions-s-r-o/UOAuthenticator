@@ -12,6 +12,7 @@ import {
   buildVerifyEmailTemplate,
   buildVerifyEmailSetPasswordTemplate,
 } from '../../src/services/email.templates.js';
+import type { EmailLocale } from '../../src/services/email.templates.js';
 
 describe('buildVerifyEmailSetPasswordTemplate', () => {
   it('includes subject, text, and html with the provided link', () => {
@@ -21,14 +22,14 @@ describe('buildVerifyEmailSetPasswordTemplate', () => {
 
     expect(tpl.subject).toBe('Your sign-in link');
     expect(tpl.text).toContain(link);
-    expect(tpl.text).toContain('access your account or finish signing up');
+    expect(tpl.text).toContain('reach your account or finish signing up');
     expect(tpl.text).not.toContain('login-link');
     expect(tpl.text).not.toContain('verify-set-password');
-    expect(tpl.text).toMatch(/expires in 30 minutes/i);
-    expect(tpl.text).toMatch(/ignore this email/i);
+    expect(tpl.text).toMatch(/good for 30 minutes/i);
+    expect(tpl.text).toMatch(/pretend this never happened/i);
     expect(tpl.text).not.toMatch(/set your password/i);
 
-    expect(tpl.html).toContain('Continue to your account');
+    expect(tpl.html).toContain('get you in');
     expect(tpl.html).toContain('Continue');
     expect(tpl.html).toContain(`href="${escapedLink}"`);
     expect(tpl.html).not.toContain('login-link');
@@ -54,12 +55,12 @@ describe('buildVerifyEmailTemplate', () => {
 
     expect(tpl.subject).toBe('Your sign-in link');
     expect(tpl.text).toContain(link);
-    expect(tpl.text).toContain('access your account or finish signing up');
-    expect(tpl.text).toMatch(/expires in 30 minutes/i);
-    expect(tpl.text).toMatch(/ignore this email/i);
+    expect(tpl.text).toContain('reach your account or finish signing up');
+    expect(tpl.text).toMatch(/good for 30 minutes/i);
+    expect(tpl.text).toMatch(/pretend this never happened/i);
     expect(tpl.text).not.toContain('set your password');
 
-    expect(tpl.html).toContain('Continue to your account');
+    expect(tpl.html).toContain('get you in');
     expect(tpl.html).toContain('Continue');
     expect(tpl.html).toContain(`href="${escapedLink}"`);
     expect(tpl.html).not.toContain('set your password');
@@ -111,13 +112,13 @@ describe('buildLoginLinkTemplate', () => {
 
     expect(tpl.subject).toBe('Your sign-in link');
     expect(tpl.text).toContain(link);
-    expect(tpl.text).toContain('access your account or finish signing up');
+    expect(tpl.text).toContain('reach your account or finish signing up');
     expect(tpl.text).not.toContain('login-link');
     expect(tpl.text).not.toContain('verify-set-password');
-    expect(tpl.text).toMatch(/expires in 30 minutes/i);
-    expect(tpl.text).toMatch(/ignore this email/i);
+    expect(tpl.text).toMatch(/good for 30 minutes/i);
+    expect(tpl.text).toMatch(/pretend this never happened/i);
 
-    expect(tpl.html).toContain('Continue to your account');
+    expect(tpl.html).toContain('get you in');
     expect(tpl.html).toContain('Continue');
     expect(tpl.html).toContain(`href="${escapedLink}"`);
     expect(tpl.html).not.toContain('login-link');
@@ -147,6 +148,44 @@ describe('registration link template aliases', () => {
     expect(neutral.subject).toBe('Your sign-in link');
     expect(neutral.text).not.toMatch(/already have an account|verify your email/i);
     expect(neutral.html).not.toMatch(/already have an account|reset password/i);
+  });
+});
+
+describe('sign-in email localization (HUGO-553)', () => {
+  const link = 'https://auth.example.com/auth/email/link?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
+
+  it('uses English Hugo-voice copy by default', () => {
+    const tpl = buildRegistrationLinkTemplate({ link });
+
+    expect(tpl.subject).toBe('Your sign-in link');
+    expect(tpl.html).toContain('<html lang="en">');
+    expect(tpl.html).toContain('get you in');
+    expect(tpl.html).toContain('reach your account or finish signing up');
+    expect(tpl.html).toContain('Continue');
+    expect(tpl.text).toMatch(/good for 30 minutes/i);
+    expect(tpl.text).toMatch(/pretend this never happened/i);
+  });
+
+  it('renders Czech copy when locale is cs', () => {
+    const tpl = buildRegistrationLinkTemplate({ link, locale: 'cs' });
+
+    expect(tpl.subject).toBe('Váš přihlašovací odkaz');
+    expect(tpl.html).toContain('<html lang="cs">');
+    expect(tpl.html).toContain('Pojďme vás přihlásit');
+    expect(tpl.html).toContain('dokončíte registraci');
+    expect(tpl.html).toContain('Pokračovat');
+    expect(tpl.text).toContain('Pojďme vás přihlásit');
+    expect(tpl.text).toMatch(/odkaz platí 30 minut/);
+    // No leftover English copy in the Czech email.
+    expect(tpl.html).not.toContain('get you in');
+    expect(tpl.html).not.toMatch(/good for 30 minutes/i);
+  });
+
+  it('falls back to English for an unsupported locale', () => {
+    const tpl = buildRegistrationLinkTemplate({ link, locale: 'de' as EmailLocale });
+
+    expect(tpl.subject).toBe('Your sign-in link');
+    expect(tpl.html).toContain('get you in');
   });
 });
 
