@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { configVerifier } from '../../middleware/config-verifier.js';
 import { parseRequestAccessFlag } from '../../services/access-request-flow.service.js';
 import { requestRegistrationInstructions } from '../../services/auth-register.service.js';
+import { resolveEmailLocale } from '../../utils/email-locale.js';
 import { parseRequiredPkceChallenge } from '../../utils/pkce.js';
 import { registerRateLimiter } from './rate-limit-keys.js';
 
@@ -54,6 +55,7 @@ export function registerAuthRegisterRoute(app: FastifyInstance): void {
               requestAccess: parseRequestAccessFlag(request_access),
               codeChallenge: pkce.codeChallenge,
               codeChallengeMethod: pkce.codeChallengeMethod,
+              locale: resolveEmailLocale(request.headers['accept-language']),
             },
             { prisma: request.adminDb },
           );

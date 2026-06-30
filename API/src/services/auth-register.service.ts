@@ -10,6 +10,7 @@ import { getEnv, requireEnv } from '../config/env.js';
 import { getPrisma } from '../db/prisma.js';
 import { buildUserIdentity } from './user-scope.service.js';
 import { extractEmailTheme } from './email-theme.service.js';
+import type { EmailLocale } from './email.templates.js';
 import {
   sendAccountExistsEmail,
   sendLoginLinkEmail,
@@ -125,6 +126,7 @@ export async function requestRegistrationInstructions(
     requestAccess?: boolean;
     codeChallenge?: string;
     codeChallengeMethod?: 'S256';
+    locale?: EmailLocale;
   },
   deps?: RegisterDeps,
 ): Promise<void> {
@@ -190,6 +192,7 @@ export async function requestRegistrationInstructions(
     : `http://${env.HOST}:${env.PORT}`;
 
   const theme = extractEmailTheme(params.config);
+  const locale = params.locale;
 
   if (existing) {
     const link = buildRegistrationEmailLandingLink({
@@ -201,7 +204,7 @@ export async function requestRegistrationInstructions(
       codeChallenge: params.codeChallenge,
       codeChallengeMethod: params.codeChallengeMethod,
     });
-    await (deps?.sendAccountExistsEmail ?? sendAccountExistsEmail)({ to: email, link, theme });
+    await (deps?.sendAccountExistsEmail ?? sendAccountExistsEmail)({ to: email, link, theme, locale });
     return;
   }
 
@@ -219,6 +222,7 @@ export async function requestRegistrationInstructions(
       to: email,
       link,
       theme,
+      locale,
     });
     return;
   }
@@ -227,5 +231,6 @@ export async function requestRegistrationInstructions(
     to: email,
     link,
     theme,
+    locale,
   });
 }
