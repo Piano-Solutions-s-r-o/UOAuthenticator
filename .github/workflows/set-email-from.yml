@@ -1,0 +1,45 @@
+# One-shot, manual: set EMAIL_FROM on the hugo-sso DigitalOcean App Platform app
+# so transactional emails (sign-in link, etc.) show "Hugo" as the sender instead
+# of a bare noreply@hugopos.eu. Every other field in the spec is preserved; the
+# update triggers a redeploy. HUGO-553.
+# Run with: gh workflow run set-email-from.yml   (uses the default value)
+name: Set EMAIL_FROM on DO (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      value:
+        description: "EMAIL_FROM value (display name + address)"
+        type: string
+        default: "Hugo <noreply@hugopos.eu>"
+
+permissions:
+  contents: read
+
+jobs:
+  set-email-from:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Upsert EMAIL_FROM on hugo-sso
+        env:
+          EMAIL_FROM_VALUE: ${{ inputs.value }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EMAIL_FROM_VALUE:-}" ]; then
+            echo "::error::value input is empty"; exit 1
+          fi
+          python3 -m pip install --quiet pyyaml
+          id=$(doctl apps list --no-header --format ID,Spec.Name | awk '$2=="hugo-sso"{print $1}')
+          if [ -z "$id" ]; then echo "::error::hugo-sso app not found"; exit 1; fi
+          echo "== hugo-sso ($id) =="
+          doctl apps spec get "$id" > spec.yaml
+          python3 .github/scripts/inject_email_from.py spec.yaml
+          doctl apps update "$id" --spec spec.yaml --wait
+          echo "✓ EMAIL_FROM updated on hugo-sso (a redeploy was triggered)"
