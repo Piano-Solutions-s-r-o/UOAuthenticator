@@ -83,7 +83,9 @@ export async function createApp(): Promise<FastifyInstance> {
     'application/x-www-form-urlencoded',
     { parseAs: 'string' },
     (_request, body, done) => {
-      done(null, querystring.parse(body));
+      // parseAs: 'string' guarantees a string at runtime; Fastify still types
+      // the param as string | Buffer, so narrow it for querystring.parse.
+      done(null, querystring.parse(body as string));
     },
   );
 
