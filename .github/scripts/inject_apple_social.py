@@ -13,12 +13,16 @@ import sys
 
 import yaml
 
+# (key, DO env type, required). APPLE_DOMAIN_ASSOCIATION is optional: Apple's
+# current Services-ID web-auth flow verifies the domain via the registered
+# Return URL, so the domain-association file is not needed. It is upserted only
+# when the value is provided.
 APPLE_ENVS = [
-    ("APPLE_PRIVATE_KEY", "SECRET"),
-    ("APPLE_CLIENT_ID", "SECRET"),
-    ("APPLE_TEAM_ID", "SECRET"),
-    ("APPLE_KEY_ID", "SECRET"),
-    ("APPLE_DOMAIN_ASSOCIATION", "GENERAL"),
+    ("APPLE_PRIVATE_KEY", "SECRET", True),
+    ("APPLE_CLIENT_ID", "SECRET", True),
+    ("APPLE_TEAM_ID", "SECRET", True),
+    ("APPLE_KEY_ID", "SECRET", True),
+    ("APPLE_DOMAIN_ASSOCIATION", "GENERAL", False),
 ]
 
 
@@ -45,17 +49,21 @@ def main():
     if not isinstance(spec, dict):
         sys.exit("spec is not a mapping — refusing to touch it")
 
-    missing = [key for key, _type in APPLE_ENVS if not os.environ.get(key)]
+    missing = [key for key, _type, required in APPLE_ENVS if required and not os.environ.get(key)]
     if missing:
         sys.exit(f"missing required env values: {', '.join(missing)} — refusing to update")
+
+    # Upsert only the keys actually provided; optional keys left unset are not
+    # touched (so an absent APPLE_DOMAIN_ASSOCIATION neither adds nor removes it).
+    provided = [(key, env_type) for key, env_type, _required in APPLE_ENVS if os.environ.get(key)]
 
     svc = pick_service(spec)
     envs = svc.setdefault("envs", [])
     before = len(envs)
-    target_keys = {key for key, _type in APPLE_ENVS}
+    target_keys = {key for key, _type in provided}
     envs[:] = [e for e in envs if e.get("key") not in target_keys]
 
-    for key, env_type in APPLE_ENVS:
+    for key, env_type in provided:
         envs.append(
             {
                 "key": key,

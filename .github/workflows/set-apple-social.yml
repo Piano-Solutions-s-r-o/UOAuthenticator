@@ -30,7 +30,11 @@ jobs:
           APPLE_DOMAIN_ASSOCIATION: ${{ secrets.APPLE_DOMAIN_ASSOCIATION }}
         run: |
           set -euo pipefail
-          for key in APPLE_PRIVATE_KEY APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_KEY_ID APPLE_DOMAIN_ASSOCIATION; do
+          # The 4 credentials are required. APPLE_DOMAIN_ASSOCIATION is optional:
+          # Apple's current Services-ID web-auth flow verifies the domain via the
+          # registered Return URL, so no domain-association file is needed. The
+          # inject script upserts it only when provided.
+          for key in APPLE_PRIVATE_KEY APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_KEY_ID; do
             if [ -z "${!key:-}" ]; then
               echo "::error::${key} secret is empty"; exit 1
             fi
