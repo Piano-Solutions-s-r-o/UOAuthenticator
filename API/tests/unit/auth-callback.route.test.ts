@@ -13,6 +13,7 @@ const readAdminConfigJwtMock = vi.fn();
 
 const assertSocialProviderAllowedMock = vi.fn();
 const getGoogleProfileFromCodeMock = vi.fn();
+const getAppleProfileFromCodeMock = vi.fn();
 const verifySocialStateMock = vi.fn();
 const loginWithSocialProfileMock = vi.fn();
 
@@ -51,6 +52,12 @@ vi.mock('../../src/services/social/index.js', () => {
 vi.mock('../../src/services/social/google.service.js', () => {
   return {
     getGoogleProfileFromCode: (...args: unknown[]) => getGoogleProfileFromCodeMock(...args),
+  };
+});
+
+vi.mock('../../src/services/social/apple.service.js', () => {
+  return {
+    getAppleProfileFromCode: (...args: unknown[]) => getAppleProfileFromCodeMock(...args),
   };
 });
 
@@ -105,6 +112,10 @@ describe('GET /auth/callback/:provider', () => {
     process.env.CONFIG_JWKS_URL = 'https://auth.example.com/.well-known/jwks.json';
     process.env.GOOGLE_CLIENT_ID = 'google-client-id';
     process.env.GOOGLE_CLIENT_SECRET = 'google-client-secret';
+    process.env.APPLE_CLIENT_ID = 'apple-client-id';
+    process.env.APPLE_TEAM_ID = 'apple-team-id';
+    process.env.APPLE_KEY_ID = 'apple-key-id';
+    process.env.APPLE_PRIVATE_KEY = 'apple-private-key';
     delete process.env.DATABASE_URL;
 
     fetchConfigJwtFromUrlMock.mockReset();
@@ -115,6 +126,7 @@ describe('GET /auth/callback/:provider', () => {
     readAdminConfigJwtMock.mockReset();
     assertSocialProviderAllowedMock.mockReset();
     getGoogleProfileFromCodeMock.mockReset();
+    getAppleProfileFromCodeMock.mockReset();
     verifySocialStateMock.mockReset();
     loginWithSocialProfileMock.mockReset();
     selectRedirectUrlMock.mockReset();
@@ -142,6 +154,13 @@ describe('GET /auth/callback/:provider', () => {
       email: 'user@gmail.com',
       emailVerified: true,
       name: 'User',
+      avatarUrl: null,
+    });
+    getAppleProfileFromCodeMock.mockResolvedValue({
+      provider: 'apple',
+      email: 'user@example.com',
+      emailVerified: true,
+      name: 'Apple User',
       avatarUrl: null,
     });
     loginWithSocialProfileMock.mockResolvedValue({ status: 'blocked' });
@@ -298,6 +317,59 @@ describe('GET /auth/callback/:provider', () => {
     expect(body).toContain('MISSING_SOCIAL_CALLBACK_PARAMS');
     expect(body).toContain('class="chip">callback</span>');
     expect(body).not.toContain('Check that config_url is present');
+
+    await app.close();
+  });
+
+  it('accepts Apple form_post callbacks and reads code, state, and user name from the body', async () => {
+    verifySocialStateMock.mockResolvedValue({
+      provider: 'apple',
+      config_url: 'https://client.example.com/auth-config',
+      redirect_url: 'https://client.example.com/oauth/callback',
+      nonce: TEST_NONCE,
+    });
+    validateConfigFieldsMock.mockReturnValue(
+      baseConfig({
+        enabled_auth_methods: ['apple'],
+        allowed_registration_domains: ['example.com'],
+      }),
+    );
+
+    const { createApp } = await import('../../src/app.js');
+    const app = await createApp();
+    await app.ready();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/callback/apple',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: new URLSearchParams({
+        code: 'apple-provider-code',
+        state: 'apple-state-token',
+        user: JSON.stringify({
+          name: { firstName: 'Ada', lastName: 'Lovelace' },
+          email: 'user@example.com',
+        }),
+      }).toString(),
+      cookies: { [SOCIAL_STATE_COOKIE_NAME]: app.signCookie(TEST_NONCE) },
+    });
+
+    expect(res.statusCode).toBe(302);
+    expect(verifySocialStateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ stateJwt: 'apple-state-token' }),
+    );
+    expect(getAppleProfileFromCodeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'apple-provider-code',
+        clientId: 'apple-client-id',
+        redirectUri: 'http://127.0.0.1:3000/auth/callback/apple',
+        name: 'Ada Lovelace',
+      }),
+    );
+    expect(assertSocialProviderAllowedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'apple' }),
+    );
+    expect(res.headers.location).toBe('https://client.example.com/oauth/callback?error=auth_failed');
 
     await app.close();
   });

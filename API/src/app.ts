@@ -1,3 +1,5 @@
+import querystring from 'node:querystring';
+
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import fastify, { type FastifyInstance } from 'fastify';
@@ -75,15 +77,13 @@ export async function createApp(): Promise<FastifyInstance> {
   });
   setAppLogger(app.log);
 
-  // The integration claim confirm page is a plain HTML form that browsers submit
-  // as application/x-www-form-urlencoded. We do not use the body (the token is
-  // in the path), so accept the content-type and drop the payload rather than
-  // 500-ing with FST_ERR_CTP_INVALID_MEDIA_TYPE.
+  // The integration claim confirm page and Apple OAuth callback submit plain
+  // browser forms as application/x-www-form-urlencoded.
   app.addContentTypeParser(
     'application/x-www-form-urlencoded',
     { parseAs: 'string' },
-    (_request, _body, done) => {
-      done(null, {});
+    (_request, body, done) => {
+      done(null, querystring.parse(body));
     },
   );
 

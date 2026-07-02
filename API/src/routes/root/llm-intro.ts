@@ -34,6 +34,7 @@ You need BOTH to ship a working integration. Phase 0 + Phase 1 below cover them 
 - LLM guide: [/llm](/llm) (this page)
 - JSON API schema: [/api](/api)
 - Config JWKS (RS256 public keys UOA accepts): [/.well-known/jwks.json](/.well-known/jwks.json)
+- Apple domain association (when configured): [/.well-known/apple-developer-domain-association.txt](/.well-known/apple-developer-domain-association.txt)
 - Health check: [/health](/health)
 - Production-safe config validator: \`POST /config/validate\`
 - DEBUG-only validator with custom JWKS: \`POST /config/verify\` (only when \`DEBUG_ENABLED=true\` and \`NODE_ENV !== 'production'\`)
@@ -276,6 +277,7 @@ GET /auth?config_url=<your_config_endpoint_url>
 - \`config_url\` is the HTTPS endpoint from Phase 2. UOA URL-decodes it before fetching.
 - \`redirect_url\` MUST appear EXACTLY in \`redirect_urls\` from Phase 2's payload.
 - PKCE is mandatory: generate a random 43-128 char \`code_verifier\`, hash it with SHA-256, base64url-encode, and pass as \`code_challenge\`. \`code_challenge_method\` MUST be \`S256\`.
+- Sign in with Apple uses \`response_mode=form_post\`; Apple POSTs to \`/auth/callback/apple\` with \`application/x-www-form-urlencoded\` \`code\`, \`state\`, and optional first-consent \`user\` JSON.
 
 After the user authenticates, UOA redirects to \`<redirect_url>?code=<authorization_code>\`. The code is single-use and short-lived; treat it as sensitive.
 

@@ -24,7 +24,7 @@ describe('apple.service', () => {
     expect(u.searchParams.get('scope')).toContain('openid');
     expect(u.searchParams.get('scope')).toContain('email');
     expect(u.searchParams.get('state')).toBe('state.jwt.here');
-    expect(u.searchParams.get('response_mode')).toBe('query');
+    expect(u.searchParams.get('response_mode')).toBe('form_post');
   });
 
   it('exchanges code and returns a verified email profile', async () => {
@@ -39,6 +39,7 @@ describe('apple.service', () => {
     const idToken = await new SignJWT({
       email: 'user@example.com',
       email_verified: 'true',
+      name: 'Token Name',
     })
       .setProtectedHeader({ alg: 'RS256', kid, typ: 'JWT' })
       .setIssuer('https://appleid.apple.com')
@@ -79,14 +80,26 @@ describe('apple.service', () => {
       keyId: 'KEYID123',
       privateKeyPem: clientSecretPem,
       redirectUri: 'https://auth.example.com/auth/callback/apple',
+      name: 'Apple Posted Name',
     });
 
     expect(profile).toEqual({
       provider: 'apple',
       email: 'user@example.com',
       emailVerified: true,
-      name: null,
+      name: 'Apple Posted Name',
       avatarUrl: null,
     });
+
+    const profileWithoutPostedName = await getAppleProfileFromCode({
+      code: 'auth-code',
+      clientId: 'com.example.web',
+      teamId: 'TEAMID123',
+      keyId: 'KEYID123',
+      privateKeyPem: clientSecretPem,
+      redirectUri: 'https://auth.example.com/auth/callback/apple',
+    });
+
+    expect(profileWithoutPostedName.name).toBeNull();
   });
 });

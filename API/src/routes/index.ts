@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 
 import { buildPublicErrorBody } from '../utils/error-response.js';
 import { registerAdminUiRoutes } from './admin-ui.js';
+import { registerAppleDomainAssociationRoute } from './apple-domain-association.js';
 import { registerAppRoutes } from './apps/index.js';
 import { registerAuthRoutes } from './auth/index.js';
 import { registerConfigJwksRoute } from './config-jwks.js';
@@ -20,6 +21,7 @@ import { registerTwoFactorRoutes } from './twofactor/index.js';
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   registerRootRoute(app);
   registerConfigJwksRoute(app);
+  registerAppleDomainAssociationRoute(app);
   registerHealthRoutes(app);
   registerAdminUiRoutes(app);
   registerAppRoutes(app);
