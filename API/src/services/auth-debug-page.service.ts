@@ -387,7 +387,7 @@ export function enrichAuthDebugForAppError(
         ],
         hints: [
           'Restart the sign-in and complete it in the same browser within 10 minutes.',
-          'The uoa_social_state cookie is first-party, HttpOnly, Secure, SameSite=Lax and scoped to /auth — make sure the browser is not blocking cookies, the flow is not switched to a different browser/profile midway, and the provider returns via a top-level redirect.',
+          'The uoa_social_state cookie is first-party, HttpOnly, Secure, SameSite=None and scoped to /auth — make sure the browser is not blocking cookies and the flow is not switched to a different browser/profile midway.',
         ],
       });
       return;
