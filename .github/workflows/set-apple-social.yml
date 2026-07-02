@@ -1,0 +1,49 @@
+# One-shot, manual: set Sign in with Apple env vars on the hugo-sso DigitalOcean
+# App Platform app. Every other field in the spec is preserved; the update
+# triggers a redeploy. HUGO-570.
+# Run with: gh workflow run set-apple-social.yml
+name: Set Apple social env on DO (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  set-apple-social:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Upsert Apple social env on hugo-sso
+        env:
+          APPLE_PRIVATE_KEY: ${{ secrets.APPLE_PRIVATE_KEY }}
+          APPLE_CLIENT_ID: ${{ secrets.APPLE_CLIENT_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_KEY_ID: ${{ secrets.APPLE_KEY_ID }}
+          APPLE_DOMAIN_ASSOCIATION: ${{ secrets.APPLE_DOMAIN_ASSOCIATION }}
+        run: |
+          set -euo pipefail
+          # The 4 credentials are required. APPLE_DOMAIN_ASSOCIATION is optional:
+          # Apple's current Services-ID web-auth flow verifies the domain via the
+          # registered Return URL, so no domain-association file is needed. The
+          # inject script upserts it only when provided.
+          for key in APPLE_PRIVATE_KEY APPLE_CLIENT_ID APPLE_TEAM_ID APPLE_KEY_ID; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::${key} secret is empty"; exit 1
+            fi
+          done
+          python3 -m pip install --quiet pyyaml
+          id=$(doctl apps list --no-header --format ID,Spec.Name | awk '$2=="hugo-sso"{print $1}')
+          if [ -z "$id" ]; then echo "::error::hugo-sso app not found"; exit 1; fi
+          echo "== hugo-sso ($id) =="
+          doctl apps spec get "$id" > spec.yaml
+          python3 .github/scripts/inject_apple_social.py spec.yaml
+          doctl apps update "$id" --spec spec.yaml --wait
+          echo "✓ Apple social env updated on hugo-sso (a redeploy was triggered)"

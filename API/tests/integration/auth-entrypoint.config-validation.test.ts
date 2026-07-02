@@ -253,7 +253,8 @@ describe('GET /auth (config validation)', () => {
       const setCookieStr = Array.isArray(setCookie) ? setCookie.join('\n') : (setCookie ?? '');
       expect(setCookieStr).toContain('uoa_social_state=');
       expect(setCookieStr).toContain('HttpOnly');
-      expect(setCookieStr).toContain('SameSite=Lax');
+      expect(setCookieStr).toContain('SameSite=None');
+      expect(setCookieStr).toContain('Secure');
       expect(setCookieStr).toContain('Path=/auth');
     } finally {
       if (originalGoogleClientId === undefined) {

@@ -188,7 +188,7 @@ export const authEndpoints: EndpointSchema[] = [
     method: 'GET',
     path: '/auth/social/:provider',
     description:
-      'Initiate social OAuth flow (google, facebook, github, linkedin, apple). Sets a signed, HttpOnly `uoa_social_state` cookie (SameSite=Lax, Path=/auth) that binds the OAuth `state` to the browser; the cookie must be returned to /auth/callback.',
+      'Initiate social OAuth flow (google, facebook, github, linkedin, apple). Sets a signed, HttpOnly `uoa_social_state` cookie (SameSite=None, Secure, Path=/auth) that binds the OAuth `state` to the browser; the cookie must be returned to /auth/callback.',
     query: {
       config_url: 'string (required)',
       redirect_url: 'string (optional)',
@@ -203,6 +203,17 @@ export const authEndpoints: EndpointSchema[] = [
     path: '/auth/callback/:provider',
     description:
       'OAuth provider callback. Requires the signed `uoa_social_state` cookie set at /auth/social to match the nonce embedded in `state` (login-CSRF protection); the cookie is single-use and cleared on consume.',
+  },
+  {
+    method: 'POST',
+    path: '/auth/callback/apple',
+    description:
+      'Apple OAuth form_post callback. Reads code/state and optional first-consent user JSON from the urlencoded body, with the same state-cookie and redirect allowlist checks as GET callbacks.',
+    body: {
+      code: 'string (required)',
+      state: 'string (required)',
+      user: 'string (optional) — Apple first-consent JSON containing name',
+    },
   },
   {
     method: 'GET',

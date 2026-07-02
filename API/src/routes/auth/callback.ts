@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { getAuthServiceIdentifier, getEnv, requireEnv } from '../../config/env.js';
@@ -50,6 +50,20 @@ const QuerySchema = z
   })
   .passthrough();
 
+const PostBodySchema = QuerySchema.extend({
+  user: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
+});
+
+type CallbackProvider = z.infer<typeof ParamsSchema>['provider'];
+
+type CallbackPayload = {
+  provider: CallbackProvider;
+  code?: string;
+  state?: string;
+  error?: string;
+  appleUserName?: string | null;
+};
+
 function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, '');
 }
@@ -77,70 +91,90 @@ function redirectNoStore(reply: FastifyReply, url: string): void {
   reply.redirect(url, 302);
 }
 
-export function registerAuthCallbackRoute(app: FastifyInstance): void {
-  app.get(
-    '/auth/callback/:provider',
-    { preHandler: [socialCallbackRateLimiter] },
-    async (request, reply) => {
-      const { provider } = ParamsSchema.parse(request.params);
-      const { code, state, error } = QuerySchema.parse(request.query);
+function normalizeAppleUserName(value: unknown): string | null {
+  let obj: unknown = value;
+  if (typeof value === 'string') {
+    try {
+      obj = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
 
-      // Any provider error is a generic auth failure. Don't leak specifics.
-      if (error) {
-        throw new AppError('UNAUTHORIZED', 401, 'SOCIAL_PROVIDER_ERROR');
-      }
+  const name = (obj as Record<string, unknown> | null)?.name;
+  if (!name || typeof name !== 'object') return null;
 
-      if (!code || !state) {
-        throw new AppError('BAD_REQUEST', 400, 'MISSING_SOCIAL_CALLBACK_PARAMS');
-      }
+  const parts = ['firstName', 'middleName', 'lastName']
+    .map((key) => (name as Record<string, unknown>)[key])
+    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+    .map((part) => part.trim());
 
-      const { SHARED_SECRET, CONFIG_JWKS_URL } = requireEnv(
-        'SHARED_SECRET',
-        'CONFIG_JWKS_URL',
-      );
-      const authServiceIdentifier = getAuthServiceIdentifier();
-      const baseUrl = resolvePublicBaseUrl();
+  return parts.length > 0 ? parts.join(' ') : null;
+}
 
-      const socialState = await verifySocialState({
-        stateJwt: state,
-        sharedSecret: SHARED_SECRET,
-        audience: authServiceIdentifier,
-        issuer: socialStateIssuer(baseUrl),
-      });
+async function handleSocialCallback(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  payload: CallbackPayload,
+): Promise<void> {
+  const { provider, code, state, error } = payload;
 
-      // The verified state — not the query string — carries config_url/redirect_url
-      // at the callback. Seed the debug context so any failure from here on (incl.
-      // the cookie check below) reports the real URLs and a callback-stage hint
-      // instead of the misleading "config_url is missing".
-      setSocialCallbackDebugContext(request, {
-        configUrl: socialState.config_url,
-        redirectUrl: socialState.redirect_url,
-      });
+  // Any provider error is a generic auth failure. Don't leak specifics.
+  if (error) {
+    throw new AppError('UNAUTHORIZED', 401, 'SOCIAL_PROVIDER_ERROR');
+  }
 
-      // Login-CSRF protection: the state nonce must match the signed, HttpOnly
-      // cookie set on the browser that initiated the flow. Clear the cookie first
-      // so it is single-use regardless of outcome, then reject (generically) on
-      // any mismatch or missing/forged cookie.
-      const nonceMatches = socialStateCookieMatches(request, socialState.nonce);
-      clearSocialStateCookie(reply);
-      if (!nonceMatches) {
-        throw new AppError('BAD_REQUEST', 400, 'INVALID_SOCIAL_STATE');
-      }
+  if (!code || !state) {
+    throw new AppError('BAD_REQUEST', 400, 'MISSING_SOCIAL_CALLBACK_PARAMS');
+  }
 
-      if (socialState.provider !== provider) {
-        throw new AppError('BAD_REQUEST', 400, 'SOCIAL_PROVIDER_MISMATCH');
-      }
+  const { SHARED_SECRET, CONFIG_JWKS_URL } = requireEnv(
+    'SHARED_SECRET',
+    'CONFIG_JWKS_URL',
+  );
+  const authServiceIdentifier = getAuthServiceIdentifier();
+  const baseUrl = resolvePublicBaseUrl();
 
-      const configUrl = socialState.config_url;
-      const requestedRedirectUrl = socialState.redirect_url;
+  const socialState = await verifySocialState({
+    stateJwt: state,
+    sharedSecret: SHARED_SECRET,
+    audience: authServiceIdentifier,
+    issuer: socialStateIssuer(baseUrl),
+  });
+
+  // The verified state — not the query string — carries config_url/redirect_url
+  // at the callback. Seed the debug context so any failure from here on (incl.
+  // the cookie check below) reports the real URLs and a callback-stage hint
+  // instead of the misleading "config_url is missing".
+  setSocialCallbackDebugContext(request, {
+    configUrl: socialState.config_url,
+    redirectUrl: socialState.redirect_url,
+  });
+
+  // Login-CSRF protection: the state nonce must match the signed, HttpOnly
+  // cookie set on the browser that initiated the flow. Clear the cookie first
+  // so it is single-use regardless of outcome, then reject (generically) on
+  // any mismatch or missing/forged cookie.
+  const nonceMatches = socialStateCookieMatches(request, socialState.nonce);
+  clearSocialStateCookie(reply);
+  if (!nonceMatches) {
+    throw new AppError('BAD_REQUEST', 400, 'INVALID_SOCIAL_STATE');
+  }
+
+  if (socialState.provider !== provider) {
+    throw new AppError('BAD_REQUEST', 400, 'SOCIAL_PROVIDER_MISMATCH');
+  }
+
+  const configUrl = socialState.config_url;
+  const requestedRedirectUrl = socialState.redirect_url;
 
       // Brief 22.1 + 22.4: fetch and verify config on each auth initiation.
       const configJwt = await readConfigJwtFromTrustedSource(configUrl);
-      const payload = await verifyConfigJwtSignature(
+      const configPayload = await verifyConfigJwtSignature(
         configJwt,
         CONFIG_JWKS_URL,
       );
-      const baseConfig = validateConfigFields(payload);
+      const baseConfig = validateConfigFields(configPayload);
       assertConfigDomainMatchesConfigUrl(baseConfig.domain, configUrl);
       assertSocialProviderAllowed({ config: baseConfig, provider });
 
@@ -216,6 +250,7 @@ export function registerAuthCallbackRoute(app: FastifyInstance): void {
           keyId: env.APPLE_KEY_ID,
           privateKeyPem: env.APPLE_PRIVATE_KEY,
           redirectUri,
+          name: payload.appleUserName,
         });
       } else if (provider === 'linkedin') {
         if (!env.LINKEDIN_CLIENT_ID || !env.LINKEDIN_CLIENT_SECRET) {
@@ -387,6 +422,31 @@ export function registerAuthCallbackRoute(app: FastifyInstance): void {
       }
 
       redirectNoStore(reply, outcome.finalResult.redirectTo);
+}
+
+export function registerAuthCallbackRoute(app: FastifyInstance): void {
+  app.get(
+    '/auth/callback/:provider',
+    { preHandler: [socialCallbackRateLimiter] },
+    async (request, reply) => {
+      const { provider } = ParamsSchema.parse(request.params);
+      const { code, state, error } = QuerySchema.parse(request.query);
+      await handleSocialCallback(request, reply, { provider, code, state, error });
+    },
+  );
+
+  app.post(
+    '/auth/callback/apple',
+    { preHandler: [socialCallbackRateLimiter] },
+    async (request, reply) => {
+      const { code, state, error, user } = PostBodySchema.parse(request.body);
+      await handleSocialCallback(request, reply, {
+        provider: 'apple',
+        code,
+        state,
+        error,
+        appleUserName: normalizeAppleUserName(user),
+      });
     },
   );
 }

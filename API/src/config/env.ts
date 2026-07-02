@@ -101,6 +101,7 @@ const EnvSchema = z
     // Apple private key contents (typically a .p8 PEM). May be provided with literal newlines
     // or with escaped newlines ("\\n") depending on the deployment environment.
     APPLE_PRIVATE_KEY: z.string().min(1).optional(),
+    APPLE_DOMAIN_ASSOCIATION: z.string().min(1).optional(),
     ACCESS_TOKEN_TTL: z.preprocess(
       normalizeAccessTokenTtl,
       z.string().default('30m').refine(isValidAccessTokenTtl, {

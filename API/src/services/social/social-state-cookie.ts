@@ -18,16 +18,18 @@ export function generateSocialStateNonce(): string {
 function cookieBaseOptions(): {
   httpOnly: true;
   secure: true;
-  sameSite: 'lax';
+  sameSite: 'none';
   path: string;
   signed: true;
 } {
   return {
     httpOnly: true,
-    // SameSite=Lax is required so the cookie survives the provider's top-level
-    // GET redirect back to the callback. Secure keeps it HTTPS-only.
+    // Apple form_post delivers the callback as a cross-site POST, where
+    // SameSite=Lax cookies are not sent. SameSite=None + Secure is required;
+    // CSRF protection still comes from the signed, HttpOnly, single-use CSPRNG
+    // nonce matched against the signed state JWT. SameSite is defense-in-depth.
     secure: true,
-    sameSite: 'lax',
+    sameSite: 'none',
     path: COOKIE_PATH,
     signed: true,
   };

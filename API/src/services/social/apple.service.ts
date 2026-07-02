@@ -138,8 +138,7 @@ export function buildAppleAuthorizationUrl(params: {
   u.searchParams.set('redirect_uri', params.redirectUri);
   // Request only what we need; name is only returned on first consent.
   u.searchParams.set('scope', 'openid email name');
-  // Keep callback flow consistent with existing GET /auth/callback/:provider route.
-  u.searchParams.set('response_mode', 'query');
+  u.searchParams.set('response_mode', 'form_post');
   u.searchParams.set('state', params.state);
   return u.toString();
 }
@@ -246,6 +245,7 @@ export async function getAppleProfileFromCode(params: {
   keyId: string;
   privateKeyPem: string;
   redirectUri: string;
+  name?: string | null;
 }): Promise<SocialProfile> {
   const clientSecretJwt = await buildAppleClientSecretJwt({
     teamId: params.teamId,
@@ -274,7 +274,7 @@ export async function getAppleProfileFromCode(params: {
     provider: 'apple',
     email,
     emailVerified: parseBooleanish(obj.email_verified),
-    name: normalizeOptionalString(obj.name),
+    name: normalizeOptionalString(params.name),
     avatarUrl: null,
   });
 }

@@ -25,6 +25,14 @@ const baseEndpoints: EndpointSchema[] = [
     auth: 'public',
     response: { keys: 'array — public RSA JWKs only; private key members are rejected at boot-time use' },
   },
+  {
+    method: 'GET',
+    path: '/.well-known/apple-developer-domain-association.txt',
+    description:
+      'Sign in with Apple domain-association file served from APPLE_DOMAIN_ASSOCIATION when configured',
+    auth: 'public',
+    response: { 200: 'text/plain Apple domain-association file; 404 when unset' },
+  },
   { method: 'GET', path: '/health', description: 'Health check' },
   {
     method: 'GET',
