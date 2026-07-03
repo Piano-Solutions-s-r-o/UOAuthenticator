@@ -1,0 +1,64 @@
+# One-shot, manual: switch the transactional-mail provider on the hugo-sso
+# DigitalOcean App Platform app (UOA / SSO). No secret value is ever printed;
+# only the mail keys are added/updated — everything else in the spec (incl.
+# existing encrypted secret refs and the SES wiring) is preserved.
+#
+# HUGO-612 — temporary bridge to SendGrid while AWS SES is sandboxed (SES only
+# delivers to verified recipients, so sign-in / registration links never reach
+# unverified addresses). Reversible: re-run with provider=ses to fall back to
+# SES once its production access is granted.
+#
+#   gh workflow run set-mail-provider.yml -f provider=sendgrid   # bridge on
+#   gh workflow run set-mail-provider.yml -f provider=ses        # revert
+#
+# Prerequisite: add the SendGrid key as a repo secret first:
+#   gh secret set SENDGRID_API_KEY -R Piano-Solutions-s-r-o/UOAuthenticator
+name: Set mail provider on DO (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: 'Mail provider (sendgrid = bridge, ses = revert to AWS SES)'
+        type: choice
+        default: sendgrid
+        options:
+          - sendgrid
+          - ses
+      email_from:
+        description: 'EMAIL_FROM (display name + address; used only for sendgrid)'
+        type: string
+        default: 'Hugo <hugo@piano.cz>'
+
+permissions:
+  contents: read
+
+jobs:
+  set-mail-provider:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Set mail provider on hugo-sso -> ${{ inputs.provider }}
+        env:
+          PROVIDER: ${{ inputs.provider }}
+          EMAIL_FROM_VALUE: ${{ inputs.email_from }}
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ "$PROVIDER" = "sendgrid" ] && [ -z "${SENDGRID_API_KEY:-}" ]; then
+            echo "::error::SENDGRID_API_KEY secret is not set on this repo — add it with 'gh secret set SENDGRID_API_KEY'"; exit 1
+          fi
+          python3 -m pip install --quiet pyyaml
+          id=$(doctl apps list --no-header --format ID,Spec.Name | awk '$2=="hugo-sso"{print $1}')
+          if [ -z "$id" ]; then echo "::error::hugo-sso app not found"; exit 1; fi
+          echo "== hugo-sso ($id) =="
+          doctl apps spec get "$id" > spec.yaml
+          python3 .github/scripts/inject_mail_provider.py spec.yaml
+          doctl apps update "$id" --spec spec.yaml --wait
+          echo "✓ hugo-sso mail provider set to $PROVIDER (a redeploy was triggered)"
