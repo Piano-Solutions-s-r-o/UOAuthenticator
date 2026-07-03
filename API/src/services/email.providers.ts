@@ -210,6 +210,10 @@ type SendgridClient = {
     subject: string;
     text: string;
     html?: string;
+    trackingSettings?: {
+      clickTracking?: { enable?: boolean; enableText?: boolean };
+      openTracking?: { enable?: boolean };
+    };
   }) => Promise<unknown>;
 };
 
