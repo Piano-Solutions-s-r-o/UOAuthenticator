@@ -2,11 +2,16 @@ import React from 'react';
 
 import { useTranslation } from '../../i18n/use-translation.js';
 
+// Endonyms (the language's own name) keyed by ISO 639-1 code.
+const LANGUAGE_ENDONYMS: Record<string, string> = {
+  cs: 'Čeština',
+  en: 'English',
+  es: 'Español',
+};
+
 function labelForLanguage(code: string): string {
   const v = code.trim().toLowerCase();
-  if (v === 'en') return 'English';
-  if (v === 'es') return 'Espanol';
-  return code.trim() ? code.trim().toUpperCase() : 'LANG';
+  return LANGUAGE_ENDONYMS[v] ?? (code.trim() ? code.trim().toUpperCase() : 'LANG');
 }
 
 function selectClasses(): string {
