@@ -160,6 +160,10 @@ describe('createEmailProvider', () => {
     expect(setApiKey).toHaveBeenCalledTimes(1);
     expect(setApiKey).toHaveBeenCalledWith('SG.example-key');
     expect(send).toHaveBeenCalledTimes(2);
+    const trackingSettings = {
+      clickTracking: { enable: false, enableText: false },
+      openTracking: { enable: false },
+    };
     expect(send).toHaveBeenNthCalledWith(1, {
       to: 'to@example.com',
       from: 'noreply@example.com',
@@ -167,6 +171,7 @@ describe('createEmailProvider', () => {
       subject: 'Subject',
       text: 'Text',
       html: '<p>Text</p>',
+      trackingSettings,
     });
     expect(send).toHaveBeenNthCalledWith(2, {
       to: 'to2@example.com',
@@ -175,6 +180,7 @@ describe('createEmailProvider', () => {
       subject: 'Subject2',
       text: 'Text2',
       html: undefined,
+      trackingSettings,
     });
   });
 

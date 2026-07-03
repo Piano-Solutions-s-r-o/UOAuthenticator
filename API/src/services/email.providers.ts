@@ -285,6 +285,16 @@ function createSendgridProvider(env: Env, deps?: EmailProviderDeps): EmailProvid
           subject: message.subject,
           text: message.text,
           html: message.html,
+          // These are transactional (sign-in / registration links), not
+          // marketing. Disable SendGrid's open pixel + click-link rewriting:
+          // the pixel is a remote image and rewritten links point at a
+          // sendgrid.net/url*.piano.cz redirect that reads as phishing — both
+          // push mail to Junk (HUGO-612). Raw links keep the sign-in link
+          // clean and DKIM-aligned to the sender domain.
+          trackingSettings: {
+            clickTracking: { enable: false, enableText: false },
+            openTracking: { enable: false },
+          },
         });
       } catch (err) {
         throw new ProviderSendError('SendGrid send failed', {
