@@ -36,6 +36,7 @@ import {
 } from '../features/admin/admin-queries';
 import { ALL_PLATFORMS_ID } from '../features/admin/platforms';
 import type { FeatureFlagDefinition, KillSwitchEntry } from '../features/admin/types';
+import type { KillSwitchInput } from '../services/admin-service';
 import { useAdminUi } from '../features/shell/admin-ui';
 import { useCookieState } from '../utils/cookie-state';
 
@@ -335,6 +336,33 @@ function FlagDefaultSwitch({ appId, flag }: { appId: string; flag: FeatureFlagDe
   );
 }
 
+// A kill-switch PATCH rewrites EVERY column (there is no partial update), so any
+// caller that edits one field must resend all of them or the omitted ones are
+// nulled. This maps an existing entry back to the full input; keep it exhaustive
+// (HUGO-940 added storeUrl — omitting it here would clear a set Update URL on an
+// inline Active/Paused toggle).
+export function killSwitchEntryToInput(
+  killSwitch: KillSwitchEntry,
+  overrides: Partial<KillSwitchInput> = {},
+): KillSwitchInput {
+  return {
+    name: killSwitch.name,
+    platform: killSwitch.platformMode === 'selected' ? killSwitch.platformIds[0] ?? 'both' : 'both',
+    type: killSwitch.type,
+    versionField: killSwitch.versionField,
+    operator: killSwitch.operator,
+    versionValue: killSwitch.versionValue,
+    versionMax: killSwitch.versionMax,
+    versionScheme: killSwitch.versionScheme,
+    latestVersion: killSwitch.latestVersion,
+    active: killSwitch.active,
+    priority: killSwitch.priority,
+    cacheTtl: killSwitch.cacheTtl,
+    storeUrl: killSwitch.storeUrl,
+    ...overrides,
+  };
+}
+
 function KillSwitchActiveSwitch({ appId, killSwitch }: { appId: string; killSwitch: KillSwitchEntry }) {
   const { confirm } = useAdminUi();
   const mutation = useUpdateKillSwitchMutation(appId, killSwitch.id);
@@ -346,20 +374,7 @@ function KillSwitchActiveSwitch({ appId, killSwitch }: { appId: string; killSwit
       tone="danger"
       onClick={() =>
         confirm(`${killSwitch.active ? 'Pause' : 'Activate'} ${killSwitch.name}?`, 'This changes the stored kill switch status.', async () => {
-          await mutation.mutateAsync({
-            name: killSwitch.name,
-            platform: killSwitch.platformMode === 'selected' ? killSwitch.platformIds[0] ?? 'both' : 'both',
-            type: killSwitch.type,
-            versionField: killSwitch.versionField,
-            operator: killSwitch.operator,
-            versionValue: killSwitch.versionValue,
-            versionMax: killSwitch.versionMax,
-            versionScheme: killSwitch.versionScheme,
-            latestVersion: killSwitch.latestVersion,
-            active: !killSwitch.active,
-            priority: killSwitch.priority,
-            cacheTtl: killSwitch.cacheTtl,
-          });
+          await mutation.mutateAsync(killSwitchEntryToInput(killSwitch, { active: !killSwitch.active }));
         })
       }
     />

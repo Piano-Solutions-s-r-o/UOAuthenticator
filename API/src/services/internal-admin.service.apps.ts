@@ -207,6 +207,7 @@ type AdminKillSwitchInput = {
   active: boolean;
   priority: number;
   cacheTtl?: number;
+  storeUrl?: string | null;
 };
 
 function normalizeEnum(value: string, allowed: Set<string>, code: string): string {
@@ -246,6 +247,9 @@ function toKillSwitchData(appId: string, input: AdminKillSwitchInput) {
     active: input.active,
     priority,
     cacheTtl,
+    // HUGO-940: null = use the app default (POS → App Store / Play). https format
+    // is enforced by the route zod; here we only trim + length-guard + empty→null.
+    storeUrl: normalizeOptional(input.storeUrl, 2048),
   };
 }
 

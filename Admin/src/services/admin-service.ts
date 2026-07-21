@@ -275,6 +275,7 @@ export type KillSwitchInput = {
   active: boolean;
   priority: number;
   cacheTtl?: number;
+  storeUrl?: string | null;
 };
 
 function toKillSwitchBody(input: KillSwitchInput) {
@@ -291,6 +292,7 @@ function toKillSwitchBody(input: KillSwitchInput) {
     active: input.active,
     priority: input.priority,
     cache_ttl: input.cacheTtl,
+    store_url: input.storeUrl ?? null,
   };
 }
 

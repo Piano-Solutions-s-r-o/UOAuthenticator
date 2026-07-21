@@ -56,6 +56,31 @@ const KillSwitchSchema = z
     active: z.boolean(),
     priority: z.number().int().min(0).max(1000),
     cache_ttl: z.number().int().min(60).max(86400).optional(),
+    // HUGO-940: optional per-rule override for the app's "Update" CTA target
+    // (e.g. a TestFlight link during closed testing). null/omitted = use the
+    // app default (which the POS resolves to the App Store / Play). Parse-based
+    // https-only: the POS launches this value, so reject any non-https / non-URL.
+    store_url: z
+      .string()
+      .trim()
+      .max(2048)
+      .refine(
+        (v) => {
+          try {
+            const u = new URL(v);
+            // Require the authority form (`https://host`) + a real host so the
+            // same values the POS accepts validate here too. WHATWG URL would
+            // otherwise coerce `https:foo` to host "foo", which Dart's Uri (the
+            // POS parser) treats as hostless and ignores — so require `://`.
+            return u.protocol === 'https:' && u.hostname !== '' && v.includes('://');
+          } catch {
+            return false;
+          }
+        },
+        { message: 'store_url must be an absolute https URL' },
+      )
+      .nullable()
+      .optional(),
   })
   .strict();
 
@@ -152,5 +177,6 @@ function toKillSwitchInput(body: z.infer<typeof KillSwitchSchema>) {
     active: body.active,
     priority: body.priority,
     cacheTtl: body.cache_ttl,
+    storeUrl: body.store_url ?? null,
   };
 }

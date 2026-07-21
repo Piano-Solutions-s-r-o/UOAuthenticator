@@ -153,6 +153,83 @@ describe('/internal/admin api-key auth', () => {
     });
   });
 
+  // HUGO-940: per-rule store_url override for the Update CTA.
+  it('accepts a valid https store_url and forwards it to the service', async () => {
+    appsService.createAdminKillSwitch.mockResolvedValue({ id: 'app_1' });
+    await withApp(async (app) => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/internal/admin/apps/app_1/kill-switches',
+        headers: { 'x-api-key': VALID_KEY },
+        payload: {
+          platform: 'ios',
+          type: 'soft',
+          version_field: 'versionName',
+          operator: 'lt',
+          version_value: '1.0.3',
+          version_scheme: 'semver',
+          active: true,
+          priority: 10,
+          store_url: 'https://testflight.apple.com/join/Ym6jXbkA',
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(appsService.createAdminKillSwitch).toHaveBeenCalledWith(
+        'app_1',
+        expect.objectContaining({ storeUrl: 'https://testflight.apple.com/join/Ym6jXbkA' }),
+      );
+    });
+  });
+
+  it('rejects a non-https store_url with 400 and does NOT call the service', async () => {
+    await withApp(async (app) => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/internal/admin/apps/app_1/kill-switches',
+        headers: { 'x-api-key': VALID_KEY },
+        payload: {
+          platform: 'ios',
+          type: 'soft',
+          version_field: 'versionName',
+          operator: 'lt',
+          version_value: '1.0.3',
+          version_scheme: 'semver',
+          active: true,
+          priority: 10,
+          store_url: 'http://insecure.example.com/app',
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(appsService.createAdminKillSwitch).not.toHaveBeenCalled();
+    });
+  });
+
+  it('accepts a kill switch without store_url (default = app store)', async () => {
+    appsService.createAdminKillSwitch.mockResolvedValue({ id: 'app_1' });
+    await withApp(async (app) => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/internal/admin/apps/app_1/kill-switches',
+        headers: { 'x-api-key': VALID_KEY },
+        payload: {
+          platform: 'ios',
+          type: 'soft',
+          version_field: 'versionName',
+          operator: 'lt',
+          version_value: '1.0.3',
+          version_scheme: 'semver',
+          active: true,
+          priority: 10,
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(appsService.createAdminKillSwitch).toHaveBeenCalledWith(
+        'app_1',
+        expect.objectContaining({ storeUrl: null }),
+      );
+    });
+  });
+
   it('accepts an API key via Authorization: Bearer uoa_ak_…', async () => {
     appsService.getAdminApps.mockResolvedValue([]);
     await withApp(async (app) => {

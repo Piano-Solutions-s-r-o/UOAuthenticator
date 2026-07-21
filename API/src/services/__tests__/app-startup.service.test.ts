@@ -219,4 +219,58 @@ describe('getAppStartup', () => {
     });
     expect(response.cacheTtl).toBe(300);
   });
+
+  // HUGO-940: a per-entry storeUrl overrides the app default; a null entry falls back to it.
+  function makeSwitch(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'ks_1',
+      platform: 'ios',
+      type: 'soft',
+      versionField: 'versionName',
+      operator: 'lte',
+      versionValue: '2.0.0',
+      versionMax: null,
+      versionScheme: 'semver',
+      active: true,
+      activateAt: null,
+      deactivateAt: null,
+      priority: 1,
+      createdAt: new Date('2026-04-22T10:00:00.000Z'),
+      testUserIds: [],
+      titleKey: null,
+      title: 'Soft update',
+      messageKey: null,
+      message: null,
+      primaryButtonKey: null,
+      primaryButton: null,
+      secondaryButtonKey: null,
+      secondaryButton: null,
+      storeUrl: null,
+      latestVersion: '2.0.0',
+      cacheTtl: 600,
+      ...overrides,
+    };
+  }
+
+  async function resolveStoreUrl(entryStoreUrl: string | null) {
+    const { prisma } = makePrisma({
+      app: makeApp({ storeUrl: 'https://example.com/store' }),
+      killSwitches: [makeSwitch({ storeUrl: entryStoreUrl })],
+    });
+    const response = await getAppStartup(
+      { domain: 'app.example.com', appIdentifier: 'com.example.app', platform: 'ios', versionName: '1.5.0' },
+      { env: testEnv(), prisma },
+    );
+    return response.killSwitch?.storeUrl ?? null;
+  }
+
+  it('emits the entry storeUrl when set (custom URL overrides the app default)', async () => {
+    expect(await resolveStoreUrl('https://testflight.apple.com/join/Ym6jXbkA')).toBe(
+      'https://testflight.apple.com/join/Ym6jXbkA',
+    );
+  });
+
+  it('falls back to the app storeUrl when the entry storeUrl is null (default)', async () => {
+    expect(await resolveStoreUrl(null)).toBe('https://example.com/store');
+  });
 });

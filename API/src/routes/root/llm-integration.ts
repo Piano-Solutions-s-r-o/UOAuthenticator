@@ -350,10 +350,13 @@ curl -fsS -X PATCH -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \\
   "$UOA/internal/admin/apps/$APP/flags/flag_…"
 
 # 3. Flip a kill switch — block versions < 1.5.0 with a hard stop.
+#    Optional "store_url" (https) overrides where the client's Update CTA leads
+#    (e.g. a TestFlight link during closed testing); omit/null = App Store / Play.
 curl -fsS -X POST -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \\
   -d '{ "platform": "both", "type": "hard", "version_field": "versionName",
         "operator": "lt", "version_value": "1.5.0", "version_scheme": "semver",
-        "active": true, "priority": 100 }' \\
+        "active": true, "priority": 100,
+        "store_url": "https://testflight.apple.com/join/XXXXXXXX" }' \\
   "$UOA/internal/admin/apps/$APP/kill-switches"
 \`\`\`
 
