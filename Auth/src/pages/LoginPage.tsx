@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { ForwardButtons } from '../components/form/ForwardButtons.js';
 import { LoginForm } from '../components/form/LoginForm.js';
 import { SocialButtons } from '../components/form/SocialButtons.js';
 import { useTheme } from '../hooks/use-theme.js';
@@ -17,8 +18,9 @@ export function LoginPage(): React.JSX.Element {
     <div>
       <h1 className={`text-balance ${classNames.title}`}>{t('auth.login.title')}</h1>
       {showEmailPassword ? <LoginForm /> : null}
-      <div className="mt-6">
+      <div className="mt-6 flex flex-col gap-3">
         <SocialButtons showDivider={showEmailPassword} />
+        <ForwardButtons />
       </div>
     </div>
   );
