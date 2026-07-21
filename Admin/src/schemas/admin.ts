@@ -67,7 +67,11 @@ export const KillSwitchFormSchema = z.object({
       (v) => {
         if (v === '') return true;
         try {
-          return new URL(v).protocol === 'https:';
+          const u = new URL(v);
+          // Match the POS (Dart Uri) parser: require the `https://host` authority
+          // form so `https:foo` (host-coerced by WHATWG URL, hostless in Dart) is
+          // rejected here instead of silently ignored on the device.
+          return u.protocol === 'https:' && u.hostname !== '' && v.includes('://');
         } catch {
           return false;
         }

@@ -43,4 +43,8 @@ describe('KillSwitchFormSchema.storeUrl', () => {
   it('rejects a non-URL storeUrl', () => {
     expect(KillSwitchFormSchema.safeParse({ ...base, storeUrl: 'not a url' }).success).toBe(false);
   });
+
+  it('rejects an https URL with no host', () => {
+    expect(KillSwitchFormSchema.safeParse({ ...base, storeUrl: 'https:foo' }).success).toBe(false);
+  });
 });

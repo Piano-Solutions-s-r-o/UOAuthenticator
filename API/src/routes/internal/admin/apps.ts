@@ -67,7 +67,12 @@ const KillSwitchSchema = z
       .refine(
         (v) => {
           try {
-            return new URL(v).protocol === 'https:';
+            const u = new URL(v);
+            // Require the authority form (`https://host`) + a real host so the
+            // same values the POS accepts validate here too. WHATWG URL would
+            // otherwise coerce `https:foo` to host "foo", which Dart's Uri (the
+            // POS parser) treats as hostless and ignores — so require `://`.
+            return u.protocol === 'https:' && u.hostname !== '' && v.includes('://');
           } catch {
             return false;
           }
