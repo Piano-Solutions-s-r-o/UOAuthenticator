@@ -226,6 +226,7 @@ export type KillSwitchEntry = {
   active: boolean;
   priority: number;
   cacheTtl: number;
+  storeUrl?: string;
   updated: string;
 };
 

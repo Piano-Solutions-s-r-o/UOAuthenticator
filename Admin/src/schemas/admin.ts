@@ -57,6 +57,24 @@ export const KillSwitchFormSchema = z.object({
   active: z.enum(['active', 'paused']),
   priority: z.coerce.number().int().min(0).max(1000),
   cacheTtl: z.coerce.number().int().min(60).max(86400),
+  // HUGO-940: optional per-rule Update-CTA target. Empty = App Store / Play default.
+  // A value must be an absolute https URL (the POS launches it).
+  storeUrl: z
+    .string()
+    .trim()
+    .max(2048, 'Update URL is too long.')
+    .refine(
+      (v) => {
+        if (v === '') return true;
+        try {
+          return new URL(v).protocol === 'https:';
+        } catch {
+          return false;
+        }
+      },
+      'Enter a valid https:// URL, or leave empty to use the App Store / Google Play.',
+    )
+    .optional(),
 });
 
 export type KillSwitchFormValues = z.infer<typeof KillSwitchFormSchema>;

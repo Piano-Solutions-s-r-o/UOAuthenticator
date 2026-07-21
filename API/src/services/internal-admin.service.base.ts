@@ -194,6 +194,7 @@ export function formatAdminApp(app: AdminAppRow) {
       active: entry.active,
       priority: entry.priority,
       cacheTtl: entry.cacheTtl,
+      storeUrl: entry.storeUrl ?? undefined,
       updated: displayDate(entry.updatedAt),
     })),
     audienceGroups: [],

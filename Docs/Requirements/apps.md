@@ -147,7 +147,7 @@ Kill switches belong to an App. A kill switch entry defines a version range and 
 | `versionValue` | string | The threshold value (or lower bound for `range`), e.g. `"2.0.0"` or `"100"`. Always stored as string; comparison uses `versionScheme`. |
 | `versionMax` | string \| null | Upper bound for `range` operator (inclusive). Must be present and greater than or equal to `versionValue` when operator is `range` (strictly equal means exact-match range). A zero-width range (same value as `versionValue`) is valid — it matches exactly one version. Null for all other operators. |
 | `versionScheme` | enum | `semver` \| `integer` \| `date` \| `custom` |
-| `storeUrl` | string (URL) \| null | Override the app's default store URL for this entry |
+| `storeUrl` | string (https URL) \| null | Override the app's default store URL for this entry — where the client's **Update** CTA leads (e.g. a TestFlight link during closed testing). **Null = use the app default** (the client resolves the App Store / Google Play). Settable in the admin kill-switch dialog via the optional **"Update URL"** field (empty = default); validated as an absolute `https` URL, max 2048. Emitted by `/apps/startup` as `entry.storeUrl ?? app.storeUrl` (HUGO-940). |
 | `titleKey` | i18n translation key for dialog title |
 | `title` | Fallback plain text title if no i18n |
 | `messageKey` | i18n translation key for dialog body |

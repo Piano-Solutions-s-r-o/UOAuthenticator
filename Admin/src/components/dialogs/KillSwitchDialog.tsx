@@ -54,6 +54,7 @@ export function KillSwitchDialog({
       active: values.active === 'active',
       priority: values.priority,
       cacheTtl: values.cacheTtl,
+      storeUrl: values.storeUrl?.trim() ? values.storeUrl.trim() : null,
     });
     onClose();
   }
@@ -143,6 +144,16 @@ export function KillSwitchDialog({
             <TextField {...form.register('cacheTtl')} type="number" />
           </FieldShell>
         </div>
+        <FieldShell
+          label="Update URL (optional)"
+          error={form.formState.errors.storeUrl?.message}
+          hint="Leave empty to use the App Store / Google Play. Used by the Update button on soft/hard rules — e.g. a TestFlight link during closed testing."
+        >
+          <TextField
+            {...form.register('storeUrl')}
+            placeholder="https://testflight.apple.com/join/XXXXXXXX"
+          />
+        </FieldShell>
         {mutation.isError ? <p className="text-sm text-red-600">Could not save the kill switch.</p> : null}
       </form>
     </Modal>
@@ -165,5 +176,6 @@ function defaultValues(killSwitch: KillSwitchEntry | null): KillSwitchFormValues
     active: killSwitch?.active === false ? 'paused' : 'active',
     priority: killSwitch?.priority ?? 0,
     cacheTtl: killSwitch?.cacheTtl ?? 3600,
+    storeUrl: killSwitch?.storeUrl ?? '',
   };
 }
