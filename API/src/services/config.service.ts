@@ -203,6 +203,29 @@ const ClientConfigSchema = RequiredConfigSchema.extend({
     enabled: false,
     notify_org_roles: ['owner', 'admin'],
   }),
+  // Forwarded login options: a partner-hosted auth method the authenticator UI
+  // renders as a "Continue with <label>" button that top-level-navigates the
+  // browser to the partner's own URL, where the partner completes login and
+  // mints its own session. Unlike social providers, UOA runs no OAuth for these
+  // — it only renders the link. The partner's signed config is the trust anchor,
+  // so `url` is required to be an http(s) URL.
+  forward_auth_methods: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).max(64),
+        label: z.string().trim().min(1).max(64),
+        url: z
+          .string()
+          .trim()
+          .min(1)
+          .max(2048)
+          .refine((value) => Boolean(tryParseHttpUrl(value)), {
+            message: 'forward_auth_methods[].url must be an http(s) URL',
+          }),
+      }),
+    )
+    .max(10)
+    .optional(),
   // Brief 8 / Phase 10.4: default language should come from the client website's selection.
   // This is the currently selected language (not the list of available languages).
   language: z.string().trim().min(1).optional(),

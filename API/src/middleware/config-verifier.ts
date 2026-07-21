@@ -62,6 +62,7 @@ const safeConfigJwtPayloadKeys = new Set([
   'language',
   'session',
   'org_features',
+  'forward_auth_methods',
 ]);
 const emptyAllowedKeys = new Set<string>();
 const safeConfigJwtNestedKeys = new Map<string, ReadonlySet<string>>([
