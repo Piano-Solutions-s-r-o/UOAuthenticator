@@ -210,8 +210,10 @@ function ApiKeyRevealModal({
       command: `curl -sS -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" \\\n  -d '{"key":"new_feature","default_state":false}' \\\n  ${origin}/internal/admin/apps/APP_ID/flags`,
     },
     {
-      label: 'Flip a kill switch (toggle active)',
-      command: `curl -sS -X PATCH -H "X-API-Key: ${key}" -H "Content-Type: application/json" \\\n  -d '{"platform":"ios","type":"hard","version_field":"versionName","operator":"lt","version_value":"1.0.0","version_scheme":"semver","active":true,"priority":0}' \\\n  ${origin}/internal/admin/apps/APP_ID/kill-switches/KILL_SWITCH_ID`,
+      // PATCH rewrites every column, so resend all fields you want to keep —
+      // e.g. store_url (optional, https) or the existing Update URL is cleared.
+      label: 'Update a kill switch (PATCH rewrites all fields)',
+      command: `curl -sS -X PATCH -H "X-API-Key: ${key}" -H "Content-Type: application/json" \\\n  -d '{"platform":"ios","type":"hard","version_field":"versionName","operator":"lt","version_value":"1.0.0","version_scheme":"semver","active":true,"priority":0,"store_url":"https://testflight.apple.com/join/XXXXXXXX"}' \\\n  ${origin}/internal/admin/apps/APP_ID/kill-switches/KILL_SWITCH_ID`,
     },
   ];
 
