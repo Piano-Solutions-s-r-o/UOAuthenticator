@@ -9,4 +9,3 @@ export const translationsByLanguage = {
 } as const;
 
 export type SupportedLanguage = keyof typeof translationsByLanguage;
-

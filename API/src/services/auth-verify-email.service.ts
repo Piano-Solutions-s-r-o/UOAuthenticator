@@ -3,18 +3,26 @@ import type { ClientConfig } from './config.service.js';
 
 import { getEnv, requireEnv } from '../config/env.js';
 import { getPrisma } from '../db/prisma.js';
+import { runInTransaction } from '../db/tenant-context.js';
 import { getAppLogger } from '../utils/app-logger.js';
 import { AppError } from '../utils/errors.js';
 import { hashEmailToken } from '../utils/verification-token.js';
 import { hashPassword } from './password.service.js';
 import { ensureDomainRoleForUser } from './domain-role.service.js';
 import { placeUserInConfiguredOrganisation } from './org-placement.service.js';
-import { revokeAllRefreshTokensForUser } from './refresh-token.service.js';
+import { revokeAllRefreshTokensForUser } from './refresh-token-revocation.service.js';
+import { lockProductWorkspacePolicyShared } from './product-workspace-policy-lock.service.js';
 import { acceptTeamInviteWithinTransaction } from './team-invite.service.js';
+import {
+  lockAndReadVerificationTokenEpoch,
+  readVerificationTokenEpoch,
+} from './verification-token-epoch.service.js';
 
 type VerifyEmailPrisma = PrismaClient;
 
 type VerifyEmailDeps = {
+  afterRefreshSessionLock?: () => Promise<void>;
+  beforeRefreshSessionLock?: () => Promise<void>;
   env?: ReturnType<typeof getEnv>;
   now?: () => Date;
   sharedSecret?: string;
@@ -34,18 +42,34 @@ type VerifyEmailTokenRow = Prisma.VerificationTokenGetPayload<{
     email: true;
     domain: true;
     configUrl: true;
+    userId: true;
+    tokenVersion: true;
     teamInviteId: true;
     expiresAt: true;
     usedAt: true;
   };
 }>;
 
-export type VerifyEmailTokenType = 'VERIFY_EMAIL_SET_PASSWORD' | 'VERIFY_EMAIL';
+export type VerifyEmailTokenType = 'LOGIN_LINK' | 'VERIFY_EMAIL_SET_PASSWORD' | 'VERIFY_EMAIL';
+
+export type AcceptedEmailInviteWorkspace = {
+  inviteId: string;
+  orgId: string;
+  teamId: string;
+};
+
+export type VerifyEmailResult = {
+  userId: string;
+  credentialEpoch: number;
+  type: VerifyEmailTokenType;
+  twoFaEnabled: boolean;
+  acceptedInvite: AcceptedEmailInviteWorkspace | null;
+};
 
 function assertVerifyEmailTokenType(
   type: VerifyEmailTokenRow['type'],
 ): asserts type is VerifyEmailTokenType {
-  if (type !== 'VERIFY_EMAIL_SET_PASSWORD' && type !== 'VERIFY_EMAIL') {
+  if (type !== 'LOGIN_LINK' && type !== 'VERIFY_EMAIL_SET_PASSWORD' && type !== 'VERIFY_EMAIL') {
     throw new AppError('BAD_REQUEST', 400, 'INVALID_TOKEN_TYPE');
   }
 }
@@ -100,6 +124,8 @@ export async function validateVerifyEmailToken(
       email: true,
       domain: true,
       configUrl: true,
+      userId: true,
+      tokenVersion: true,
       teamInviteId: true,
       expiresAt: true,
       usedAt: true,
@@ -110,7 +136,11 @@ export async function validateVerifyEmailToken(
     throw new AppError('BAD_REQUEST', 400, 'INVALID_TOKEN');
   }
 
-  return assertTokenValid({ token: row, configUrl: params.configUrl, now: new Date() });
+  const type = assertTokenValid({ token: row, configUrl: params.configUrl, now: new Date() });
+  if (!(await readVerificationTokenEpoch(prisma, row))) {
+    throw new AppError('BAD_REQUEST', 400, 'INVALID_TOKEN');
+  }
+  return type;
 }
 
 export async function verifyEmailToken(
@@ -121,7 +151,7 @@ export async function verifyEmailToken(
     config: ClientConfig;
   },
   deps?: VerifyEmailDeps,
-): Promise<{ userId: string; type: VerifyEmailTokenType }> {
+): Promise<VerifyEmailResult> {
   const env = deps?.env ?? getEnv();
 
   if (!env.DATABASE_URL) {
@@ -129,13 +159,14 @@ export async function verifyEmailToken(
   }
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as VerifyEmailPrisma);
-  const now = deps?.now ? deps.now() : new Date();
+  const readNow = deps?.now ?? (() => new Date());
   const sharedSecret = deps?.sharedSecret ?? requireEnv('SHARED_SECRET').SHARED_SECRET;
   const tokenHash = (deps?.hashEmailToken ?? hashEmailToken)(params.token, sharedSecret);
   const hashPasswordFn = deps?.hashPassword ?? hashPassword;
 
   // Token consumption + user creation/update must be atomic to enforce one-time use.
-  const consumed = await prisma.$transaction(async (tx) => {
+  const consumed = await runInTransaction(prisma, async (tx) => {
+    await lockProductWorkspacePolicyShared(tx);
     const tokenRow = await tx.verificationToken.findUnique({
       where: { tokenHash },
       select: {
@@ -145,6 +176,8 @@ export async function verifyEmailToken(
         email: true,
         domain: true,
         configUrl: true,
+        userId: true,
+        tokenVersion: true,
         teamInviteId: true,
         expiresAt: true,
         usedAt: true,
@@ -155,7 +188,23 @@ export async function verifyEmailToken(
       throw new AppError('BAD_REQUEST', 400, 'INVALID_TOKEN');
     }
 
-    const type = assertTokenValid({ token: tokenRow, configUrl: params.configUrl, now });
+    if (tokenRow.userId) {
+      await deps?.beforeRefreshSessionLock?.();
+    }
+    const epoch = await lockAndReadVerificationTokenEpoch(
+      tx,
+      tokenRow,
+      tokenRow.userId ? deps?.afterRefreshSessionLock : undefined,
+    );
+    if (!epoch) {
+      throw new AppError('BAD_REQUEST', 400, 'INVALID_TOKEN');
+    }
+    const decisionNow = readNow();
+    const type = assertTokenValid({
+      token: tokenRow,
+      configUrl: params.configUrl,
+      now: decisionNow,
+    });
 
     let userId: string;
     let createdUser = false;
@@ -163,34 +212,66 @@ export async function verifyEmailToken(
     // (i.e. social-login / passwordless account adding a password). New users have
     // no pre-existing sessions to revoke.
     let setPasswordOnExistingUser = false;
-    if (type === 'VERIFY_EMAIL_SET_PASSWORD') {
+    if (type === 'LOGIN_LINK') {
+      // LOGIN_LINK proves possession of an existing account's mailbox; it must never
+      // degrade into registration. Resolve only the user bound when the token was
+      // minted, and fail closed if that account was deleted or its identity changed.
+      if (epoch.kind !== 'user') {
+        throw new AppError('BAD_REQUEST', 400, 'INVALID_TOKEN');
+      }
+      const existingUser = await tx.user.findUnique({
+        where: { id: epoch.userId },
+        select: { id: true, userKey: true, email: true, domain: true },
+      });
+      if (
+        !existingUser ||
+        existingUser.userKey !== tokenRow.userKey ||
+        existingUser.email.toLowerCase() !== tokenRow.email.toLowerCase() ||
+        existingUser.domain !== tokenRow.domain
+      ) {
+        throw new AppError('BAD_REQUEST', 400, 'INVALID_TOKEN');
+      }
+      userId = existingUser.id;
+    } else if (type === 'VERIFY_EMAIL_SET_PASSWORD') {
       if (!params.password) {
         throw new AppError('BAD_REQUEST', 400, 'MISSING_PASSWORD');
       }
 
       const passwordHash = await hashPasswordFn(params.password);
-      const existingUser = await tx.user.findUnique({
-        where: { userKey: tokenRow.userKey },
-        select: { id: true, passwordHash: true },
-      });
+      const existingUser =
+        epoch.kind === 'user'
+          ? await tx.user.findUnique({
+              where: { id: epoch.userId },
+              select: { id: true, passwordHash: true, userKey: true },
+            })
+          : null;
 
+      if (epoch.kind === 'user' && (!existingUser || existingUser.userKey !== tokenRow.userKey)) {
+        throw new AppError('BAD_REQUEST', 400, 'INVALID_TOKEN');
+      }
       if (existingUser?.passwordHash) {
         // A verify-email token must never be usable to reset an established account password.
         throw new AppError('BAD_REQUEST', 400, 'USER_ALREADY_HAS_PASSWORD');
       }
 
       if (existingUser) {
-        const updated = await tx.user.update({
-          where: { userKey: tokenRow.userKey },
+        const updated = await tx.user.updateMany({
+          where: {
+            id: existingUser.id,
+            userKey: tokenRow.userKey,
+            passwordHash: null,
+          },
           data: {
             // Keep identity stable; updating these is safe and makes the record consistent.
             email: tokenRow.email,
             domain: tokenRow.domain,
             passwordHash,
           },
-          select: { id: true },
         });
-        userId = updated.id;
+        if (updated.count !== 1) {
+          throw new AppError('BAD_REQUEST', 400, 'USER_ALREADY_HAS_PASSWORD');
+        }
+        userId = existingUser.id;
         setPasswordOnExistingUser = true;
       } else {
         const created = await tx.user.create({
@@ -206,13 +287,8 @@ export async function verifyEmailToken(
         createdUser = true;
       }
     } else {
-      const existingUser = await tx.user.findUnique({
-        where: { userKey: tokenRow.userKey },
-        select: { id: true },
-      });
-
-      if (existingUser) {
-        userId = existingUser.id;
+      if (epoch.kind === 'user') {
+        userId = epoch.userId;
       } else {
         const created = await tx.user.create({
           data: {
@@ -235,24 +311,34 @@ export async function verifyEmailToken(
       prisma: tx,
     });
 
+    let acceptedInvite: AcceptedEmailInviteWorkspace | null = null;
     if (tokenRow.teamInviteId) {
-      await (deps?.acceptTeamInviteWithinTransaction ?? acceptTeamInviteWithinTransaction)({
+      const workspace = await (
+        deps?.acceptTeamInviteWithinTransaction ?? acceptTeamInviteWithinTransaction
+      )({
         prisma: tx,
         teamInviteId: tokenRow.teamInviteId,
         userId,
         config: params.config,
-        now,
+        now: decisionNow,
       });
+      acceptedInvite = {
+        inviteId: tokenRow.teamInviteId,
+        orgId: workspace.orgId,
+        teamId: workspace.teamId,
+      };
     }
 
     const updated = await tx.verificationToken.updateMany({
       where: {
         id: tokenRow.id,
+        tokenVersion: tokenRow.tokenVersion,
+        userId: tokenRow.userId,
         usedAt: null,
-        expiresAt: { gt: now },
+        expiresAt: { gt: decisionNow },
       },
       data: {
-        usedAt: now,
+        usedAt: decisionNow,
         userId,
       },
     });
@@ -261,27 +347,34 @@ export async function verifyEmailToken(
       throw new AppError('BAD_REQUEST', 400, 'TOKEN_ALREADY_USED');
     }
 
+    if (setPasswordOnExistingUser) {
+      await (deps?.revokeAllRefreshTokensForUser ?? revokeAllRefreshTokensForUser)(userId, {
+        now: () => decisionNow,
+        prisma: tx,
+      });
+    }
+
+    const authenticatedUser = await tx.user.findUnique({
+      where: { id: userId },
+      select: { twoFaEnabled: true, tokenVersion: true },
+    });
+    if (!authenticatedUser) {
+      throw new AppError('BAD_REQUEST', 400, 'INVALID_TOKEN');
+    }
+
     return {
       userId,
+      credentialEpoch: authenticatedUser.tokenVersion,
       type,
       createdUser,
       setPasswordOnExistingUser,
       email: tokenRow.email,
-      teamInviteId: tokenRow.teamInviteId,
+      twoFaEnabled: authenticatedUser.twoFaEnabled,
+      acceptedInvite,
     };
   });
 
-  if (consumed.setPasswordOnExistingUser) {
-    // N-L-1: a social-login / passwordless account that just got a password is a
-    // credential change. Any refresh token issued before the password binding must
-    // die. Done after the transaction commits so a revoke failure cannot roll back
-    // the password write.
-    await (deps?.revokeAllRefreshTokensForUser ?? revokeAllRefreshTokensForUser)(consumed.userId, {
-      now: () => now,
-    });
-  }
-
-  if (consumed.createdUser && !consumed.teamInviteId) {
+  if (consumed.createdUser && !consumed.acceptedInvite) {
     try {
       await (deps?.placeUserInConfiguredOrganisation ?? placeUserInConfiguredOrganisation)({
         userId: consumed.userId,
@@ -300,7 +393,15 @@ export async function verifyEmailToken(
     }
   }
 
-  return { userId: consumed.userId, type: consumed.type };
+  // An invite-bound token is both identity verification and an explicit workspace selection. Return
+  // the exact accepted scope so callers can enforce its 2FA policy and carry it into the code.
+  return {
+    userId: consumed.userId,
+    credentialEpoch: consumed.credentialEpoch,
+    type: consumed.type,
+    twoFaEnabled: consumed.twoFaEnabled,
+    acceptedInvite: consumed.acceptedInvite,
+  };
 }
 
 export async function verifyEmailAndSetPassword(

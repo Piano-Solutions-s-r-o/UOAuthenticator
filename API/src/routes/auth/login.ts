@@ -1,20 +1,25 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
-import { getAuthServiceIdentifier, requireEnv } from '../../config/env.js';
-import { asPrismaClient } from '../../db/tenant-context.js';
+import { LOGIN_SESSION_AUDIENCE } from '../../config/constants.js';
+import { requireEnv } from '../../config/env.js';
 import { configVerifier } from '../../middleware/config-verifier.js';
-import { setTenantContextFromRequest } from '../../plugins/tenant-context.plugin.js';
+import { runWithRequestAdminTransaction } from '../../plugins/tenant-context.plugin.js';
 import { loginWithEmailPassword } from '../../services/auth-login.service.js';
+import { lockAndAssertAuthenticationEpoch } from '../../services/authentication-epoch.service.js';
+import { parseRequestAccessFlag } from '../../services/access-request-flow.service.js';
 import {
-  finalizeAuthenticatedUser,
-  parseRequestAccessFlag,
-} from '../../services/access-request-flow.service.js';
+  buildWorkspaceChoices,
+  resolveAutoSelectedWorkspace,
+  shouldPresentWorkspaceChooser,
+  type AutoSelectedWorkspace,
+} from '../../services/first-login.service.js';
+import { signLoginSession } from '../../services/login-session.service.js';
 import { recordLoginLog } from '../../services/login-log.service.js';
-import { resolveTwoFaPolicy } from '../../services/twofactor-policy.service.js';
-import { signTwoFaChallenge } from '../../services/twofactor-challenge.service.js';
-import { startTwoFactorSetup, type TwoFactorSetupResult } from '../../services/twofactor-setup.service.js';
-import { selectRedirectUrl } from '../../services/token.service.js';
+import { lockProductWorkspacePolicyShared } from '../../services/product-workspace-policy-lock.service.js';
+import { resolveProductWorkspaceBeforeTwoFa } from '../../services/required-workspace-placement.service.js';
+import { finalizeWithTwoFaPolicy } from '../../services/workspace-finalize.service.js';
+import { selectRedirectUrl } from '../../services/authorization-code.service.js';
 import { parseRequiredPkceChallenge } from '../../utils/pkce.js';
 import { loginRateLimiter } from './rate-limit-keys.js';
 
@@ -62,17 +67,17 @@ export function registerAuthLoginRoute(app: FastifyInstance): void {
         throw new Error('missing request.configUrl');
       }
 
-      // Whole login runs under the verified domain's tenant context. userId is resolved
-      // by loginWithEmailPassword inside the tx; app.user_id stays unset during the
-      // email→user lookup (users policy only requires app.domain), then downstream
-      // writes (auth code / login log) happen with the same domain scope.
-      setTenantContextFromRequest(request, { orgId: null, userId: null });
-
-      const outcome = await request.withTenantTx(async (tx) => {
-        const prisma = asPrismaClient(tx);
-        const { userId, twoFaEnabled } = await loginWithEmailPassword(
+      // The shared policy fence and its BYPASSRLS policy re-read must use the
+      // same transaction as challenge/setup/code issuance.
+      const outcome = await runWithRequestAdminTransaction(request, async (prisma) => {
+        await lockProductWorkspacePolicyShared(prisma);
+        const { userId, twoFaEnabled, credentialEpoch } = await loginWithEmailPassword(
           { email, password, config },
           { prisma },
+        );
+        const authenticationState = await lockAndAssertAuthenticationEpoch(
+          { userId, domain: config.domain, credentialEpoch },
+          { prisma, fallbackTwoFaEnabled: twoFaEnabled },
         );
 
         const redirectUrl = selectRedirectUrl({
@@ -81,62 +86,72 @@ export function registerAuthLoginRoute(app: FastifyInstance): void {
         });
 
         const rememberMe = remember_me ?? config.session?.remember_me_default ?? true;
+        const requestAccess = parseRequestAccessFlag(request_access);
 
-        const twoFaPolicy = await resolveTwoFaPolicy({ config, userId });
-        if (twoFaPolicy !== 'OFF' && twoFaEnabled) {
-          const { SHARED_SECRET } = requireEnv('SHARED_SECRET');
-
-          const twofa_token = await signTwoFaChallenge({
-            userId,
-            domain: config.domain,
-            configUrl,
-            redirectUrl,
-            authMethod: 'email_password',
-            rememberMe,
-            requestAccess: parseRequestAccessFlag(request_access),
-            codeChallenge: pkce.codeChallenge,
-            codeChallengeMethod: pkce.codeChallengeMethod,
-            sharedSecret: SHARED_SECRET,
-            audience: getAuthServiceIdentifier(),
-          });
-
-          return { kind: 'twofa' as const, twofa_token };
-        }
-
-        if (twoFaPolicy === 'REQUIRED') {
-          const setup = await startTwoFactorSetup(
+        let selectedWorkspace: AutoSelectedWorkspace | null = null;
+        if (config.login_flow?.workspace_selection === 'auto') {
+          const choices = await buildWorkspaceChoices(
+            { userId, config },
             {
+              crossProductPrisma: prisma,
+              policyPrisma: prisma,
+              prisma,
+            },
+          );
+          selectedWorkspace = resolveAutoSelectedWorkspace(choices);
+          if (shouldPresentWorkspaceChooser(choices, selectedWorkspace)) {
+            const { SHARED_SECRET } = requireEnv('SHARED_SECRET');
+            const loginToken = await signLoginSession({
               userId,
+              credentialEpoch,
+              authMethod: 'email_password',
               config,
               configUrl,
-              finalize: {
-                authMethod: 'email_password',
-                redirectUrl,
-                rememberMe,
-                requestAccess: parseRequestAccessFlag(request_access),
-                codeChallenge: pkce.codeChallenge,
-                codeChallengeMethod: pkce.codeChallengeMethod,
-              },
-            },
-            { prisma },
-          );
-
-          return { kind: 'twofa_enroll_required' as const, setup };
+              redirectUrl,
+              rememberMe,
+              requestAccess,
+              codeChallenge: pkce.codeChallenge,
+              codeChallengeMethod: pkce.codeChallengeMethod,
+              sharedSecret: SHARED_SECRET,
+              // Must match the audience verify-code/select-team/session-choices verify against.
+              audience: LOGIN_SESSION_AUDIENCE,
+            });
+            return { kind: 'workspace_chooser' as const, loginToken, choices };
+          }
         }
 
-        const finalResult = await finalizeAuthenticatedUser(
+        selectedWorkspace ??= await resolveProductWorkspaceBeforeTwoFa(
+          { userId, config },
+          { prisma, workspacePrisma: prisma },
+        );
+
+        const finalized = await finalizeWithTwoFaPolicy(
           {
             userId,
+            credentialEpoch,
+            twoFaEnabled,
             config,
             configUrl,
             redirectUrl,
             rememberMe,
-            requestAccess: parseRequestAccessFlag(request_access),
+            requestAccess,
+            authMethod: 'email_password',
             codeChallenge: pkce.codeChallenge,
             codeChallengeMethod: pkce.codeChallengeMethod,
+            ip: request.ip ?? null,
+            ...(selectedWorkspace ?? {}),
           },
-          { prisma },
+          {
+            currentTwoFaEnabled: authenticationState.twoFaEnabled,
+            policyLockHeld: true,
+            policyPrisma: prisma,
+            prisma,
+            twoFaPolicyPrisma: prisma,
+            workspacePrisma: prisma,
+          },
         );
+
+        if (finalized.kind !== 'granted') return finalized;
 
         try {
           await recordLoginLog(
@@ -157,22 +172,28 @@ export function registerAuthLoginRoute(app: FastifyInstance): void {
           request.log.error({ err }, 'failed to record login log');
         }
 
-        return { kind: 'granted' as const, finalResult };
+        return finalized;
       });
 
       if (outcome.kind === 'twofa') {
-        reply.status(200).send({ ok: true, twofa_required: true, twofa_token: outcome.twofa_token });
+        reply
+          .status(200)
+          .send({ ok: true, twofa_required: true, twofa_token: outcome.twofa_token });
         return;
       }
 
       if (outcome.kind === 'twofa_enroll_required') {
-        const setup: TwoFactorSetupResult = outcome.setup;
         reply.status(200).send({
           ok: true,
           kind: 'twofa_enroll_required',
           twofa_enroll_required: true,
-          ...setup,
+          ...outcome.setup,
         });
+        return;
+      }
+
+      if (outcome.kind === 'workspace_chooser') {
+        reply.status(200).send({ login_token: outcome.loginToken, ...outcome.choices });
         return;
       }
 

@@ -1,0 +1,475 @@
+import {
+  BillingRecurringAddonEntitlementScope,
+  BillingRecurringAddonSubscriptionScope,
+  type PrismaClient,
+} from '@prisma/client';
+
+import type {
+  BillingRecurringAddonCancelAction,
+  BillingRecurringAddonCheckoutAction,
+  BillingRecurringAddonManagerSubscription,
+  BillingRecurringAddonMemberSubscription,
+  BillingRecurringAddonsManagerV1,
+  BillingRecurringAddonsMemberV1,
+  BillingRecurringAddonsV1,
+} from '../contracts/billing-statement-v1.js';
+import {
+  BILLING_RECURRING_ADDONS_CANCELLATION_PREVIEW_PATH,
+  BILLING_RECURRING_ADDONS_CHECKOUT_PATH,
+} from '../contracts/billing-statement-v1.js';
+import { getAdminPrisma } from '../db/prisma.js';
+import type { VerifiedBillingAppKey } from './billing-app-key.service.js';
+import { resolveCreditCollectionContext } from './billing-credit-account.service.js';
+import { billingRecurringAddonMoney } from './billing-credit-display.service.js';
+import { resolveEffectiveTariffContext } from './billing-entitlement.service.js';
+import {
+  resolveBillingFundingViewer,
+  type BillingFundingViewer,
+} from './billing-funding-viewer.service.js';
+import { recurringAddonOfferAvailability } from './billing-recurring-addon-catalog.service.js';
+import {
+  canManageRecurringAddonScope,
+  recurringAddonScope,
+  type RecurringAddonSubject,
+} from './billing-recurring-addon-scope.service.js';
+
+type Subscription = Awaited<ReturnType<typeof loadAddonData>>['subscriptions'][number];
+
+function statusDisplay(status: string, cancelAtPeriodEnd: boolean): string {
+  if (cancelAtPeriodEnd) return 'Cancels at period end';
+  return status.replaceAll('_', ' ').replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
+}
+
+function publicScope(scope: BillingRecurringAddonSubscriptionScope) {
+  if (scope === BillingRecurringAddonSubscriptionScope.ORGANISATION) return 'organisation' as const;
+  if (scope === BillingRecurringAddonSubscriptionScope.TEAM) return 'team' as const;
+  return 'subscribing_user' as const;
+}
+
+function baseSubscription(subscription: Subscription) {
+  return {
+    status: subscription.status,
+    display_status: statusDisplay(subscription.status, subscription.cancelAtPeriodEnd),
+    scope: publicScope(subscription.scope),
+    cancel_at_period_end: subscription.cancelAtPeriodEnd,
+    current_period_start: subscription.currentPeriodStart?.toISOString() ?? null,
+    current_period_end: subscription.currentPeriodEnd?.toISOString() ?? null,
+  };
+}
+
+function managerSubscription(
+  subscription: Subscription | null,
+): BillingRecurringAddonManagerSubscription | null {
+  return subscription
+    ? {
+        ...baseSubscription(subscription),
+        id: subscription.id,
+        owner_user_id: subscription.subscribingUserId,
+      }
+    : null;
+}
+
+function memberSubscription(
+  subscription: Subscription | null,
+  viewerId: string,
+): BillingRecurringAddonMemberSubscription | null {
+  if (!subscription) return null;
+  const ownerRelationship =
+    subscription.scope === BillingRecurringAddonSubscriptionScope.ORGANISATION
+      ? ('organisation' as const)
+      : subscription.scope === BillingRecurringAddonSubscriptionScope.TEAM
+        ? ('team' as const)
+        : subscription.subscribingUserId === viewerId
+          ? ('viewer' as const)
+          : ('other_team_member' as const);
+  return { ...baseSubscription(subscription), owner_relationship: ownerRelationship };
+}
+
+function entitlement(subscription: Subscription | null, hasPolicy: boolean) {
+  if (
+    subscription?.entitlementActivatedAt &&
+    !subscription.entitlementDeactivatedAt &&
+    !['canceled', 'incomplete_expired'].includes(subscription.status)
+  ) {
+    return {
+      state: 'active' as const,
+      display_status: 'Add-on entitlement is active',
+      description: 'UOA has activated this entitlement for its exact subscription scope.',
+    };
+  }
+  if (subscription && !['canceled', 'incomplete_expired'].includes(subscription.status)) {
+    return {
+      state: 'pending' as const,
+      display_status: 'Add-on entitlement is pending',
+      description: 'UOA is waiting for verified payment or entitlement activation.',
+    };
+  }
+  if (!hasPolicy) {
+    return {
+      state: 'unavailable' as const,
+      display_status: 'Add-on entitlement is unavailable',
+      description: 'No active entitlement policy is configured for this offer.',
+    };
+  }
+  return {
+    state: 'inactive' as const,
+    display_status: 'Add-on entitlement is inactive',
+    description: 'This exact organisation, team, or user scope has no active entitlement.',
+  };
+}
+
+function scopeRank(
+  scope: BillingRecurringAddonSubscriptionScope,
+  viewerId: string,
+  userId: string | null,
+) {
+  if (scope === BillingRecurringAddonSubscriptionScope.SUBSCRIBING_USER && userId === viewerId) {
+    return 0;
+  }
+  if (scope === BillingRecurringAddonSubscriptionScope.TEAM) return 1;
+  if (scope === BillingRecurringAddonSubscriptionScope.ORGANISATION) return 2;
+  return 3;
+}
+
+function selectSubscription(
+  subscriptions: Subscription[],
+  scopes: Set<BillingRecurringAddonEntitlementScope>,
+  viewerId: string,
+) {
+  const allowed = new Set(
+    [...scopes].map((scope) =>
+      scope === BillingRecurringAddonEntitlementScope.ORGANISATION
+        ? BillingRecurringAddonSubscriptionScope.ORGANISATION
+        : scope === BillingRecurringAddonEntitlementScope.TEAM
+          ? BillingRecurringAddonSubscriptionScope.TEAM
+          : BillingRecurringAddonSubscriptionScope.SUBSCRIBING_USER,
+    ),
+  );
+  return (
+    subscriptions
+      .filter(
+        (subscription) =>
+          allowed.has(subscription.scope) &&
+          !['canceled', 'incomplete_expired'].includes(subscription.status),
+      )
+      .sort((left, right) => {
+        const rank =
+          scopeRank(left.scope, viewerId, left.subscribingUserId) -
+          scopeRank(right.scope, viewerId, right.subscribingUserId);
+        return rank || right.updatedAt.getTime() - left.updatedAt.getTime();
+      })[0] ?? null
+  );
+}
+
+async function loadAddonData(
+  params: {
+    accountId: string;
+    serviceId: string;
+    organisationId: string;
+    teamId: string;
+  },
+  deps?: { prisma?: PrismaClient },
+) {
+  const prisma = deps?.prisma ?? getAdminPrisma();
+  const [offers, subscriptions, checkouts] = await Promise.all([
+    prisma.billingRecurringAddonOffer.findMany({
+      where: { serviceId: params.serviceId, active: true },
+      orderBy: [{ key: 'asc' }, { version: 'desc' }],
+      include: {
+        catalogs: { where: { accountId: params.accountId } },
+        featurePolicies: { where: { active: true } },
+      },
+    }),
+    prisma.billingRecurringAddonSubscription.findMany({
+      where: {
+        accountId: params.accountId,
+        serviceId: params.serviceId,
+        orgId: params.organisationId,
+        OR: [
+          {
+            scope: BillingRecurringAddonSubscriptionScope.ORGANISATION,
+            teamId: null,
+            subscribingUserId: null,
+          },
+          {
+            scope: BillingRecurringAddonSubscriptionScope.TEAM,
+            teamId: params.teamId,
+            subscribingUserId: null,
+          },
+          {
+            scope: BillingRecurringAddonSubscriptionScope.SUBSCRIBING_USER,
+            teamId: params.teamId,
+            subscribingUserId: { not: null },
+          },
+        ],
+      },
+      orderBy: { updatedAt: 'desc' },
+    }),
+    prisma.billingRecurringAddonCheckout.findMany({
+      where: {
+        accountId: params.accountId,
+        serviceId: params.serviceId,
+        orgId: params.organisationId,
+        requestedTeamId: params.teamId,
+        status: { in: ['CREATING', 'OPEN', 'NEEDS_REVIEW'] },
+      },
+      orderBy: { updatedAt: 'desc' },
+    }),
+  ]);
+  return { offers, subscriptions, checkouts };
+}
+
+type OfferContext = RecurringAddonSubject & { collectionEnabled: boolean };
+
+function managerActions(params: {
+  offer: Awaited<ReturnType<typeof loadAddonData>>['offers'][number];
+  subscription: Subscription | null;
+  data: Awaited<ReturnType<typeof loadAddonData>>;
+  viewer: BillingFundingViewer;
+  context: OfferContext;
+  availability: ReturnType<typeof recurringAddonOfferAvailability>;
+}): Array<BillingRecurringAddonCheckoutAction | BillingRecurringAddonCancelAction> {
+  if (!params.availability.entitlementScope) return [];
+  const scope = recurringAddonScope(params.availability.entitlementScope, {
+    product: params.context.product,
+    organisationId: params.context.organisationId,
+    teamId: params.context.teamId,
+    userId: params.context.userId,
+  });
+  if (!canManageRecurringAddonScope(params.viewer, scope.scope)) return [];
+  if (params.subscription) {
+    const enabled =
+      params.context.collectionEnabled &&
+      !params.subscription.cancelAtPeriodEnd &&
+      !['canceled', 'incomplete_expired'].includes(params.subscription.status);
+    return [
+      {
+        id: 'cancel',
+        kind: 'confirmation_dialog',
+        label: 'Cancel add-on',
+        description: 'Schedule this add-on to end at its current billing-period boundary.',
+        enabled,
+        disabled_reason: enabled
+          ? null
+          : !params.context.collectionEnabled
+            ? 'Stripe collection is not enabled.'
+            : 'Cancellation is already scheduled.',
+        request: {
+          method: 'POST',
+          path: BILLING_RECURRING_ADDONS_CANCELLATION_PREVIEW_PATH,
+          body: {
+            product: params.context.product,
+            organisation_id: params.context.organisationId,
+            team_id: params.context.teamId,
+            user_id: params.context.userId,
+            subscription_id: params.subscription.id,
+          },
+        },
+      },
+    ];
+  }
+  const pending = params.data.checkouts.some(
+    (checkout) =>
+      checkout.offerId === params.offer.id &&
+      checkout.scope === scope.scope &&
+      checkout.scopeKey === scope.scopeKey,
+  );
+  const enabled = params.availability.available && !pending;
+  return [
+    {
+      id: 'subscribe',
+      kind: 'hosted_redirect',
+      label: 'Subscribe',
+      description: 'Open secure Stripe Checkout for this fixed monthly add-on.',
+      enabled,
+      disabled_reason: enabled
+        ? null
+        : pending
+          ? 'A Checkout session is already in progress.'
+          : params.availability.unavailableReason,
+      request: {
+        method: 'POST',
+        path: BILLING_RECURRING_ADDONS_CHECKOUT_PATH,
+        body: {
+          product: params.context.product,
+          organisation_id: params.context.organisationId,
+          team_id: params.context.teamId,
+          user_id: params.context.userId,
+          offer_id: params.offer.id,
+        },
+      },
+    },
+  ];
+}
+
+function offersForManager(
+  data: Awaited<ReturnType<typeof loadAddonData>>,
+  viewer: BillingFundingViewer,
+  context: OfferContext,
+): BillingRecurringAddonsManagerV1['offers'] {
+  return data.offers.map((offer) => {
+    const scopes = new Set(offer.featurePolicies.map((policy) => policy.entitlementScope));
+    const subscription = selectSubscription(
+      data.subscriptions.filter((row) => row.offerId === offer.id),
+      scopes,
+      viewer.userId,
+    );
+    const availability = recurringAddonOfferAvailability(offer, context.collectionEnabled);
+    return {
+      id: offer.id,
+      key: offer.key,
+      version: offer.version,
+      name: offer.name,
+      description: offer.description,
+      benefits: offer.benefits,
+      monthly_price: billingRecurringAddonMoney(offer.monthlyAmountMinor, offer.currency),
+      interval: 'month',
+      available: availability.available,
+      unavailable_reason: availability.unavailableReason,
+      entitlement: entitlement(subscription, offer.featurePolicies.length > 0),
+      subscription: managerSubscription(subscription),
+      actions: managerActions({ offer, subscription, data, viewer, context, availability }),
+    };
+  });
+}
+
+function offersForMember(
+  data: Awaited<ReturnType<typeof loadAddonData>>,
+  viewer: BillingFundingViewer,
+  context: OfferContext,
+): BillingRecurringAddonsMemberV1['offers'] {
+  return data.offers.map((offer) => {
+    const scopes = new Set(offer.featurePolicies.map((policy) => policy.entitlementScope));
+    const subscription = selectSubscription(
+      data.subscriptions.filter((row) => row.offerId === offer.id),
+      scopes,
+      viewer.userId,
+    );
+    const availability = recurringAddonOfferAvailability(offer, context.collectionEnabled);
+    return {
+      id: offer.id,
+      key: offer.key,
+      version: offer.version,
+      name: offer.name,
+      description: offer.description,
+      benefits: offer.benefits,
+      monthly_price: billingRecurringAddonMoney(offer.monthlyAmountMinor, offer.currency),
+      interval: 'month',
+      available: availability.available,
+      unavailable_reason: availability.unavailableReason,
+      entitlement: entitlement(subscription, offer.featurePolicies.length > 0),
+      subscription: memberSubscription(subscription, viewer.userId),
+      actions: [],
+    };
+  });
+}
+
+export async function getBillingRecurringAddons(
+  params: {
+    request: {
+      product: string;
+      organisationId: string;
+      teamId: string;
+      userId: string;
+    };
+    actorToken: string;
+    credential: VerifiedBillingAppKey;
+  },
+  deps?: {
+    prisma?: PrismaClient;
+    now?: () => Date;
+    resolveEntitlement?: typeof resolveEffectiveTariffContext;
+    resolveCollection?: typeof resolveCreditCollectionContext;
+    resolveViewer?: typeof resolveBillingFundingViewer;
+    loadData?: typeof loadAddonData;
+  },
+): Promise<BillingRecurringAddonsV1> {
+  const prisma = deps?.prisma;
+  await (deps?.resolveEntitlement ?? resolveEffectiveTariffContext)(
+    {
+      request: params.request,
+      actorToken: params.actorToken,
+      credential: params.credential,
+    },
+    { prisma },
+  );
+  const [collection, viewer] = await Promise.all([
+    (deps?.resolveCollection ?? resolveCreditCollectionContext)(
+      {
+        organisationId: params.request.organisationId,
+        teamId: params.request.teamId,
+      },
+      { prisma },
+    ),
+    (deps?.resolveViewer ?? resolveBillingFundingViewer)(
+      {
+        userId: params.request.userId,
+        organisationId: params.request.organisationId,
+        teamId: params.request.teamId,
+      },
+      { prisma },
+    ),
+  ]);
+  const data = await (deps?.loadData ?? loadAddonData)(
+    {
+      accountId: collection.account.id,
+      serviceId: params.credential.service.id,
+      organisationId: params.request.organisationId,
+      teamId: params.request.teamId,
+    },
+    { prisma },
+  );
+  const now = deps?.now?.() ?? new Date();
+  const common = {
+    schema_version: 1 as const,
+    generated_at: now.toISOString(),
+    product: {
+      id: params.credential.service.id,
+      identifier: params.credential.service.identifier,
+      name: params.credential.service.name,
+    },
+    subject: {
+      user_id: params.request.userId,
+      organisation_id: params.request.organisationId,
+      team_id: params.request.teamId,
+    },
+    collection: {
+      stripe_collection_enabled: collection.stripeCollectionEnabled,
+      stripe_mode: collection.account.livemode ? ('live' as const) : ('test' as const),
+    },
+    title: `${params.credential.service.name} add-ons`,
+    description: 'Optional subscriptions are billed separately from metered usage credits.',
+  };
+  const offerContext: OfferContext = {
+    product: params.credential.service.identifier,
+    organisationId: params.request.organisationId,
+    teamId: params.request.teamId,
+    userId: params.request.userId,
+    collectionEnabled: collection.stripeCollectionEnabled,
+  };
+  if (viewer.billingManager) {
+    const offers = offersForManager(data, viewer, offerContext);
+    return {
+      ...common,
+      viewer: {
+        role: 'billing_manager',
+        entitlement_visibility: 'full_team',
+        description: 'This viewer may see full entitlement status and manage team add-ons.',
+      },
+      capabilities: {
+        can_manage_addons: offers.some((offer) => offer.actions.some((action) => action.enabled)),
+      },
+      offers,
+    };
+  }
+  return {
+    ...common,
+    viewer: {
+      role: 'member',
+      entitlement_visibility: 'own_plus_team_status',
+      description: 'This viewer may see their relationship and privacy-safe team status.',
+    },
+    capabilities: { can_manage_addons: false },
+    offers: offersForMember(data, viewer, offerContext),
+  };
+}

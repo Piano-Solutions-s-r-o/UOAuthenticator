@@ -2,19 +2,35 @@ import querystring from 'node:querystring';
 
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
+import multipart from '@fastify/multipart';
+import rawBody from 'fastify-raw-body';
 import fastify, { type FastifyInstance } from 'fastify';
 
-import { getEnv, requireEnv } from './config/env.js';
+import {
+  getEnv,
+  isBillingAssertionJwksEnabled,
+  isTariffSnapshotJwksEnabled,
+  requireEnv,
+} from './config/env.js';
 import { connectPrisma, disconnectPrisma } from './db/prisma.js';
 import { registerErrorHandler } from './middleware/error-handler.js';
 import tenantContextPlugin from './plugins/tenant-context.plugin.js';
 import { registerRoutes } from './routes/index.js';
+import { preloadTariffSnapshotSigningKey } from './services/billing-snapshot.service.js';
+import { startStripeBillingScheduler } from './services/billing-stripe-scheduler.service.js';
+import { preloadBillingAssertionSigningKey } from './services/billing-ledger-collector.service.js';
 import { sweepExpiredClaims } from './services/integration-claim.service.js';
 import { pruneExpiredSecurityData } from './services/retention-pruning.service.js';
 import { setAppLogger } from './utils/app-logger.js';
 
 export async function createApp(): Promise<FastifyInstance> {
   const env = getEnv();
+  if (isTariffSnapshotJwksEnabled(env)) {
+    await preloadTariffSnapshotSigningKey();
+  }
+  if (isBillingAssertionJwksEnabled(env)) {
+    await preloadBillingAssertionSigningKey();
+  }
 
   const app = fastify({
     trustProxy: 1,
@@ -39,33 +55,62 @@ export async function createApp(): Promise<FastifyInstance> {
                 'req.headers.authorization',
                 'req.headers.cookie',
                 'req.headers["x-api-key"]',
+                'req.headers["x-uoa-actor"]',
                 'req.headers["x-uoa-access-token"]',
+                'req.headers["x-uoa-app-key"]',
+                'req.headers["x-ledger-app-key"]',
+                'req.headers["x-uoa-service-assertion"]',
+                'req.headers["stripe-signature"]',
                 // Redact common token-like keys if we ever log structured objects containing them.
                 'authorization',
                 'headers.authorization',
                 'headers.cookie',
                 'headers["x-api-key"]',
+                'headers["x-uoa-actor"]',
                 'headers["x-uoa-access-token"]',
+                'headers["x-uoa-app-key"]',
+                'headers["x-ledger-app-key"]',
+                'headers["x-uoa-service-assertion"]',
+                'headers["stripe-signature"]',
                 'token',
                 'code',
                 'access_token',
                 'refresh_token',
                 'twofa_token',
                 'email_token',
+                'signing_token',
+                'continuation_token',
+                'evidence_signature',
+                'evidence_manifest',
+                'typedName',
+                'signerName',
+                'evidenceSignature',
+                'evidenceManifest',
                 'client_secret',
                 'shared_secret',
                 'configJwt',
                 'config_jwt',
                 'sharedSecret',
                 'SHARED_SECRET',
+                'STRIPE_SECRET_KEY',
+                'STRIPE_WEBHOOK_SECRET',
+                'LEDGER_BILLING_APP_KEY',
+                'UOA_BILLING_ASSERTION_SIGNING_PRIVATE_JWK',
                 'req.body.password',
                 'req.body.passwordHash',
                 'req.body.code',
                 'req.body.code_verifier',
                 'req.body.access_token',
                 'req.body.refresh_token',
+                'req.body.subject_token',
                 'req.body.twofa_token',
                 'req.body.email_token',
+                'req.body.signing_token',
+                'req.body.continuation_token',
+                'req.body.typed_name',
+                'req.body.signer_name',
+                'req.body.evidence_signature',
+                'req.body.evidence_manifest',
                 'req.body.client_secret',
                 'req.body.shared_secret',
                 '*.totpSecret',
@@ -77,8 +122,19 @@ export async function createApp(): Promise<FastifyInstance> {
   });
   setAppLogger(app.log);
 
-  // The integration claim confirm page and Apple OAuth callback submit plain
-  // browser forms as application/x-www-form-urlencoded.
+  await app.register(rawBody, {
+    field: 'rawBody',
+    global: false,
+    encoding: false,
+    runFirst: true,
+  });
+
+  // The integration claim confirm page is a plain HTML form that browsers submit
+  // as application/x-www-form-urlencoded — as does the Apple OAuth callback (Piano
+  // HUGO-570), whose payload the querystring.parse parser below reads. For the
+  // claim page we do not use the body (the token is in the path), so accept the
+  // content-type and drop the payload rather than 500-ing with
+  // FST_ERR_CTP_INVALID_MEDIA_TYPE.
   app.addContentTypeParser(
     'application/x-www-form-urlencoded',
     { parseAs: 'string' },
@@ -97,6 +153,7 @@ export async function createApp(): Promise<FastifyInstance> {
         connectSrc: ["'self'", 'https:'],
         fontSrc: ["'self'", 'https:', 'data:'],
         formAction: ["'self'"],
+        frameSrc: ["'self'", 'blob:'],
         frameAncestors: ["'none'"],
         imgSrc: ["'self'", 'https:', 'data:'],
         objectSrc: ["'none'"],
@@ -154,6 +211,13 @@ export async function createApp(): Promise<FastifyInstance> {
       app.addHook('onClose', async () => {
         clearInterval(timer);
       });
+
+      if (env.STRIPE_BILLING_ENABLED) {
+        const stripeBillingScheduler = startStripeBillingScheduler({ log: app.log });
+        app.addHook('onClose', async () => {
+          stripeBillingScheduler.stop();
+        });
+      }
     }
   } else {
     app.log.warn('DATABASE_URL not set; database is disabled');
@@ -164,6 +228,16 @@ export async function createApp(): Promise<FastifyInstance> {
   // SHARED_SECRET so the cookie is tamper-evident without introducing a new secret.
   const { SHARED_SECRET } = requireEnv('SHARED_SECRET');
   await app.register(cookie, { secret: SHARED_SECRET });
+  await app.register(multipart, {
+    limits: {
+      fieldNameSize: 100,
+      fieldSize: 20 * 1024,
+      fields: 8,
+      files: 1,
+      fileSize: env.SIGNATURE_MAX_PDF_BYTES,
+    },
+    throwFileSizeLimit: true,
+  });
 
   registerErrorHandler(app);
   await app.register(tenantContextPlugin);

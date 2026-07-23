@@ -1,7 +1,8 @@
-import type { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 
 import { getEnv } from '../config/env.js';
 import { getPrisma } from '../db/prisma.js';
+import { runInTransaction } from '../db/tenant-context.js';
 import { AppError } from '../utils/errors.js';
 import type { ClientConfig } from './config.service.js';
 import {
@@ -24,6 +25,30 @@ type UserIdentity = {
   email: string;
   name: string | null;
 };
+
+export type RequiredTeamPlacement = {
+  orgId: string;
+  teamId: string;
+};
+
+/**
+ * Serialize the first placement decision for one stable UOA user. Product
+ * choice resolution must take this lock before reading memberships, otherwise
+ * two first-time product exchanges can both observe zero rows and create two
+ * personal workspaces.
+ */
+export async function lockRequiredTeamPlacementUser(
+  userId: string,
+  deps: { prisma: Pick<PrismaClient, '$queryRaw'> },
+): Promise<void> {
+  await deps.prisma.$queryRaw(
+    Prisma.sql`
+      SELECT pg_advisory_xact_lock(
+        hashtextextended(${`uoa:required-team-placement:${userId}`}, 0)
+      )::text AS "lockResult"
+    `,
+  );
+}
 
 function isUserNeedsTeamEnabled(config: ClientConfig): boolean {
   return config.org_features?.enabled === true && config.org_features?.user_needs_team === true;
@@ -55,7 +80,7 @@ async function createPersonalOrgAndTeam(params: {
   tx: UserTeamRequirementTx;
   domain: string;
   user: UserIdentity;
-}): Promise<void> {
+}): Promise<RequiredTeamPlacement> {
   const orgName = buildPersonalOrgName(params.user);
   const teamName = buildPersonalTeamName(params.user);
 
@@ -96,17 +121,19 @@ async function createPersonalOrgAndTeam(params: {
     data: {
       teamId: team.id,
       userId: params.user.id,
-      teamRole: 'lead',
+      teamRole: 'admin',
     },
   });
+
+  return { orgId: org.id, teamId: team.id };
 }
 
 async function createPersonalTeamForExistingOrg(params: {
   tx: UserTeamRequirementTx;
   config: ClientConfig;
   user: UserIdentity;
-  orgMembership: { id: string; orgId: string; role: string };
-}): Promise<void> {
+  orgMembership: { id: string; orgId: string; role: string; status: string };
+}): Promise<RequiredTeamPlacement> {
   const teamCount = await params.tx.team.count({
     where: { orgId: params.orgMembership.orgId },
   });
@@ -133,7 +160,7 @@ async function createPersonalTeamForExistingOrg(params: {
     data: {
       teamId: team.id,
       userId: params.user.id,
-      teamRole: 'lead',
+      teamRole: 'admin',
     },
   });
 
@@ -146,6 +173,8 @@ async function createPersonalTeamForExistingOrg(params: {
       data: { role: 'admin' },
     });
   }
+
+  return { orgId: params.orgMembership.orgId, teamId: team.id };
 }
 
 export async function ensureUserHasRequiredTeam(
@@ -154,9 +183,9 @@ export async function ensureUserHasRequiredTeam(
     config: ClientConfig;
   },
   deps?: UserTeamRequirementDeps,
-): Promise<void> {
+): Promise<RequiredTeamPlacement | null> {
   if (!isUserNeedsTeamEnabled(params.config)) {
-    return;
+    return null;
   }
 
   const env = deps?.env ?? getEnv();
@@ -166,22 +195,22 @@ export async function ensureUserHasRequiredTeam(
   const userId = params.userId.trim();
   const domain = normalizeDomain(params.config.domain);
   if (!userId || !domain) {
-    return;
+    return null;
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-    },
-  });
-  if (!user) {
-    return;
-  }
+  return runInTransaction(prisma, async (tx) => {
+    await lockRequiredTeamPlacementUser(userId, { prisma: tx });
 
-  await prisma.$transaction(async (tx) => {
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+      },
+    });
+    if (!user) return null;
+
     const orgMembership = await tx.orgMember.findFirst({
       where: {
         userId,
@@ -191,17 +220,21 @@ export async function ensureUserHasRequiredTeam(
         id: true,
         orgId: true,
         role: true,
+        status: true,
       },
     });
 
     if (!orgMembership) {
-      await createPersonalOrgAndTeam({
+      return createPersonalOrgAndTeam({
         tx,
         domain,
         user,
       });
-      return;
     }
+
+    // Lifecycle tombstones are an intentional denial, not an absence to heal
+    // around. Creating a new workspace here would bypass deactivation/removal.
+    if (orgMembership.status !== 'ACTIVE') return null;
 
     const teamMembershipCount = await tx.teamMember.count({
       where: {
@@ -212,10 +245,10 @@ export async function ensureUserHasRequiredTeam(
       },
     });
     if (teamMembershipCount > 0) {
-      return;
+      return null;
     }
 
-    await createPersonalTeamForExistingOrg({
+    return createPersonalTeamForExistingOrg({
       tx,
       config: params.config,
       user,

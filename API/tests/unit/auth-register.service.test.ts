@@ -7,7 +7,7 @@ import { testUiTheme } from '../helpers/test-config.js';
 
 type PrismaUserFindUniqueArgs = {
   where: { userKey: string };
-  select: { id: true };
+  select: { id: true; tokenVersion: true };
 };
 
 type PrismaVerificationTokenCreateArgs = {
@@ -16,7 +16,9 @@ type PrismaVerificationTokenCreateArgs = {
 
 type PrismaStub = {
   user: {
-    findUnique: (args: PrismaUserFindUniqueArgs) => Promise<{ id: string } | null>;
+    findUnique: (
+      args: PrismaUserFindUniqueArgs,
+    ) => Promise<{ id: string; tokenVersion: number } | null>;
   };
   verificationToken: {
     create: (args: PrismaVerificationTokenCreateArgs) => Promise<{ id: string }>;
@@ -62,7 +64,7 @@ describe('requestRegistrationInstructions', () => {
   it('creates a LOGIN_LINK token and sends neutral registration email for an existing user', async () => {
     const findUnique = vi
       .fn<PrismaStub['user']['findUnique']>()
-      .mockResolvedValue({ id: 'u1' });
+      .mockResolvedValue({ id: 'u1', tokenVersion: 7 });
     const createToken = vi
       .fn<PrismaStub['verificationToken']['create']>()
       .mockResolvedValue({ id: 't1' });
@@ -102,7 +104,7 @@ describe('requestRegistrationInstructions', () => {
 
     expect(findUnique).toHaveBeenCalledWith({
       where: { userKey: 'existing@example.com' },
-      select: { id: true },
+      select: { id: true, tokenVersion: true },
     });
 
     expect(createToken).toHaveBeenCalledWith({
@@ -114,21 +116,60 @@ describe('requestRegistrationInstructions', () => {
         configUrl: 'https://client.example.com/auth-config',
         tokenHash: 'hash123',
         userId: 'u1',
+        tokenVersion: 7,
       }),
     });
 
-    expect(sendAccountExistsEmail).toHaveBeenCalledWith(expect.objectContaining({
-      to: 'existing@example.com',
-      link: 'https://auth.example.com/auth/email/link?token=token123&config_url=https%3A%2F%2Fclient.example.com%2Fauth-config',
-    }));
+    expect(sendAccountExistsEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'existing@example.com',
+        link: 'https://auth.example.com/auth/email/link?token=token123&config_url=https%3A%2F%2Fclient.example.com%2Fauth-config',
+      }),
+    );
     expect(sendVerifyEmailSetPasswordEmail).not.toHaveBeenCalled();
     expect(sendVerifyEmailEmail).not.toHaveBeenCalled();
   });
 
-  it('creates a VERIFY_EMAIL_SET_PASSWORD token and sends verification instructions for a new user', async () => {
+  it('returns existing_user without creating a token when the client opts into inline sign-in', async () => {
     const findUnique = vi
       .fn<PrismaStub['user']['findUnique']>()
-      .mockResolvedValue(null);
+      .mockResolvedValue({ id: 'u1', tokenVersion: 7 });
+    const createToken = vi
+      .fn<PrismaStub['verificationToken']['create']>()
+      .mockResolvedValue({ id: 't1' });
+    const prisma: PrismaStub = {
+      user: { findUnique },
+      verificationToken: { create: createToken },
+    };
+
+    const sendAccountExistsEmail = vi.fn<(params: { to: string; link: string }) => Promise<void>>(
+      async () => undefined,
+    );
+
+    const result = await requestRegistrationInstructions(
+      {
+        email: 'existing@example.com',
+        config: baseConfig({ existing_user_registration_behavior: 'inline_sign_in' }),
+        configUrl: 'https://client.example.com/auth-config',
+      },
+      {
+        env: testEnv(),
+        prisma,
+        sharedSecret: 'pepper',
+        now: () => new Date('2026-02-10T00:00:00.000Z'),
+        generateEmailToken: () => 'token123',
+        hashEmailToken: () => 'hash123',
+        sendAccountExistsEmail,
+      },
+    );
+
+    expect(result).toEqual({ status: 'existing_user' });
+    expect(createToken).not.toHaveBeenCalled();
+    expect(sendAccountExistsEmail).not.toHaveBeenCalled();
+  });
+
+  it('creates a VERIFY_EMAIL_SET_PASSWORD token and sends verification instructions for a new user', async () => {
+    const findUnique = vi.fn<PrismaStub['user']['findUnique']>().mockResolvedValue(null);
     const createToken = vi
       .fn<PrismaStub['verificationToken']['create']>()
       .mockResolvedValue({ id: 't2' });
@@ -168,7 +209,7 @@ describe('requestRegistrationInstructions', () => {
 
     expect(findUnique).toHaveBeenCalledWith({
       where: { userKey: 'client.example.com|new@example.com' },
-      select: { id: true },
+      select: { id: true, tokenVersion: true },
     });
 
     expect(createToken).toHaveBeenCalledWith({
@@ -180,23 +221,26 @@ describe('requestRegistrationInstructions', () => {
         configUrl: 'https://client.example.com/auth-config',
         tokenHash: 'hash456',
         userId: null,
+        tokenVersion: null,
       }),
     });
 
-    expect(sendVerifyEmailSetPasswordEmail).toHaveBeenCalledWith(expect.objectContaining({
-      to: 'new@example.com',
-      link: 'https://auth.example.com/auth/email/link?token=token456&config_url=https%3A%2F%2Fclient.example.com%2Fauth-config',
-    }));
+    expect(sendVerifyEmailSetPasswordEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'new@example.com',
+        link: 'https://auth.example.com/auth/email/link?token=token456&config_url=https%3A%2F%2Fclient.example.com%2Fauth-config',
+      }),
+    );
     expect(sendVerifyEmailSetPasswordEmail.mock.calls[0][0].link).not.toContain('login-link');
-    expect(sendVerifyEmailSetPasswordEmail.mock.calls[0][0].link).not.toContain('verify-set-password');
+    expect(sendVerifyEmailSetPasswordEmail.mock.calls[0][0].link).not.toContain(
+      'verify-set-password',
+    );
     expect(sendAccountExistsEmail).not.toHaveBeenCalled();
     expect(sendVerifyEmailEmail).not.toHaveBeenCalled();
   });
 
   it('creates a VERIFY_EMAIL token and sends passwordless verification instructions when registration_mode=passwordless', async () => {
-    const findUnique = vi
-      .fn<PrismaStub['user']['findUnique']>()
-      .mockResolvedValue(null);
+    const findUnique = vi.fn<PrismaStub['user']['findUnique']>().mockResolvedValue(null);
     const createToken = vi
       .fn<PrismaStub['verificationToken']['create']>()
       .mockResolvedValue({ id: 't2b' });
@@ -241,10 +285,12 @@ describe('requestRegistrationInstructions', () => {
       }),
     });
 
-    expect(sendVerifyEmailEmail).toHaveBeenCalledWith(expect.objectContaining({
-      to: 'new@example.com',
-      link: 'https://auth.example.com/auth/email/link?token=token789&config_url=https%3A%2F%2Fclient.example.com%2Fauth-config',
-    }));
+    expect(sendVerifyEmailEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'new@example.com',
+        link: 'https://auth.example.com/auth/email/link?token=token789&config_url=https%3A%2F%2Fclient.example.com%2Fauth-config',
+      }),
+    );
     expect(sendAccountExistsEmail).not.toHaveBeenCalled();
     expect(sendVerifyEmailSetPasswordEmail).not.toHaveBeenCalled();
   });
@@ -280,9 +326,7 @@ describe('requestRegistrationInstructions', () => {
   });
 
   it('silently blocks registration when allow_registration is false for a new user', async () => {
-    const findUnique = vi
-      .fn<PrismaStub['user']['findUnique']>()
-      .mockResolvedValue(null);
+    const findUnique = vi.fn<PrismaStub['user']['findUnique']>().mockResolvedValue(null);
     const createToken = vi
       .fn<PrismaStub['verificationToken']['create']>()
       .mockResolvedValue({ id: 't3' });
@@ -327,9 +371,7 @@ describe('requestRegistrationInstructions', () => {
   });
 
   it('silently blocks registration when the new user email domain is not allowed', async () => {
-    const findUnique = vi
-      .fn<PrismaStub['user']['findUnique']>()
-      .mockResolvedValue(null);
+    const findUnique = vi.fn<PrismaStub['user']['findUnique']>().mockResolvedValue(null);
     const createToken = vi
       .fn<PrismaStub['verificationToken']['create']>()
       .mockResolvedValue({ id: 't4' });
@@ -378,7 +420,7 @@ describe('requestRegistrationInstructions', () => {
   it('still sends neutral registration email for existing users even when domain restrictions are configured', async () => {
     const findUnique = vi
       .fn<PrismaStub['user']['findUnique']>()
-      .mockResolvedValue({ id: 'u2' });
+      .mockResolvedValue({ id: 'u2', tokenVersion: 11 });
     const createToken = vi
       .fn<PrismaStub['verificationToken']['create']>()
       .mockResolvedValue({ id: 't5' });
@@ -423,6 +465,7 @@ describe('requestRegistrationInstructions', () => {
         type: 'LOGIN_LINK',
         email: 'existing@gmail.com',
         userId: 'u2',
+        tokenVersion: 11,
       }),
     });
     expect(sendAccountExistsEmail).toHaveBeenCalledTimes(1);

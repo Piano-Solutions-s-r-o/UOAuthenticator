@@ -9,6 +9,7 @@ const TWOFA_SETUP_ISSUER = 'uoa:twofa-setup';
 
 const TwoFaSetupSchema = z.object({
   sub: z.string().min(1),
+  credential_epoch: z.number().int().nonnegative(),
   encrypted_secret: z.string().min(1),
   config_url: z.string().min(1),
   domain: z.string().min(1),
@@ -18,10 +19,15 @@ const TwoFaSetupSchema = z.object({
   request_access: z.boolean().optional(),
   code_challenge: z.string().min(1).optional(),
   code_challenge_method: z.literal('S256').optional(),
+  // Exact scope selected explicitly, auto-selected, or pre-bound for a recognized product.
+  // Legacy clients without a resolved workspace omit both values.
+  org_id: z.string().min(1).optional(),
+  team_id: z.string().min(1).optional(),
 });
 
 export type TwoFaSetupToken = {
   userId: string;
+  credentialEpoch: number;
   encryptedSecret: string;
   configUrl: string;
   domain: string;
@@ -31,6 +37,8 @@ export type TwoFaSetupToken = {
   requestAccess: boolean;
   codeChallenge?: string;
   codeChallengeMethod?: 'S256';
+  orgId?: string;
+  teamId?: string;
 };
 
 function sharedSecretKey(sharedSecret: string): Uint8Array {
@@ -39,6 +47,7 @@ function sharedSecretKey(sharedSecret: string): Uint8Array {
 
 export async function signTwoFaSetupToken(params: {
   userId: string;
+  credentialEpoch: number;
   encryptedSecret: string;
   configUrl: string;
   domain: string;
@@ -48,6 +57,8 @@ export async function signTwoFaSetupToken(params: {
   requestAccess?: boolean;
   codeChallenge?: string;
   codeChallengeMethod?: 'S256';
+  orgId?: string;
+  teamId?: string;
   sharedSecret: string;
   audience: string;
   now?: Date;
@@ -60,6 +71,7 @@ export async function signTwoFaSetupToken(params: {
   try {
     return await new SignJWT({
       encrypted_secret: params.encryptedSecret,
+      credential_epoch: params.credentialEpoch,
       config_url: params.configUrl,
       domain: params.domain,
       auth_method: params.authMethod,
@@ -68,6 +80,8 @@ export async function signTwoFaSetupToken(params: {
       request_access: params.requestAccess ?? false,
       code_challenge: params.codeChallenge,
       code_challenge_method: params.codeChallengeMethod,
+      org_id: params.orgId,
+      team_id: params.teamId,
     })
       .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
       .setIssuer(TWOFA_SETUP_ISSUER)
@@ -109,6 +123,7 @@ export async function verifyTwoFaSetupToken(params: {
 
   const token: TwoFaSetupToken = {
     userId: parsed.sub,
+    credentialEpoch: parsed.credential_epoch,
     encryptedSecret: parsed.encrypted_secret,
     configUrl: parsed.config_url,
     domain: parsed.domain,
@@ -121,5 +136,7 @@ export async function verifyTwoFaSetupToken(params: {
     token.codeChallenge = parsed.code_challenge;
     token.codeChallengeMethod = parsed.code_challenge_method;
   }
+  if (parsed.org_id) token.orgId = parsed.org_id;
+  if (parsed.team_id) token.teamId = parsed.team_id;
   return token;
 }

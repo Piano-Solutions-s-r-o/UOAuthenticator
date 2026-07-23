@@ -19,6 +19,7 @@ import {
 } from './email.service.js';
 import { extractEmailDomain } from '../utils/email-domain.js';
 import { generateEmailToken, hashEmailToken } from '../utils/verification-token.js';
+import { isPrincipalBannedForRegistration } from './ban-policy.service.js';
 
 /**
  * Brief 11: Registration must not reveal whether the email exists.
@@ -40,8 +41,11 @@ type RegisterDeps = {
   generateEmailToken?: typeof generateEmailToken;
   hashEmailToken?: typeof hashEmailToken;
   consumeAccountFlowTimingBudget?: () => Promise<void>;
+  isPrincipalBannedForRegistration?: typeof isPrincipalBannedForRegistration;
   prisma?: RegisterPrisma;
 };
+
+type RegistrationInstructionResult = { status: 'sent' } | { status: 'existing_user' };
 
 /**
  * Brief 11: equalize CPU/IO between the user-exists and user-missing/blocked branches
@@ -126,14 +130,16 @@ export async function requestRegistrationInstructions(
     requestAccess?: boolean;
     codeChallenge?: string;
     codeChallengeMethod?: 'S256';
+    // Piano (HUGO-626/553): localized transactional email; upstream: ban-policy IP.
     locale?: EmailLocale;
+    ip?: string | null;
   },
   deps?: RegisterDeps,
-): Promise<void> {
+): Promise<RegistrationInstructionResult> {
   const env = deps?.env ?? getEnv();
 
   // Keep API behavior stable in environments where the DB isn't configured yet.
-  if (!env.DATABASE_URL) return;
+  if (!env.DATABASE_URL) return { status: 'sent' };
 
   const { userKey, domain, email } = buildUserIdentity({
     userScope: params.config.user_scope,
@@ -141,11 +147,29 @@ export async function requestRegistrationInstructions(
     domain: params.config.domain,
   });
 
+  // Admin ban list (domain scope). A banned email/pattern/IP gets the same silent,
+  // timing-equalised response as a blocked registration — never reveal the ban.
+  const banned = await (deps?.isPrincipalBannedForRegistration ?? isPrincipalBannedForRegistration)(
+    {
+      domain: params.config.domain,
+      email: params.email,
+      ip: params.ip ?? null,
+    },
+  );
+  if (banned) {
+    await (deps?.consumeAccountFlowTimingBudget ?? consumeAccountFlowTimingBudget)();
+    return { status: 'sent' };
+  }
+
   const prisma = deps?.prisma ?? getPrisma();
   const existing = await prisma.user.findUnique({
     where: { userKey },
-    select: { id: true },
+    select: { id: true, tokenVersion: true },
   });
+
+  if (existing && params.config.existing_user_registration_behavior === 'inline_sign_in') {
+    return { status: 'existing_user' };
+  }
 
   if (
     !existing &&
@@ -157,7 +181,7 @@ export async function requestRegistrationInstructions(
   ) {
     // Don't leak "registration blocked" vs "registration in progress" via timing.
     await (deps?.consumeAccountFlowTimingBudget ?? consumeAccountFlowTimingBudget)();
-    return;
+    return { status: 'sent' };
   }
 
   const token = deps?.generateEmailToken ? deps.generateEmailToken() : generateEmailToken();
@@ -184,6 +208,7 @@ export async function requestRegistrationInstructions(
       tokenHash,
       expiresAt,
       userId: existing?.id ?? null,
+      tokenVersion: existing?.tokenVersion ?? null,
     },
   });
 
@@ -205,7 +230,7 @@ export async function requestRegistrationInstructions(
       codeChallengeMethod: params.codeChallengeMethod,
     });
     await (deps?.sendAccountExistsEmail ?? sendAccountExistsEmail)({ to: email, link, theme, locale });
-    return;
+    return { status: 'sent' };
   }
 
   const link = buildRegistrationEmailLandingLink({
@@ -224,7 +249,7 @@ export async function requestRegistrationInstructions(
       theme,
       locale,
     });
-    return;
+    return { status: 'sent' };
   }
 
   await (deps?.sendVerifyEmailSetPasswordEmail ?? sendVerifyEmailSetPasswordEmail)({
@@ -233,4 +258,5 @@ export async function requestRegistrationInstructions(
     theme,
     locale,
   });
+  return { status: 'sent' };
 }

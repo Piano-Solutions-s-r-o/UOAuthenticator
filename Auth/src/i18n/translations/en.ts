@@ -7,6 +7,9 @@ export const en = {
   'auth.signedIn.title': 'You’re signed in',
   'auth.twoFactorVerify.title': 'Verify two-factor code',
   'auth.twoFactorSetup.title': 'Set up two-factor authentication',
+  'auth.codeEntry.title': 'Enter your code',
+  'auth.workspaceChooser.title': 'Choose a workspace',
+  'auth.signatures.title': 'Review and sign agreements',
 
   'form.email.label': 'Email',
   'form.password.label': 'Password',
@@ -32,6 +35,8 @@ export const en = {
 
   // Used by registration and reset-password flows; must remain generic.
   'message.instructionsSent': 'We sent instructions to your email',
+  'message.emailAlreadyRegistered':
+    'This email is already registered. Sign in or reset your password to continue.',
   'message.accessRequested':
     'Your request has been sent to the team administrators. You can close this window and wait for approval.',
   'message.signedIn': 'Return to the app to finish signing in. You can close this window.',
@@ -41,6 +46,27 @@ export const en = {
   'nav.forgotPassword': 'Forgot your password?',
   'nav.createAccount': 'Create an account',
   'nav.backToLogin': 'Back to sign in',
+  'nav.resetPassword': 'Reset password',
+  'nav.emailMeCode': 'Email me a sign-in code',
+
+  // Phase 3c: email-code entry (design §11.2).
+  'codeEntry.instructions': 'We sent a code to {email}',
+  'codeEntry.submit': 'Verify',
+  'codeEntry.resend': 'Resend code',
+  'codeEntry.resend.sent': 'We sent a new code to your email',
+  'codeEntry.error': 'Could not verify the code. Please try again.',
+
+  // Phase 3c: workspace chooser (design §11.2 — copy names the workspace, not the product).
+  'workspaceChooser.subtitle': 'Your workspaces for {email}',
+  'workspaceChooser.autoSkip': 'Signing you in…',
+  'workspace.role.owner': 'Owner',
+  'workspace.role.admin': 'Admin',
+  'workspace.invite.title': 'You’ve been invited to {teamName}',
+  'workspace.invite.invitedBy': 'Invited by {invitedBy}',
+  'workspace.invite.accept': 'Accept',
+  'workspace.invite.decline': 'Decline',
+  'workspace.createOrg.title': 'Create a new workspace',
+  'workspace.createOrg.subtitle': 'Start a brand new workspace',
 
   'twoFactor.setup.instructions':
     'Scan this QR code with an authenticator app, then enter the 6-digit code to verify setup.',
@@ -61,6 +87,40 @@ export const en = {
 
   'social.divider': 'or',
   'social.continueWith': 'Continue with',
+
+  'signatures.loading': 'Loading your agreements…',
+  'signatures.restart':
+    'This signing session is no longer available. Return to the app and restart sign-in.',
+  'signatures.intro':
+    '{domain} requires the following current agreements before sign-in can finish.',
+  'signatures.expires': 'This secure signing session expires at {time}.',
+  'signatures.sourceError': 'The verified source document could not be loaded. Please try again.',
+  'signatures.receiptError': 'The verified receipt could not be downloaded. Please try again.',
+  'signatures.signError': 'The agreement could not be signed. Check your confirmation and try again.',
+  'signatures.signed': 'Agreement signed. Your authenticated evidence receipt is ready below.',
+  'signatures.version': 'Version {version}',
+  'signatures.downloadSource': 'Download source PDF',
+  'signatures.loadingDocument': 'Loading verified PDF…',
+  'signatures.viewerTitle': 'PDF viewer for {title}',
+  'signatures.confirmTitle': 'Acceptance statement',
+  'signatures.confirmCheckbox': 'I explicitly confirm the acceptance statement shown above.',
+  'signatures.fullName': 'Your full name',
+  'signatures.nameAssertion':
+    'Your typed name is recorded as your assertion. It is not independent identity verification.',
+  'signatures.evidenceNotice':
+    'UOA records authenticated agreement evidence and verifies its integrity. This is not notarisation, a qualified electronic signature, or legal advice.',
+  'signatures.signing': 'Signing…',
+  'signatures.signContinue': 'Sign and continue',
+  'signatures.completeTitle': 'All current agreements are signed',
+  'signatures.completeBody':
+    'Download any receipts you need, then finish sign-in. Requirements are checked once more before access is issued.',
+  'signatures.receiptsTitle': 'Evidence receipts',
+  'signatures.verificationReference': 'Verification reference',
+  'signatures.revoked': 'This signature has been revoked.',
+  'signatures.downloading': 'Downloading…',
+  'signatures.downloadReceipt': 'Download receipt',
+  'signatures.finishing': 'Finishing…',
+  'signatures.finish': 'Finish sign-in',
 } as const;
 
 export type TranslationKey = keyof typeof en;

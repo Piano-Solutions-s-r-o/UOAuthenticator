@@ -4,6 +4,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 
 import { getEnv } from '../config/env.js';
 import { getAdminPrisma } from '../db/prisma.js';
+import { runInTransaction } from '../db/tenant-context.js';
 import {
   createDomainClientHash,
   digestDomainClientHash,
@@ -23,6 +24,7 @@ import {
   type ClaimTokenPrisma,
 } from './integration-claim.service.js';
 import type { TwoFaPolicyValue } from './twofactor-policy.service.js';
+import { lockProductWorkspacePolicyExclusive } from './product-workspace-policy-lock.service.js';
 
 type DomainSecretPrisma = Pick<
   PrismaClient,
@@ -49,6 +51,7 @@ type DomainStatus = 'active' | 'disabled';
 
 export type DomainAuthResult = {
   clientId: string;
+  clientDomainId: string;
   domain: string;
   hashPrefix: string;
 };
@@ -61,7 +64,8 @@ export type DomainMutationResult = {
 };
 
 function prismaClient(deps?: { prisma?: DomainSecretPrisma }): DomainSecretPrisma {
-  if (!getEnv().DATABASE_URL) throw new AppError('INTERNAL', 500, 'DOMAIN_SECRETS_DATABASE_REQUIRED');
+  if (!getEnv().DATABASE_URL)
+    throw new AppError('INTERNAL', 500, 'DOMAIN_SECRETS_DATABASE_REQUIRED');
   return deps?.prisma ?? (getAdminPrisma() as unknown as DomainSecretPrisma);
 }
 
@@ -107,7 +111,9 @@ export async function verifyDomainAuthToken(
   const clientHash = assertClientHash(params.token);
   const row = await prismaClient(deps).clientDomain.findUnique({
     where: { domain },
-    include: { secrets: { where: { active: true }, select: { secretDigest: true, hashPrefix: true } } },
+    include: {
+      secrets: { where: { active: true }, select: { secretDigest: true, hashPrefix: true } },
+    },
   });
 
   if (!row || normalizeStatus(row.status) !== 'active' || row.secrets.length === 0) {
@@ -118,7 +124,12 @@ export async function verifyDomainAuthToken(
   const matched = row.secrets.find((secret) => secureEqualHex(digest, secret.secretDigest));
   if (!matched) throw new AppError('UNAUTHORIZED', 401);
 
-  return { clientId: clientHash, domain, hashPrefix: matched.hashPrefix };
+  return {
+    clientId: clientHash,
+    clientDomainId: row.id,
+    domain,
+    hashPrefix: matched.hashPrefix,
+  };
 }
 
 export async function createAdminDomain(
@@ -129,7 +140,8 @@ export async function createAdminDomain(
   const domain = normalizeDomain(params.domain);
   const secret = await createSecretData(domain, params.clientSecret);
 
-  const row = await prisma.$transaction(async (tx) => {
+  const row = await runInTransaction(prisma as unknown as PrismaClient, async (tx) => {
+    await lockProductWorkspacePolicyExclusive(tx);
     const existing = await tx.clientDomain.findUnique({ where: { domain }, select: { id: true } });
     if (existing) throw new AppError('BAD_REQUEST', 400, 'DOMAIN_ALREADY_EXISTS');
 
@@ -162,7 +174,12 @@ export async function createAdminDomain(
     return created;
   });
 
-  return { clientHash: secret.clientHash, clientHashPrefix: secret.hashPrefix, clientSecret: secret.clientSecret, domain: row };
+  return {
+    clientHash: secret.clientHash,
+    clientHashPrefix: secret.hashPrefix,
+    clientSecret: secret.clientSecret,
+    domain: row,
+  };
 }
 
 export async function updateAdminDomain(
@@ -176,7 +193,10 @@ export async function updateAdminDomain(
     twoFaPolicy?: TwoFaPolicyValue;
     actorEmail: string;
   },
-  deps?: { prisma?: DomainSecretPrisma },
+  deps?: {
+    prisma?: DomainSecretPrisma;
+    afterProductPolicyLock?: () => Promise<void>;
+  },
 ): Promise<DomainWithActiveSecret> {
   const prisma = prismaClient(deps);
   const domain = normalizeDomain(params.domain);
@@ -194,7 +214,9 @@ export async function updateAdminDomain(
       : normalizeAllowedRedirectUrls(params.allowedRedirectUrls);
   const twoFaPolicy = params.twoFaPolicy;
 
-  return prisma.$transaction(async (tx) => {
+  return runInTransaction(prisma as unknown as PrismaClient, async (tx) => {
+    await lockProductWorkspacePolicyExclusive(tx);
+    await deps?.afterProductPolicyLock?.();
     const prior = await tx.clientDomain.findUnique({
       where: { domain },
       select: { status: true, twoFaPolicy: true },
@@ -287,7 +309,7 @@ export async function rotateAdminDomainSecret(
   const clientHash = createDomainClientHash(domain, rawClientSecret);
   const hashPrefix = clientHash.slice(0, 12);
 
-  return prisma.$transaction(async (tx) => {
+  return runInTransaction(prisma as unknown as PrismaClient, async (tx) => {
     const clientDomain = await tx.clientDomain.findUnique({
       where: { domain },
       select: { id: true },
@@ -376,7 +398,7 @@ export async function directRotateDomainSecret(
   const clientHash = createDomainClientHash(domain, rawClientSecret);
   const hashPrefix = clientHash.slice(0, 12);
 
-  return prisma.$transaction(async (tx) => {
+  return runInTransaction(prisma as unknown as PrismaClient, async (tx) => {
     const clientDomain = await tx.clientDomain.findUnique({
       where: { domain },
       select: { id: true },

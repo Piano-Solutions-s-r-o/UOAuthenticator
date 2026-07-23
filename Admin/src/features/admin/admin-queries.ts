@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { adminService } from '../../services/admin-service';
+import type { AgreementSignatureSearchInput } from '../../services/admin-service';
 import type { AppFlagSummary, AppPlatformKind, IntegrationRequestStatus } from './types';
 import type { KillSwitchInput } from '../../services/admin-service';
 
@@ -17,6 +18,26 @@ export function useDomainQuery(domain: string | undefined) {
     queryKey: ['admin', 'domain', domain],
     queryFn: () => adminService.getDomain(domain ?? ''),
     enabled: Boolean(domain),
+  });
+}
+
+export function useDomainSignaturesQuery(domain: string | null | undefined) {
+  return useQuery({
+    queryKey: ['admin', 'domain-signatures', domain],
+    queryFn: () => adminService.getDomainSignatures(domain ?? ''),
+    enabled: Boolean(domain),
+  });
+}
+
+export function useDomainAgreementSignaturesQuery(
+  domain: string,
+  input: AgreementSignatureSearchInput,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['admin', 'domain-signatures', domain, 'records', input],
+    queryFn: () => adminService.searchDomainAgreementSignatures(domain, input),
+    enabled: Boolean(domain) && enabled,
   });
 }
 
@@ -79,6 +100,28 @@ export function useHandshakeErrorsQuery() {
 
 export function useSettingsQuery() {
   return useQuery({ queryKey: ['admin', 'settings'], queryFn: adminService.getSettings });
+}
+
+export function useCreateBanMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: adminService.createBan,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] });
+    },
+  });
+}
+
+export function useDeleteBanMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => adminService.deleteBan(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] });
+    },
+  });
 }
 
 export function useCreateAppMutation() {

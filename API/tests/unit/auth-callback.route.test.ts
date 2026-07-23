@@ -132,7 +132,6 @@ describe('GET /auth/callback/:provider', () => {
     selectRedirectUrlMock.mockReset();
     issueAuthorizationCodeMock.mockReset();
     buildRedirectToUrlMock.mockReset();
-
     fetchConfigJwtFromUrlMock.mockResolvedValue('config-jwt');
     verifyConfigJwtSignatureMock.mockResolvedValue({} as JWTPayload);
     adminConfigUrlMock.mockReturnValue('https://admin.example.com/internal/admin/config');
@@ -182,7 +181,9 @@ describe('GET /auth/callback/:provider', () => {
     });
 
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe('https://client.example.com/oauth/callback?error=auth_failed');
+    expect(res.headers.location).toBe(
+      'https://client.example.com/oauth/callback?error=auth_failed',
+    );
     expect(res.headers['cache-control']).toBe('no-store');
     expect(res.headers.pragma).toBe('no-cache');
     expect(verifyConfigJwtSignatureMock).toHaveBeenCalledWith(
@@ -224,7 +225,9 @@ describe('GET /auth/callback/:provider', () => {
     });
 
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe('https://admin.example.com/admin/auth/callback?error=auth_failed');
+    expect(res.headers.location).toBe(
+      'https://admin.example.com/admin/auth/callback?error=auth_failed',
+    );
     expect(fetchConfigJwtFromUrlMock).not.toHaveBeenCalled();
     expect(readAdminConfigJwtMock).toHaveBeenCalledTimes(1);
     expect(verifyConfigJwtSignatureMock).toHaveBeenCalledWith(

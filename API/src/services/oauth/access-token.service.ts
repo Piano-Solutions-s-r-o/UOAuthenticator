@@ -1,8 +1,10 @@
-// RS256 access-token signing for the public-client / MCP OAuth profile (brief
-// §22.14). These tokens are resource-bound (aud = the RFC 8707 `resource`) and are
-// verified by resource servers via the published JWKS (GET /oauth/jwks.json) with no
-// shared secret. This is deliberately separate from the HS256 client-domain access
-// tokens (token.service.ts) and from config-JWT verification (§22.2).
+// RS256 resource access-token signing shared by confidential exchange and the
+// optional public-client / MCP OAuth profile (brief §22.14-§22.15). These tokens
+// are resource-bound (aud = the RFC 8707 `resource`) and resource servers verify
+// them via GET /oauth/jwks.json with no shared secret. This is deliberately
+// separate from HS256 client-domain access tokens and config-JWT verification.
+import { randomUUID } from 'node:crypto';
+
 import { type JWK, type KeyLike, SignJWT, importJWK } from 'jose';
 
 import { getEnv } from '../../config/env.js';
@@ -95,6 +97,78 @@ export async function signMcpAccessToken(claims: McpAccessTokenClaims): Promise<
       .setIssuedAt()
       .setExpirationTime(`${claims.ttlSeconds}s`)
       .sign(privateKey);
+  } catch {
+    throw new AppError('INTERNAL', 500, 'TOKEN_SIGN_FAILED');
+  }
+}
+
+type ConfidentialWorkspaceClaims =
+  | {
+      org: OrgContext;
+      active: {
+        orgId: string;
+        teamId: string;
+      };
+    }
+  | {
+      org?: undefined;
+      active?: undefined;
+    };
+
+export type ConfidentialActorChain = {
+  sub: string;
+  product: string;
+  act?: ConfidentialActorChain;
+};
+
+export type ConfidentialAccessTokenClaims = {
+  subject: string;
+  credentialEpoch: number;
+  email: string;
+  sourceDomain: string;
+  product: string;
+  resource: string;
+  issuer: string;
+  ttlSeconds: number;
+  expiresAtEpochSeconds?: number;
+  scope: string;
+  actor?: ConfidentialActorChain;
+} & ConfidentialWorkspaceClaims;
+
+/**
+ * Sign a resource-bound access token for a confidential RFC 8693 exchange.
+ *
+ * `azp` is the non-secret source domain. In particular this profile never copies
+ * the domain-hash bearer credential into `client_id` (or any other claim).
+ */
+export async function signConfidentialAccessToken(
+  claims: ConfidentialAccessTokenClaims,
+): Promise<string> {
+  const { privateKey, kid } = await load();
+  const payload: Record<string, unknown> = {
+    tv: claims.credentialEpoch,
+    email: claims.email,
+    source_domain: claims.sourceDomain,
+    azp: claims.sourceDomain,
+    product: claims.product,
+    scope: claims.scope,
+  };
+  if (claims.org && claims.active) {
+    payload.org = claims.org;
+    payload.active = claims.active;
+  }
+  if (claims.actor) payload.act = claims.actor;
+
+  try {
+    const token = new SignJWT(payload)
+      .setProtectedHeader({ alg: ALG, kid, typ: 'at+jwt' })
+      .setIssuer(claims.issuer)
+      .setAudience(claims.resource)
+      .setSubject(claims.subject)
+      .setJti(randomUUID())
+      .setIssuedAt();
+    token.setExpirationTime(claims.expiresAtEpochSeconds ?? `${claims.ttlSeconds}s`);
+    return await token.sign(privateKey);
   } catch {
     throw new AppError('INTERNAL', 500, 'TOKEN_SIGN_FAILED');
   }

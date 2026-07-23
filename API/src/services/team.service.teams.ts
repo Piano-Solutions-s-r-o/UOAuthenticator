@@ -1,13 +1,16 @@
 import type { ClientConfig } from './config.service.js';
 import { getEnv } from '../config/env.js';
 import { getPrisma } from '../db/prisma.js';
+import { runInTransaction } from '../db/tenant-context.js';
 import { AppError } from '../utils/errors.js';
 
 import {
   assertDatabaseEnabled,
   deriveUniqueTeamSlug,
   ensureAvailableTeamSlug,
+  normalizeIconUrl,
   normalizeTeamDescription,
+  normalizeTeamJoinPolicy,
   normalizeTeamName,
   parseMaxTeamsPerOrg,
   requireTeamManager,
@@ -22,6 +25,26 @@ import {
   type TeamWithMembersRecord,
   isP2002Error,
 } from './team.service.base.js';
+import { getTeamInvitedEntries, type TeamInvitedEntry } from './team-invite.service.invited.js';
+import {
+  lockWorkspaceMembershipRows,
+  lockWorkspaceOrganisationRow,
+  lockWorkspaceTeamRow,
+} from './workspace-scope.service.js';
+
+const TEAM_SELECT = {
+  id: true,
+  orgId: true,
+  groupId: true,
+  name: true,
+  slug: true,
+  description: true,
+  isDefault: true,
+  joinPolicy: true,
+  iconUrl: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
 export async function listTeams(
   params: {
@@ -52,22 +75,20 @@ export async function listTeams(
   const cursor = params.cursor?.trim();
 
   const rows = await prisma.team.findMany({
-    where: { orgId: org.id },
+    where: {
+      orgId: org.id,
+      // HIDDEN teams are excluded from any org-member-visible listing unless the caller is already
+      // an ACTIVE member of that specific team (design §4.6) — invite-only discovery is preserved.
+      OR: [
+        { NOT: { joinPolicy: 'HIDDEN' } },
+        { members: { some: { userId: actorUserId, status: 'ACTIVE' } } },
+      ],
+    },
     orderBy: { createdAt: 'desc' },
     take: limit + 1,
     cursor: cursor ? { id: cursor } : undefined,
     skip: cursor ? 1 : 0,
-    select: {
-      id: true,
-      orgId: true,
-      groupId: true,
-      name: true,
-      slug: true,
-      description: true,
-      isDefault: true,
-      createdAt: true,
-      updatedAt: true,
-    },
+    select: TEAM_SELECT,
   });
 
   const data = rows.slice(0, limit).map(toTeamRecord);
@@ -109,7 +130,7 @@ export async function createTeam(
 
   await requireTeamManager(prisma, org.id, actorUserId);
 
-  return await prisma.$transaction(async (tx) => {
+  return await runInTransaction(prisma, async (tx) => {
     const teamCount = await tx.team.count({ where: { orgId: org.id } });
     if (teamCount >= maxTeams) {
       throw new AppError('BAD_REQUEST', 400);
@@ -135,17 +156,7 @@ export async function createTeam(
           slug,
           ...(description === undefined ? {} : { description }),
         },
-        select: {
-          id: true,
-          orgId: true,
-          groupId: true,
-          name: true,
-          slug: true,
-          description: true,
-          isDefault: true,
-          createdAt: true,
-          updatedAt: true,
-        },
+        select: TEAM_SELECT,
       });
 
       return toTeamRecord(created);
@@ -164,9 +175,12 @@ export async function getTeam(
     teamId: string;
     domain: string;
     actorUserId: string;
+    // Task 2 (gapfix-a, design §11.4 "Invited" tab): `?include=invited` on the route. Undefined/false
+    // leaves the response byte-identical to before this change (no `invited` key at all).
+    includeInvited?: boolean;
   },
   deps?: OrgServiceDeps,
-): Promise<TeamWithMembersRecord> {
+): Promise<TeamWithMembersRecord & { invited?: TeamInvitedEntry[] }> {
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
@@ -188,16 +202,9 @@ export async function getTeam(
       orgId: org.id,
     },
     select: {
-      id: true,
-      orgId: true,
-      groupId: true,
-      name: true,
-      slug: true,
-      description: true,
-      isDefault: true,
-      createdAt: true,
-      updatedAt: true,
+      ...TEAM_SELECT,
       members: {
+        where: { status: 'ACTIVE' },
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
@@ -215,10 +222,22 @@ export async function getTeam(
     throw new AppError('NOT_FOUND', 404);
   }
 
-  return {
+  const result: TeamWithMembersRecord & { invited?: TeamInvitedEntry[] } = {
     ...toTeamRecord(row),
     members: row.members.map(toTeamMemberRecord),
   };
+
+  if (params.includeInvited) {
+    // Gated inside getTeamInvitedEntries to org/team owner/admin only — invite emails are PII, so a
+    // plain member gets `invited: []` rather than the whole read failing with 403 (design gapfix-a
+    // Task 2).
+    result.invited = await getTeamInvitedEntries(
+      { orgId: org.id, teamId: row.id, actorUserId },
+      { prisma },
+    );
+  }
+
+  return result;
 }
 
 export async function updateTeam(
@@ -230,6 +249,8 @@ export async function updateTeam(
     name?: string;
     slug?: string;
     description?: string | null;
+    joinPolicy?: string;
+    iconUrl?: string | null;
   },
   deps?: OrgServiceDeps,
 ): Promise<TeamRecord> {
@@ -242,17 +263,36 @@ export async function updateTeam(
   }
 
   const hasUpdates =
-    params.name !== undefined || params.slug !== undefined || params.description !== undefined;
+    params.name !== undefined ||
+    params.slug !== undefined ||
+    params.description !== undefined ||
+    params.joinPolicy !== undefined ||
+    params.iconUrl !== undefined;
   if (!hasUpdates) {
     throw new AppError('BAD_REQUEST', 400);
   }
 
-  const data: Partial<{ name: string; slug: string; description: string | null }> = {};
+  const data: Partial<{
+    name: string;
+    slug: string;
+    description: string | null;
+    joinPolicy: ReturnType<typeof normalizeTeamJoinPolicy>;
+    iconUrl: string | null;
+  }> = {};
   if (params.name !== undefined) {
     data.name = normalizeTeamName(params.name);
   }
   if (params.description !== undefined) {
     data.description = normalizeTeamDescription(params.description);
+  }
+  if (params.joinPolicy !== undefined) {
+    data.joinPolicy = normalizeTeamJoinPolicy(params.joinPolicy);
+  }
+  if (params.iconUrl !== undefined) {
+    // normalizeIconUrl(non-undefined) never returns undefined; the cast documents that narrowing
+    // for TS (the function's general signature also accepts/returns undefined for the "omitted"
+    // case, which can't happen on this branch).
+    data.iconUrl = normalizeIconUrl(params.iconUrl) as string | null;
   }
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
@@ -284,17 +324,7 @@ export async function updateTeam(
     const updated = await prisma.team.update({
       where: { id: existing.id },
       data,
-      select: {
-        id: true,
-        orgId: true,
-        groupId: true,
-        name: true,
-        slug: true,
-        description: true,
-        isDefault: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: TEAM_SELECT,
     });
 
     return toTeamRecord(updated);
@@ -313,7 +343,10 @@ export async function deleteTeam(
     domain: string;
     actorUserId: string;
   },
-  deps?: OrgServiceDeps,
+  deps?: OrgServiceDeps & {
+    afterTargetTeamLock?: () => Promise<void>;
+    afterMembershipLocks?: () => Promise<void>;
+  },
 ): Promise<{ deleted: boolean }> {
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
@@ -331,26 +364,22 @@ export async function deleteTeam(
   });
   await requireTeamManager(prisma, org.id, actorUserId);
 
-  const team = await prisma.team.findFirst({
-    where: {
-      id: params.teamId,
-      orgId: org.id,
-    },
-    select: {
-      id: true,
-      isDefault: true,
-    },
-  });
+  await runInTransaction(prisma, async (tx) => {
+    if (!(await lockWorkspaceOrganisationRow(org.id, { prisma: tx }))) {
+      throw new AppError('NOT_FOUND', 404);
+    }
+    const team = await lockWorkspaceTeamRow(
+      { orgId: org.id, teamId: params.teamId },
+      { prisma: tx },
+    );
+    if (!team) {
+      throw new AppError('NOT_FOUND', 404);
+    }
+    if (team.isDefault) {
+      throw new AppError('BAD_REQUEST', 400);
+    }
+    await deps?.afterTargetTeamLock?.();
 
-  if (!team) {
-    throw new AppError('NOT_FOUND', 404);
-  }
-
-  if (team.isDefault) {
-    throw new AppError('BAD_REQUEST', 400);
-  }
-
-  await prisma.$transaction(async (tx) => {
     const defaultTeam = await tx.team.findFirst({
       where: { orgId: org.id, isDefault: true },
       select: { id: true },
@@ -359,10 +388,30 @@ export async function deleteTeam(
       throw new AppError('INTERNAL', 500, 'DEFAULT_TEAM_MISSING');
     }
 
-    const members = await tx.teamMember.findMany({
+    const membershipRows = await tx.teamMember.findMany({
       where: { teamId: team.id },
+      orderBy: { userId: 'asc' },
       select: { userId: true },
     });
+    for (const member of membershipRows) {
+      await lockWorkspaceMembershipRows(
+        { userId: member.userId, orgId: org.id },
+        { prisma: tx },
+      );
+    }
+    await deps?.afterMembershipLocks?.();
+
+    const members = membershipRows.length
+      ? await tx.teamMember.findMany({
+          where: {
+            teamId: team.id,
+            userId: { in: membershipRows.map((member) => member.userId) },
+            status: 'ACTIVE',
+          },
+          orderBy: { userId: 'asc' },
+          select: { userId: true },
+        })
+      : [];
 
     for (const member of members) {
       const userMembershipCount = await tx.teamMember.count({
@@ -371,6 +420,7 @@ export async function deleteTeam(
           team: {
             orgId: org.id,
           },
+          status: 'ACTIVE',
         },
       });
 

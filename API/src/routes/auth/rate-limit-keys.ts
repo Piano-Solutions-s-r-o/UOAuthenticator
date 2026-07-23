@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 
 import { createRateLimiter } from '../../middleware/rate-limiter.js';
+import { TOKEN_EXCHANGE_GRANT_TYPE } from '../../services/confidential-token-exchange.service.js';
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -76,6 +77,34 @@ export const registerRateLimiter = composeRateLimiters(
   bodyRateLimiter('auth:register', 'email', 5, HOUR_MS),
 );
 
+// Phase 3b: /auth/start is the email-first entry (register + optional login code). Same shape as
+// registerRateLimiter but keyed separately so it doesn't share budget with /auth/register.
+export const authStartRateLimiter = composeRateLimiters(
+  ipRateLimiter('auth:start', 10, MINUTE_MS),
+  bodyRateLimiter('auth:start', 'email', 5, HOUR_MS),
+);
+
+// Phase 3b (design §8): /auth/verify-code is IP- and email-keyed, tighter than login since a
+// 6-digit code has a much smaller search space than a password.
+export const verifyCodeRateLimiter = composeRateLimiters(
+  ipRateLimiter('auth:verify-code', 10, 15 * MINUTE_MS),
+  bodyRateLimiter('auth:verify-code', 'email', 10, 15 * MINUTE_MS),
+);
+
+// Phase 3b: /auth/select-team is gated by a short-lived login_token; still rate-limit by IP and by
+// the presented token so a leaked/guessed token can't be hammered for team/invite enumeration.
+export const selectTeamRateLimiter = composeRateLimiters(
+  ipRateLimiter('auth:select-team', 20, MINUTE_MS),
+  bodyRateLimiter('auth:select-team', 'login_token', 20, 15 * MINUTE_MS),
+);
+
+// Phase 3b follow-up: /auth/session-choices is gated by the same login_token bridge as
+// /auth/select-team — same IP + token-keyed shape so a leaked/guessed token can't be hammered.
+export const sessionChoicesRateLimiter = composeRateLimiters(
+  ipRateLimiter('auth:session-choices', 20, MINUTE_MS),
+  bodyRateLimiter('auth:session-choices', 'login_token', 20, 15 * MINUTE_MS),
+);
+
 export const resetRequestRateLimiter = composeRateLimiters(
   ipRateLimiter('auth:reset-request', 10, MINUTE_MS),
   bodyRateLimiter('auth:reset-request', 'email', 3, HOUR_MS),
@@ -84,6 +113,38 @@ export const resetRequestRateLimiter = composeRateLimiters(
 export const tokenConsumeRateLimiter = ipRateLimiter('auth:token-consume', 10, MINUTE_MS);
 
 export const tokenExchangeRateLimiter = ipRateLimiter('auth:token-exchange', 10, MINUTE_MS);
+
+const confidentialTokenExchangeDomainLimiter = createRateLimiter({
+  limit: 600,
+  windowMs: MINUTE_MS,
+  keyBuilder: (request) => {
+    const domain = normalizePart(request.config?.domain);
+    return domain ? `auth:token-exchange:confidential:domain:${hashPart(domain)}` : '';
+  },
+});
+
+function isConfidentialTokenExchange(request: FastifyRequest): boolean {
+  return bodyString(request, 'grant_type') === TOKEN_EXCHANGE_GRANT_TYPE;
+}
+
+/** Preserve the legacy 10/min/IP guard without placing confidential callers
+ * behind one shared-egress bucket before they authenticate. */
+export async function tokenExchangePreAuthRateLimiter(request: FastifyRequest): Promise<void> {
+  if (!isConfidentialTokenExchange(request)) {
+    await tokenExchangeRateLimiter(request);
+  }
+}
+
+/** Confidential callers reach this guard only after config and domain-hash auth.
+ * The broad domain ceiling bounds a compromised backend while per-user limits
+ * are enforced after the subject assertion signature is verified. */
+export async function confidentialTokenExchangeDomainRateLimiter(
+  request: FastifyRequest,
+): Promise<void> {
+  if (isConfidentialTokenExchange(request)) {
+    await confidentialTokenExchangeDomainLimiter(request);
+  }
+}
 
 // Compound IP-only and per-challenge-token buckets so an attacker spraying many IPs
 // can't burn another user's IP budget against the same `twofa_token`.

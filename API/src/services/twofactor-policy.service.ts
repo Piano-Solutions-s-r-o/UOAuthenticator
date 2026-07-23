@@ -20,8 +20,12 @@ type PolicyPrisma = {
     }): Promise<{ twoFaPolicy: TwoFaPolicyValue } | null>;
   };
   organisation: {
+    findUnique(args: {
+      where: { id: string };
+      select: { twoFaPolicy: true };
+    }): Promise<{ twoFaPolicy: TwoFaPolicyValue | null } | null>;
     findMany(args: {
-      where: { domain: string; members: { some: { userId: string } } };
+      where: Record<string, unknown>;
       select: { twoFaPolicy: true };
     }): Promise<Array<{ twoFaPolicy: TwoFaPolicyValue | null }>>;
   };
@@ -36,6 +40,16 @@ export function strongestTwoFaPolicy(
   second: TwoFaPolicyValue,
 ): TwoFaPolicyValue {
   return policyRank[second] > policyRank[first] ? second : first;
+}
+
+export function isTwoFaAuthenticationSufficient(params: {
+  policy: TwoFaPolicyValue;
+  twoFaEnabled: boolean;
+  twoFaCompleted: boolean;
+}): boolean {
+  if (params.policy === 'OFF') return true;
+  if (params.twoFaEnabled) return params.twoFaCompleted;
+  return params.policy !== 'REQUIRED';
 }
 
 export function toPublicTwoFaPolicy(policy: TwoFaPolicyValue): TwoFaPolicyInput {
@@ -58,6 +72,8 @@ export async function resolveTwoFaPolicy(
   params: {
     config: Pick<ClientConfig, '2fa_enabled' | 'domain'>;
     userId?: string | null;
+    /** Exact selected or prospective workspace, including one from another product domain. */
+    orgId?: string | null;
   },
   deps?: { prisma?: PolicyPrisma },
 ): Promise<TwoFaPolicyValue> {
@@ -66,7 +82,7 @@ export async function resolveTwoFaPolicy(
   }
 
   const prisma = prismaClient(deps);
-  const [domainPolicy, orgPolicies] = await Promise.all([
+  const [domainPolicy, orgPolicies, selectedOrgPolicy] = await Promise.all([
     prisma.clientDomain.findUnique({
       where: { domain: params.config.domain },
       select: { twoFaPolicy: true },
@@ -75,16 +91,27 @@ export async function resolveTwoFaPolicy(
       ? prisma.organisation.findMany({
           where: {
             domain: params.config.domain,
-            members: { some: { userId: params.userId } },
+            // Lifecycle tombstones must not keep enforcing an organisation's
+            // policy after the user has left it.
+            members: { some: { userId: params.userId, status: 'ACTIVE' as const } },
           },
           select: { twoFaPolicy: true },
         })
       : Promise.resolve([]),
+    params.orgId
+      ? prisma.organisation.findUnique({
+          where: { id: params.orgId },
+          select: { twoFaPolicy: true },
+        })
+      : Promise.resolve(null),
   ]);
 
   let effective: TwoFaPolicyValue = domainPolicy?.twoFaPolicy ?? 'OPTIONAL';
   for (const org of orgPolicies) {
     effective = strongestTwoFaPolicy(effective, org.twoFaPolicy ?? 'OFF');
+  }
+  if (selectedOrgPolicy) {
+    effective = strongestTwoFaPolicy(effective, selectedOrgPolicy.twoFaPolicy ?? 'OFF');
   }
 
   return effective;

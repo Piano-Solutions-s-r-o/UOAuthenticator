@@ -32,6 +32,7 @@ import {
   parseDomainContext,
   parseDomainContextHook,
   parseLimitCursor,
+  parseTeamDetailQuery,
 } from './team-route.shared.js';
 
 export function registerTeamRoutes(app: FastifyInstance): void {
@@ -120,15 +121,17 @@ export function registerTeamRoutes(app: FastifyInstance): void {
       ],
     },
     async (request, reply) => {
-      const { domain } = parseDomainContext(request);
+      const { domain, include } = parseTeamDetailQuery(request);
       const orgId = getOrgIdFromParams(request.params);
       const teamId = getTeamIdFromParams(request.params);
       const actorUserId = getActorUserId(request as RequestWithClaims);
+      // Gap-fix A Task 2: exact literal only — any other value behaves like the param is absent.
+      const includeInvited = include === 'invited';
 
       setTenantContextFromRequest(request, { orgId, userId: actorUserId });
       const team = await request.withTenantTx((tx) =>
         getTeam(
-          { orgId, teamId, domain, actorUserId },
+          { orgId, teamId, domain, actorUserId, includeInvited },
           { prisma: asPrismaClient(tx) },
         ),
       );
@@ -158,7 +161,9 @@ export function registerTeamRoutes(app: FastifyInstance): void {
       if (
         !Object.hasOwn(body, 'name') &&
         !Object.hasOwn(body, 'slug') &&
-        !Object.hasOwn(body, 'description')
+        !Object.hasOwn(body, 'description') &&
+        !Object.hasOwn(body, 'joinPolicy') &&
+        !Object.hasOwn(body, 'icon_url')
       ) {
         throw new AppError('BAD_REQUEST', 400);
       }
@@ -174,6 +179,8 @@ export function registerTeamRoutes(app: FastifyInstance): void {
             name: body.name,
             slug: body.slug,
             description: body.description,
+            joinPolicy: body.joinPolicy,
+            iconUrl: body.icon_url,
           },
           { prisma: asPrismaClient(tx) },
         ),
@@ -294,12 +301,9 @@ export function registerTeamRoutes(app: FastifyInstance): void {
       const userId = getMemberUserIdFromParams(request.params);
       const actorUserId = getActorUserId(request as RequestWithClaims);
 
-      setTenantContextFromRequest(request, { orgId, userId: actorUserId });
-      await request.withTenantTx((tx) =>
-        removeTeamMember(
-          { orgId, teamId, domain, actorUserId, userId },
-          { prisma: asPrismaClient(tx) },
-        ),
+      await removeTeamMember(
+        { orgId, teamId, domain, actorUserId, userId },
+        { prisma: request.adminDb },
       );
 
       reply.status(200).send({ ok: true });

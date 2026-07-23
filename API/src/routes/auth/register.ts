@@ -46,7 +46,7 @@ export function registerAuthRegisterRoute(app: FastifyInstance): void {
 
       if (email && request.config && request.configUrl) {
         try {
-          await requestRegistrationInstructions(
+          const result = await requestRegistrationInstructions(
             {
               email,
               config: request.config,
@@ -55,10 +55,20 @@ export function registerAuthRegisterRoute(app: FastifyInstance): void {
               requestAccess: parseRequestAccessFlag(request_access),
               codeChallenge: pkce.codeChallenge,
               codeChallengeMethod: pkce.codeChallengeMethod,
+              // HUGO-626/553 (Piano) — thread the browser locale so the registration
+              // email is localized (cs on sso.hugopos.eu).
               locale: resolveEmailLocale(request.headers['accept-language']),
+              ip: request.ip ?? null,
             },
             { prisma: request.adminDb },
           );
+          if (result.status === 'existing_user') {
+            reply.status(409).send({
+              error: 'Request failed',
+              code: 'EMAIL_ALREADY_REGISTERED',
+            });
+            return;
+          }
         } catch (err) {
           // Never leak internal failures; always return the generic success response.
           request.log.error({ err }, 'registration instructions failed');

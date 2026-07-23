@@ -234,11 +234,11 @@ Anything else (HTML, error JSON, empty body) fails with \`CONFIG_FETCH_FAILED\`.
 
 The payload MUST NOT contain \`SHARED_SECRET\`, the \`client_secret\` from Phase 1, the \`client_hash\`, refresh tokens, OAuth codes, or any other secret. UOA scans for known secret patterns and refuses the config if it sees one.
 
-Optional fields are documented at \`/api\` under \`config_jwt_documentation.optional_fields\`, including \`2fa_enabled\`, \`debug_enabled\`, \`user_scope\`, \`allow_registration\`, \`registration_mode\`, \`allowed_registration_domains\`, \`registration_domain_mapping\`, \`session.*\`, \`org_features.*\`, and \`access_requests.*\`.
+Optional fields are documented at \`/api\` under \`config_jwt_documentation.optional_fields\`, including \`2fa_enabled\`, \`debug_enabled\`, \`user_scope\`, \`allow_registration\`, \`existing_user_registration_behavior\`, \`registration_mode\`, \`allowed_registration_domains\`, \`registration_domain_mapping\`, \`session.*\`, \`org_features.*\`, and \`access_requests.*\`.
 
 ### 2.5 Two-factor policy model
 
-\`2fa_enabled\` in the config JWT is the master gate. If it is false or absent, UOA treats 2FA as off for that integration even if an Admin policy exists. If it is true, UOA resolves the effective policy from the DB-backed Service/domain policy plus the user's Organisation policies. The strongest policy wins: \`off < optional < required\`.
+\`2fa_enabled\` in the config JWT is the master gate. If it is false or absent, UOA treats 2FA as off for that integration even if an Admin policy exists. If it is true, UOA resolves the effective policy from the DB-backed Service/domain policy, same-domain Organisation policies, and the exact selected Organisation even when a recognized product selected it across domains. The strongest policy wins: \`off < optional < required\`. Recognized products resolve exact scope before 2FA even with \`workspace_selection: "off"\`; authorization-code exchange rechecks current policy/enrollment against persisted interactive TOTP proof before creating tokens.
 
 - \`off\`: login proceeds without a TOTP prompt.
 - \`optional\`: users may enroll themselves; enrolled users must verify a code at login.
@@ -255,11 +255,12 @@ const privateKey = await importPKCS8(process.env.UOA_CONFIG_SIGNING_PRIVATE_KEY_
 const jwt = await new SignJWT(payload)
   .setProtectedHeader({ alg: 'RS256', kid: 'voicepos-2026-04', typ: 'JWT' })
   .setIssuedAt()
+  .setExpirationTime('15m')
   .sign(privateKey);
 return new Response(jwt, { headers: { 'content-type': 'application/jwt' } });
 \`\`\`
 
-Do NOT cache the JWT for long (UOA fetches every request and caches the JWKS for ~10 minutes). Re-signing per request is fine; the limit is 5 seconds per fetch.
+\`exp\` is **recommended**: UOA verifies the config JWT with a 30s clock tolerance, so an \`exp\` that has passed is rejected, but a JWT with no \`exp\` is accepted as unbounded — set a short lifetime (≈15m) so a leaked JWT cannot be replayed forever. \`iss\` is **not** required or checked on the config-signing path; UOA's trust anchor is the \`domain\` claim matching the \`config_url\` host. Do NOT cache the JWT for long (UOA fetches every request and caches the JWKS for ~10 minutes). Re-signing per request is fine; the limit is 5 seconds per fetch.
 
 ---
 

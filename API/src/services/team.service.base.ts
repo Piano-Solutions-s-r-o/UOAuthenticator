@@ -6,6 +6,7 @@ import { AppError } from '../utils/errors.js';
 import {
   assertDatabaseEnabled,
   getOrganisationMember,
+  normalizeIconUrl,
   resolveOrganisationByDomain,
   toListLimit,
   type CursorList,
@@ -13,6 +14,29 @@ import {
   type OrgServicePrisma,
   isP2002Error,
 } from './organisation.service.base.js';
+
+export type TeamJoinPolicyValue =
+  | 'INVITE_ONLY'
+  | 'APPROVED_DOMAIN'
+  | 'REQUEST_TO_JOIN'
+  | 'OPEN_TO_ORG'
+  | 'HIDDEN';
+
+const ALLOWED_TEAM_JOIN_POLICIES = new Set<TeamJoinPolicyValue>([
+  'INVITE_ONLY',
+  'APPROVED_DOMAIN',
+  'REQUEST_TO_JOIN',
+  'OPEN_TO_ORG',
+  'HIDDEN',
+]);
+
+export function normalizeTeamJoinPolicy(value: string): TeamJoinPolicyValue {
+  const normalized = value.trim().toUpperCase();
+  if (!ALLOWED_TEAM_JOIN_POLICIES.has(normalized as TeamJoinPolicyValue)) {
+    throw new AppError('BAD_REQUEST', 400);
+  }
+  return normalized as TeamJoinPolicyValue;
+}
 
 export type TeamRecord = {
   id: string;
@@ -22,6 +46,8 @@ export type TeamRecord = {
   slug: string;
   description: string | null;
   isDefault: boolean;
+  joinPolicy: TeamJoinPolicyValue;
+  iconUrl: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -39,7 +65,9 @@ export type TeamWithMembersRecord = TeamRecord & {
   members: TeamMemberRecord[];
 };
 
-const ALLOWED_TEAM_ROLES = new Set(['member', 'lead']);
+// Canonical team roles (api-changes-rebac.md §1, design §4.9). The pre-ReBAC `lead` value is
+// removed and migrated to `admin` in 20260707104937_slack_membership_foundation.
+const ALLOWED_TEAM_ROLES = new Set(['owner', 'admin', 'member']);
 const TEAM_SLUG_ALLOWED_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const TEAM_SLUG_FALLBACK = 'team';
 const MAX_TEAM_SLUG_LENGTH = 120;
@@ -187,6 +215,8 @@ export function toTeamRecord(row: {
   slug: string;
   description: string | null;
   isDefault: boolean;
+  joinPolicy?: string;
+  iconUrl?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): TeamRecord {
@@ -198,6 +228,8 @@ export function toTeamRecord(row: {
     slug: row.slug,
     description: row.description,
     isDefault: row.isDefault,
+    joinPolicy: (row.joinPolicy ?? 'INVITE_ONLY') as TeamJoinPolicyValue,
+    iconUrl: row.iconUrl ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -226,10 +258,37 @@ export async function requireTeamManager(
   orgId: string,
   userId: string,
 ): Promise<void> {
-  const actorMembership = await getOrganisationMember(prisma, { orgId, userId });
+  const actorMembership = await getOrganisationMember(prisma, { orgId, userId }, { activeOnly: true });
   if (!actorMembership || !isTeamManager(actorMembership.role)) {
     throw new AppError('FORBIDDEN', 403);
   }
+}
+
+/**
+ * True when the actor is an ACTIVE org owner/admin OR an ACTIVE team owner/admin for this specific
+ * team (design §4.9/Phase 2's "team manager" definition — mirrors `team-invite-link.service.ts`'s
+ * `requireLinkManager`, extracted here as the single non-throwing source of truth for call sites
+ * that need a boolean gate — e.g. hiding a PII-bearing field — rather than a 403 that would fail
+ * the whole read).
+ */
+export async function isOrgOrTeamManager(
+  prisma: OrgServicePrisma,
+  params: { orgId: string; teamId: string; actorUserId: string },
+): Promise<boolean> {
+  const actorOrgMembership = await getOrganisationMember(
+    prisma,
+    { orgId: params.orgId, userId: params.actorUserId },
+    { activeOnly: true },
+  );
+  if (actorOrgMembership && isTeamManager(actorOrgMembership.role)) {
+    return true;
+  }
+
+  const actorTeamMembership = await prisma.teamMember.findFirst({
+    where: { teamId: params.teamId, userId: params.actorUserId, status: 'ACTIVE' },
+    select: { teamRole: true },
+  });
+  return Boolean(actorTeamMembership && isTeamManager(actorTeamMembership.teamRole));
 }
 
 export async function resolveAndAuthorizeTeamOrg(
@@ -254,7 +313,7 @@ export async function resolveAndAuthorizeTeamOrg(
   const actorMembership = await getOrganisationMember(prisma, {
     orgId: org.id,
     userId: params.actorUserId,
-  });
+  }, { activeOnly: true });
   if (!actorMembership) {
     throw new AppError('FORBIDDEN', 403);
   }
@@ -268,6 +327,7 @@ export {
   getOrganisationMember,
   getPrisma,
   isP2002Error,
+  normalizeIconUrl,
   toListLimit,
   type CursorList,
   type OrgServiceDeps,

@@ -113,7 +113,7 @@ Authenticated shell (`AdminSessionGuard` → `AdminUiProvider` → `AdminLayout`
 - `/dashboard` — dashboard/home inside the admin shell
 - `/integrations` — integration requests (`IntegrationRequestsPage`)
 - `/domains` — domains listing (`DirectoryDomainsPage`); the single entry point for registered client domains, showing client hash, secret age, and status
-- `/domains/:domainId` — domain detail (`DomainDetailPage`); a flat tab bar (Overview · Organisations · Teams · Users · Access · Signing keys · Email) that consolidates secret rotation and status, the editable friendly name, 2FA policy, the §11 Domain Email and signing-keys sections, login-access whitelist, and allowed redirect URLs. The active tab is persisted in the `?tab=` query param. There is no separate Secrets page or domain-edit modal — both were merged here.
+- `/domains/:domainId` — domain detail (`DomainDetailPage`); a flat tab bar (Overview · Organisations · Teams · Users · Access · Agreements · Signing keys · Email) that consolidates secret rotation and status, the editable friendly name, 2FA policy, the optional per-domain agreement-signature service, the §11 Domain Email and signing-keys sections, login-access whitelist, and allowed redirect URLs. The Agreements tab owns settings, versioned PDF lifecycle, evidence search/download/revocation, and signature audit history. The active tab is persisted in the `?tab=` query param. There is no separate Secrets page or domain-edit modal — both were merged here.
 - `/organisations` — organisation listing and search (`OrganisationsPage`)
 - `/organisations/:orgId` — organisation detail (`OrganisationDetailPage`), including organisation 2FA policy
 - `/organisations/:orgId/teams/:teamId` — team detail under an organisation (`TeamDetailPage`)
@@ -126,7 +126,17 @@ Authenticated shell (`AdminSessionGuard` → `AdminUiProvider` → `AdminLayout`
 - `/feature-flags` — feature-flag apps listing (`FeatureFlagsPage`)
 - `/feature-flags/:appId` — feature-flag detail for an app (`FeatureFlagDetailPage`)
 - `/feature-flags/:appId/groups/:groupId` — audience-group detail under a feature flag (`FeatureAudienceGroupPage`)
-- `/settings` — system-level settings (`SettingsPage`)
+- `/billing` — platform billing control plane (`BillingPage`) with two views.
+  **Product billing** manages services, immutable tariff versions/defaults,
+  organisation/team assignments, exact organisation/team add-ons and credits,
+  purpose-bound product app keys with one-time secret reveal, Stripe catalog
+  readiness, and test/live subscription projections. **Contracts & invoices**
+  lets platform superusers create organisation contracts and version terms,
+  activate exact monthly prices per service, manage explicit issuer and buyer
+  profiles, calculate and inspect customer-safe invoice revisions, issue or
+  void invoices, download verified PDFs, and append manual payment, refund, or
+  write-off events.
+- `/settings` — system-level settings (`SettingsPage`), including bans and audited confidential delegation mappings. The delegation surface lists policy only (source domain, product, exact HTTPS resource, scope allowlist, enabled state, and audit metadata); it never reads or renders browser tokens, domain credentials, or application secrets. Source domain and product are immutable after creation.
 
 Catch-all:
 
@@ -141,6 +151,22 @@ When a template demonstrates a section that does not yet have a route here, use 
 - API access must be centralized behind services/query hooks
 - Components must not decode raw transport payloads ad hoc
 - Shared API error handling should map backend responses into a consistent UI-facing shape
+- Confidential delegation responses are parsed with a frontend Zod contract before rendering. Mutations use the same-origin admin bearer client; the UI must never extract or display that bearer or any product credential.
+- Billing responses are parsed by `schemas/billing.ts` and transported only
+  through `services/billing-admin-service.ts` and the TanStack Query hooks in
+  `features/admin/billing-admin-queries.ts`. App-key plaintext exists only in
+  the immediate create response and one-time reveal dialog; lists retain only
+  the masked prefix. A new service form defaults to the explicit safe
+  `at_cost + collection_mode=none` plan. Commercial add-ons and credits remain
+  exact minor-currency strings, are created through the same admin boundary,
+  and are deactivated rather than deleted.
+- Contract and invoice responses are parsed by
+  `schemas/billing-contracts.ts`, transported through
+  `services/billing-contract-admin-service.ts`, and orchestrated by
+  `features/admin/billing-contract-queries.ts`. The Admin UI submits operator
+  choices to UOA and renders UOA's customer-safe calculated prices and totals;
+  it never derives invoice prices from Ledger usage, provider cost, markup, or
+  margin data.
 
 ## 6. Forms
 

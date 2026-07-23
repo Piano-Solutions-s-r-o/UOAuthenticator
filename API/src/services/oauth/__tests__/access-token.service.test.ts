@@ -4,6 +4,7 @@ import { createLocalJWKSet, exportJWK, generateKeyPair, jwtVerify } from 'jose';
 import {
   getAccessTokenPublicJwks,
   resetAccessTokenKeyCache,
+  signConfidentialAccessToken,
   signMcpAccessToken,
 } from '../access-token.service.js';
 
@@ -74,5 +75,116 @@ describe('mcp access-token (RS256)', () => {
     await expect(
       jwtVerify(token, jwks, { audience: 'https://other.example/mcp' }),
     ).rejects.toThrow();
+  });
+
+  it('signs confidential exchange tokens without copying a domain credential', async () => {
+    const resource = 'https://ledger.unlikeotherai.com';
+    const token = await signConfidentialAccessToken({
+      subject: 'usr_1',
+      credentialEpoch: 0,
+      email: 'a@b.com',
+      sourceDomain: 'api.nessie.works',
+      product: 'nessie',
+      resource,
+      issuer: 'https://authentication.unlikeotherai.com',
+      ttlSeconds: 300,
+      scope: 'ai.invoke',
+      org: {
+        org_id: 'org_1',
+        org_role: 'member',
+        teams: ['team_1'],
+        team_roles: { team_1: 'member' },
+      },
+      active: { orgId: 'org_1', teamId: 'team_1' },
+      actor: {
+        sub: 'api.nessie.works',
+        product: 'nessie',
+      },
+    });
+
+    const jwks = createLocalJWKSet(await getAccessTokenPublicJwks());
+    const { payload, protectedHeader } = await jwtVerify(token, jwks, {
+      issuer: 'https://authentication.unlikeotherai.com',
+      audience: resource,
+    });
+    expect(protectedHeader.typ).toBe('at+jwt');
+    expect(payload).toMatchObject({
+      sub: 'usr_1',
+      tv: 0,
+      email: 'a@b.com',
+      source_domain: 'api.nessie.works',
+      azp: 'api.nessie.works',
+      product: 'nessie',
+      scope: 'ai.invoke',
+      active: { orgId: 'org_1', teamId: 'team_1' },
+      act: { sub: 'api.nessie.works', product: 'nessie' },
+    });
+    expect(payload.jti).toEqual(expect.any(String));
+    expect(payload.client_id).toBeUndefined();
+    expect(payload.domain).toBeUndefined();
+  });
+
+  it('signs an identity-only confidential token without org or active claims', async () => {
+    const resource = 'https://ledger.unlikeotherai.com';
+    const token = await signConfidentialAccessToken({
+      subject: 'usr_without_workspace',
+      credentialEpoch: 0,
+      email: 'first-login@example.com',
+      sourceDomain: 'api.nessie.works',
+      product: 'nessie',
+      resource,
+      issuer: 'https://authentication.unlikeotherai.com',
+      ttlSeconds: 300,
+      scope: 'ai.invoke',
+    });
+
+    const jwks = createLocalJWKSet(await getAccessTokenPublicJwks());
+    const { payload } = await jwtVerify(token, jwks, {
+      issuer: 'https://authentication.unlikeotherai.com',
+      audience: resource,
+    });
+    expect(payload).toMatchObject({
+      sub: 'usr_without_workspace',
+      tv: 0,
+      email: 'first-login@example.com',
+      source_domain: 'api.nessie.works',
+      azp: 'api.nessie.works',
+      product: 'nessie',
+      scope: 'ai.invoke',
+    });
+    expect(payload.org).toBeUndefined();
+    expect(payload.active).toBeUndefined();
+  });
+
+  it('uses an absolute expiry cap for a chained confidential token', async () => {
+    const resource = 'https://ledger.unlikeotherai.com';
+    const expiresAtEpochSeconds = Math.floor(Date.now() / 1000) + 45;
+    const token = await signConfidentialAccessToken({
+      subject: 'usr_1',
+      credentialEpoch: 0,
+      email: 'a@b.com',
+      sourceDomain: 'api.deepsignal.live',
+      product: 'deepsignal',
+      resource,
+      issuer: 'https://authentication.unlikeotherai.com',
+      ttlSeconds: 300,
+      expiresAtEpochSeconds,
+      scope: 'ai.invoke',
+      org: {
+        org_id: 'org_1',
+        org_role: 'member',
+        teams: ['team_1'],
+        team_roles: { team_1: 'member' },
+      },
+      active: { orgId: 'org_1', teamId: 'team_1' },
+      actor: { sub: 'api.nessie.works', product: 'nessie' },
+    });
+
+    const jwks = createLocalJWKSet(await getAccessTokenPublicJwks());
+    const { payload } = await jwtVerify(token, jwks, {
+      issuer: 'https://authentication.unlikeotherai.com',
+      audience: resource,
+    });
+    expect(payload.exp).toBe(expiresAtEpochSeconds);
   });
 });

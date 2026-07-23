@@ -1,22 +1,39 @@
-import { createHmac, randomBytes } from 'node:crypto';
-
 import type { PrismaClient } from '@prisma/client';
 import { SignJWT } from 'jose';
 
-import { ACCESS_TOKEN_AUDIENCE, AUTHORIZATION_CODE_TTL_MS } from '../config/constants.js';
+import { ACCESS_TOKEN_AUDIENCE } from '../config/constants.js';
 import { getAdminAuthDomain, getAuthServiceIdentifier, getEnv, requireEnv } from '../config/env.js';
-import { getPrisma } from '../db/prisma.js';
+import { getAdminPrisma, getPrisma } from '../db/prisma.js';
+import { runInTransaction } from '../db/tenant-context.js';
 import { ensureDomainRoleForUser, isPlatformSuperuser } from './domain-role.service.js';
 import { exchangeRefreshToken, issueRefreshToken } from './refresh-token.service.js';
+import { consumeAuthorizationCode } from './authorization-code.service.js';
 import { AppError } from '../utils/errors.js';
-import { getAppLogger } from '../utils/app-logger.js';
 import { normalizeDomain } from '../utils/domain.js';
 import type { ClientConfig } from './config.service.js';
-import { tryParseRedirectUrl } from '../utils/http-url.js';
-import { verifyPkceCodeVerifier } from '../utils/pkce.js';
-import { getUserOrgContext, type OrgContext } from './org-context.service.js';
-import { ensureUserHasRequiredTeam } from './user-team-requirement.service.js';
+import {
+  getActiveClientOrgContext,
+  getUserOrgContext,
+  type OrgContext,
+} from './org-context.service.js';
 import { buildFirstLoginBlock, type FirstLoginBlock } from './first-login.service.js';
+import {
+  resolveAuthorizationCodeWorkspace,
+  requiresExactAuthorizationWorkspace,
+} from './required-workspace-placement.service.js';
+import { lockTokenIssuanceProductPolicy } from './product-workspace-policy-lock.service.js';
+import { resolveProductWorkspacePolicy } from './product-workspace-policy.service.js';
+import { assertAuthorizationTwoFaProof } from './authorization-twofactor-proof.service.js';
+import {
+  createRefreshTokenFamilyDecisionLock,
+  createRefreshTokenRotationPolicyGuard,
+} from './refresh-token-rotation-policy.service.js';
+import { runRefreshTokenExchangeTransaction } from './refresh-token-transaction.service.js';
+import {
+  accessTokenExpiresInSeconds,
+  resolveAccessTokenTtl,
+  resolveRefreshTokenTtlSeconds,
+} from './token-session-ttl.service.js';
 
 type TokenPrisma = PrismaClient;
 
@@ -28,206 +45,18 @@ type TokenDeps = {
   now?: () => Date;
   refreshTokenTtlDays?: number;
   sharedSecret?: string;
+  // Deterministic concurrency-test hook. Production callers leave this unset.
+  afterProductWorkspacePolicyLock?: () => Promise<void>;
+  afterRefreshSessionLock?: () => Promise<void>;
+  afterActiveWorkspaceLock?: () => Promise<void>;
+  afterRequiredWorkspaceLock?: () => Promise<void>;
 };
-
-function generateAuthorizationCode(): string {
-  return randomBytes(32).toString('base64url');
-}
-
-function hashAuthorizationCode(code: string, pepper: string): string {
-  return createHmac('sha256', pepper).update(code, 'utf8').digest('hex');
-}
 
 function sharedSecretKey(sharedSecret: string): Uint8Array {
   return new TextEncoder().encode(sharedSecret);
 }
 
-function parseRedirectUrl(value: string): URL {
-  const u = tryParseRedirectUrl(value);
-  if (!u) throw new AppError('BAD_REQUEST', 400, 'INVALID_REDIRECT_URL');
-  return u;
-}
-
-export function selectRedirectUrl(params: {
-  allowedRedirectUrls: string[];
-  requestedRedirectUrl?: string;
-}): string {
-  const requested = params.requestedRedirectUrl?.trim();
-  if (requested) {
-    if (!params.allowedRedirectUrls.includes(requested)) {
-      throw new AppError('BAD_REQUEST', 400, 'REDIRECT_URL_NOT_ALLOWED');
-    }
-    parseRedirectUrl(requested);
-    return requested;
-  }
-
-  const candidate = params.allowedRedirectUrls[0]?.trim() ?? '';
-  if (!candidate) {
-    throw new AppError('BAD_REQUEST', 400, 'MISSING_REDIRECT_URL');
-  }
-
-  parseRedirectUrl(candidate);
-  return candidate;
-}
-
-export function buildRedirectToUrl(params: { redirectUrl: string; code: string }): string {
-  const u = parseRedirectUrl(params.redirectUrl);
-  u.searchParams.set('code', params.code);
-  return u.toString();
-}
-
-export async function issueAuthorizationCode(
-  params: {
-    userId: string;
-    domain: string;
-    configUrl: string;
-    redirectUrl: string;
-    codeChallenge?: string;
-    codeChallengeMethod?: 'S256';
-    rememberMe?: boolean;
-  },
-  deps?: TokenDeps,
-): Promise<{ code: string }> {
-  const env = getEnv();
-  if (!env.DATABASE_URL) {
-    throw new AppError('INTERNAL', 500, 'DATABASE_DISABLED');
-  }
-
-  const prisma = deps?.prisma ?? (getPrisma() as unknown as TokenPrisma);
-  const now = deps?.now ? deps.now() : new Date();
-  const sharedSecret = deps?.sharedSecret ?? requireEnv('SHARED_SECRET').SHARED_SECRET;
-
-  parseRedirectUrl(params.redirectUrl);
-
-  if (!params.codeChallenge || params.codeChallengeMethod !== 'S256') {
-    throw new AppError('BAD_REQUEST', 400, 'PKCE_REQUIRED');
-  }
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const code = generateAuthorizationCode();
-    const codeHash = hashAuthorizationCode(code, sharedSecret);
-    const expiresAt = new Date(now.getTime() + AUTHORIZATION_CODE_TTL_MS);
-
-    try {
-      await prisma.authorizationCode.create({
-        data: {
-          codeHash,
-          userId: params.userId,
-          domain: params.domain,
-          configUrl: params.configUrl,
-          redirectUrl: params.redirectUrl,
-          codeChallenge: params.codeChallenge,
-          codeChallengeMethod: params.codeChallengeMethod,
-          rememberMe: params.rememberMe ?? false,
-          expiresAt,
-        },
-        select: { id: true },
-      });
-
-      return { code };
-    } catch (err) {
-      const codeValue = (err as { code?: unknown } | null)?.code;
-      if (codeValue === 'P2002') continue;
-      throw err;
-    }
-  }
-
-  throw new AppError('INTERNAL', 500, 'AUTH_CODE_COLLISION');
-}
-
-async function consumeAuthorizationCode(params: {
-  code: string;
-  configUrl: string;
-  domain: string;
-  redirectUrl: string;
-  codeVerifier?: string;
-  now: Date;
-  sharedSecret: string;
-  prisma: TokenPrisma;
-}): Promise<{ userId: string; rememberMe: boolean }> {
-  const codeHash = hashAuthorizationCode(params.code, params.sharedSecret);
-  const row = await params.prisma.authorizationCode.findUnique({
-    where: { codeHash },
-    select: {
-      id: true,
-      userId: true,
-      domain: true,
-      configUrl: true,
-      redirectUrl: true,
-      codeChallenge: true,
-      codeChallengeMethod: true,
-      rememberMe: true,
-      expiresAt: true,
-      usedAt: true,
-    },
-  });
-
-  // Authorization-code rejection always surfaces the same opaque
-  // INVALID_AUTH_CODE to the client (no oracle), but we log the precise
-  // reason server-side so an operator can diagnose a failing first login on a
-  // fresh install without guessing. No secrets (code/verifier) are logged.
-  const rejectAuthCode = (reason: string, detail?: Record<string, unknown>): never => {
-    try {
-      getAppLogger().warn(
-        { reason, domain: params.domain, configUrl: params.configUrl, ...detail },
-        'authorization code rejected',
-      );
-    } catch {
-      // Logger not initialised (e.g. in unit tests) — diagnostics are best-effort
-      // and must never change the opaque rejection behaviour below.
-    }
-    throw new AppError('UNAUTHORIZED', 401, 'INVALID_AUTH_CODE');
-  };
-
-  if (!row) return rejectAuthCode('code_not_found');
-  if (row.domain !== params.domain)
-    rejectAuthCode('domain_mismatch', { rowDomain: row.domain });
-  if (row.configUrl !== params.configUrl)
-    rejectAuthCode('config_url_mismatch', { rowConfigUrl: row.configUrl });
-  if (row.redirectUrl !== params.redirectUrl)
-    rejectAuthCode('redirect_url_mismatch', {
-      rowRedirectUrl: row.redirectUrl,
-      paramRedirectUrl: params.redirectUrl,
-    });
-  // PKCE is mandatory at issuance (issueAuthorizationCode throws PKCE_REQUIRED),
-  // so it is mandatory at redemption too. Requiring the challenge here — rather
-  // than only verifying `if (row.codeChallenge)` — closes a downgrade footgun: a
-  // code that ever reached the store without a challenge must never be redeemable
-  // without proof of the code_verifier that binds it to the initiating browser.
-  if (row.codeChallenge && row.codeChallengeMethod === 'S256') {
-    try {
-      verifyPkceCodeVerifier({
-        codeVerifier: params.codeVerifier,
-        codeChallenge: row.codeChallenge,
-      });
-    } catch {
-      rejectAuthCode('pkce_verifier_invalid', {
-        codeVerifierPresent: Boolean(params.codeVerifier),
-        codeVerifierLength: params.codeVerifier?.length ?? 0,
-      });
-    }
-  } else {
-    rejectAuthCode('pkce_required', { method: row.codeChallengeMethod });
-  }
-  if (row.usedAt) rejectAuthCode('already_used', { usedAt: row.usedAt.toISOString() });
-  if (row.expiresAt.getTime() <= params.now.getTime()) rejectAuthCode('expired');
-
-  const updated = await params.prisma.authorizationCode.updateMany({
-    where: {
-      id: row.id,
-      usedAt: null,
-      expiresAt: { gt: params.now },
-    },
-    data: {
-      usedAt: params.now,
-    },
-  });
-  if (updated.count !== 1) {
-    rejectAuthCode('concurrent_consume');
-  }
-
-  return { userId: row.userId, rememberMe: row.rememberMe };
-}
+type ActiveWorkspace = { orgId: string; teamId: string };
 
 async function signAccessToken(params: {
   userId: string;
@@ -240,6 +69,7 @@ async function signAccessToken(params: {
   issuer: string;
   tokenVersion: number;
   org?: OrgContext | null;
+  active?: ActiveWorkspace | null;
 }): Promise<string> {
   const payload = {
     email: params.email,
@@ -254,10 +84,15 @@ async function signAccessToken(params: {
     role: 'superuser' | 'user';
     tv: number;
     org?: OrgContext;
+    active?: ActiveWorkspace;
   };
 
   if (params.org) {
     payload.org = params.org;
+  }
+
+  if (params.active) {
+    payload.active = params.active;
   }
 
   try {
@@ -272,30 +107,6 @@ async function signAccessToken(params: {
   } catch {
     throw new AppError('INTERNAL', 500, 'TOKEN_SIGN_FAILED');
   }
-}
-
-function accessTokenExpiresInSeconds(ttl: string): number {
-  const minutes = Number(ttl.replace(/m$/, ''));
-  if (!Number.isFinite(minutes) || minutes <= 0) {
-    throw new AppError('INTERNAL', 500, 'INVALID_ACCESS_TOKEN_TTL');
-  }
-  return minutes * 60;
-}
-
-function resolveAccessTokenTtl(config: ClientConfig, envTtl: string): string {
-  const configMinutes = config.session?.access_token_ttl_minutes;
-  if (configMinutes != null) return `${configMinutes}m`;
-  return envTtl;
-}
-
-function resolveRefreshTokenTtlSeconds(config: ClientConfig, rememberMe: boolean): number {
-  const session = config.session;
-  if (rememberMe) {
-    const days = session?.long_refresh_token_ttl_days ?? 30;
-    return days * 24 * 60 * 60;
-  }
-  const hours = session?.short_refresh_token_ttl_hours ?? 1;
-  return hours * 60 * 60;
 }
 
 function resolveAccessTokenContext(params: {
@@ -345,6 +156,7 @@ async function issueTokenPairForUser(
     refreshTokenExpiresInSeconds: number;
     userId: string;
     includeFirstLogin?: boolean;
+    active?: ActiveWorkspace | null;
   },
   deps?: TokenIssuerDeps,
 ): Promise<IssuedTokenPair> {
@@ -377,23 +189,45 @@ async function issueTokenPairForUser(
     clientId: params.clientId,
     sharedSecret,
   });
-  await ensureUserHasRequiredTeam(
-    {
-      userId: params.userId,
-      config: params.config,
-    },
-    { env, prisma },
-  );
-  const org = params.config.org_features?.enabled
-    ? await getUserOrgContext(
+  const activeOrgContext = params.active
+    ? await getActiveClientOrgContext(
         {
           userId: params.userId,
           domain: params.config.domain,
-          config: params.config,
+          orgId: params.active.orgId,
+          groupsEnabled: params.config.org_features?.groups_enabled,
         },
-        { env, prisma },
+        {
+          crossProductPrisma: deps?.adminPrisma ?? prisma,
+          env,
+          policyPrisma: deps?.adminPrisma ?? prisma,
+          prisma,
+        },
       )
     : null;
+  if (
+    params.active &&
+    (activeOrgContext?.org_id !== params.active.orgId ||
+      !activeOrgContext.teams.includes(params.active.teamId))
+  ) {
+    // Never sign a caller-supplied/stored active scope merely because it was
+    // valid earlier in the flow. The exact product policy and both ACTIVE
+    // memberships must still hold at the signing boundary.
+    throw new AppError('UNAUTHORIZED', 401, 'AUTHENTICATION_FAILED');
+  }
+
+  const org =
+    activeOrgContext ??
+    (params.config.org_features?.enabled
+      ? await getUserOrgContext(
+          {
+            userId: params.userId,
+            domain: params.config.domain,
+            config: params.config,
+          },
+          { env, prisma },
+        )
+      : null);
 
   const accessToken = await signAccessToken({
     userId: params.userId,
@@ -406,11 +240,18 @@ async function issueTokenPairForUser(
     issuer,
     tokenVersion: user.tokenVersion,
     org,
+    active: params.active,
   });
 
   const firstLogin = params.includeFirstLogin
-    ? (await buildFirstLoginBlock({ userId: params.userId, config: params.config }, { prisma })) ??
-      undefined
+    ? ((await buildFirstLoginBlock(
+        { userId: params.userId, config: params.config },
+        {
+          crossProductPrisma: deps?.adminPrisma ?? prisma,
+          policyPrisma: deps?.adminPrisma ?? prisma,
+          prisma,
+        },
+      )) ?? undefined)
     : undefined;
 
   return {
@@ -430,6 +271,7 @@ export async function exchangeAuthorizationCodeForTokens(
     redirectUrl: string;
     codeVerifier?: string;
     clientId?: string;
+    authenticatedClientDomainId?: string;
   },
   deps?: TokenIssuerDeps,
 ): Promise<IssuedTokenPair> {
@@ -439,55 +281,93 @@ export async function exchangeAuthorizationCodeForTokens(
     throw new AppError('INTERNAL', 500, 'DATABASE_DISABLED');
   }
 
-  const now = deps?.now ? deps.now() : new Date();
   const sharedSecret = deps?.sharedSecret ?? requireEnv('SHARED_SECRET').SHARED_SECRET;
-  const prisma = deps?.prisma ?? getPrisma();
-  const clientId = params.clientId ?? resolveAccessTokenContext({
-    domain: params.config.domain,
-    env,
-    sharedSecret,
-  }).clientId;
-
-  const { userId, rememberMe } = await consumeAuthorizationCode({
-    code: params.code,
-    configUrl: params.configUrl,
-    domain: params.config.domain,
-    redirectUrl: params.redirectUrl,
-    codeVerifier: params.codeVerifier,
-    now,
-    sharedSecret,
-    prisma,
-  });
-
-  const refreshTtlSeconds = resolveRefreshTokenTtlSeconds(params.config, rememberMe);
-  const issuedRefreshToken = await issueRefreshToken(
-    {
-      userId,
+  const adminPrisma = deps?.adminPrisma ?? deps?.prisma ?? getAdminPrisma();
+  const clientId =
+    params.clientId ??
+    resolveAccessTokenContext({
       domain: params.config.domain,
-      clientId,
-      configUrl: params.configUrl,
-    },
-    {
-      now: deps?.now,
-      prisma,
-      refreshTokenTtlSeconds: refreshTtlSeconds,
+      env,
       sharedSecret,
-    },
-  );
+    }).clientId;
 
-  const accessTtl = resolveAccessTokenTtl(params.config, env.ACCESS_TOKEN_TTL);
-  return issueTokenPairForUser(
-    {
-      userId,
-      config: params.config,
+  return runInTransaction(adminPrisma, async (tx) => {
+    await lockTokenIssuanceProductPolicy(
+      { clientDomainId: params.authenticatedClientDomainId, domain: params.config.domain },
+      { prisma: tx, afterLock: deps?.afterProductWorkspacePolicyLock },
+    );
+    const now = deps?.now ? deps.now() : new Date();
+    const { userId, rememberMe, twoFaCompleted, orgId, teamId } = await consumeAuthorizationCode({
+      code: params.code,
       configUrl: params.configUrl,
-      clientId,
-      refreshToken: issuedRefreshToken.refreshToken,
-      refreshTokenExpiresInSeconds: issuedRefreshToken.expiresInSeconds,
-      includeFirstLogin: true,
-    },
-    { ...deps, accessTokenTtl: accessTtl },
-  );
+      domain: params.config.domain,
+      redirectUrl: params.redirectUrl,
+      codeVerifier: params.codeVerifier,
+      now,
+      sharedSecret,
+      prisma: tx,
+      crossProductPrisma: tx,
+      policyPrisma: tx,
+      afterActiveScopeLock: deps?.afterActiveWorkspaceLock,
+    });
+
+    // Both values must be present to carry an explicit or unambiguously auto-selected workspace
+    // onto the session (design §7 steps 3-4).
+    const active: ActiveWorkspace | null = await resolveAuthorizationCodeWorkspace(
+      { userId, config: params.config, stored: { orgId, teamId } },
+      {
+        afterWorkspaceLock: deps?.afterRequiredWorkspaceLock,
+        env,
+        prisma: tx,
+        workspacePrisma: tx,
+      },
+    );
+
+    // Re-evaluate the strongest current policy after the exact workspace is
+    // locked/resolved. A policy or enrollment change after interactive auth
+    // can invalidate the code, but can never downgrade the required proof.
+    await assertAuthorizationTwoFaProof(
+      { config: params.config, userId, orgId: active?.orgId, twoFaCompleted },
+      { prisma: tx },
+    );
+    const refreshTtlSeconds = resolveRefreshTokenTtlSeconds(params.config, rememberMe);
+    const issuedRefreshToken = await issueRefreshToken(
+      {
+        userId,
+        domain: params.config.domain,
+        clientId,
+        configUrl: params.configUrl,
+        orgId: active?.orgId,
+        teamId: active?.teamId,
+      },
+      {
+        now: deps?.now,
+        prisma: tx,
+        refreshTokenTtlSeconds: refreshTtlSeconds,
+        sharedSecret,
+      },
+    );
+
+    const accessTtl = resolveAccessTokenTtl(params.config, env.ACCESS_TOKEN_TTL);
+    return issueTokenPairForUser(
+      {
+        userId,
+        config: params.config,
+        configUrl: params.configUrl,
+        clientId,
+        refreshToken: issuedRefreshToken.refreshToken,
+        refreshTokenExpiresInSeconds: issuedRefreshToken.expiresInSeconds,
+        includeFirstLogin: true,
+        active,
+      },
+      {
+        ...deps,
+        prisma: tx,
+        adminPrisma: tx,
+        accessTokenTtl: accessTtl,
+      },
+    );
+  });
 }
 
 export async function exchangeRefreshTokenForTokens(
@@ -496,6 +376,7 @@ export async function exchangeRefreshTokenForTokens(
     configUrl: string;
     refreshToken: string;
     clientId?: string;
+    authenticatedClientDomainId?: string;
   },
   deps?: TokenIssuerDeps,
 ): Promise<IssuedTokenPair> {
@@ -507,36 +388,104 @@ export async function exchangeRefreshTokenForTokens(
 
   const sharedSecret = deps?.sharedSecret ?? requireEnv('SHARED_SECRET').SHARED_SECRET;
   const prisma = deps?.prisma ?? getPrisma();
-  const clientId = params.clientId ?? resolveAccessTokenContext({
-    domain: params.config.domain,
-    env,
-    sharedSecret,
-  }).clientId;
-
-  const rotatedRefreshToken = await exchangeRefreshToken(
-    {
-      refreshToken: params.refreshToken,
+  const adminPrisma = deps?.adminPrisma ?? prisma;
+  const clientId =
+    params.clientId ??
+    resolveAccessTokenContext({
       domain: params.config.domain,
-      clientId,
-      configUrl: params.configUrl,
-    },
-    {
-      now: deps?.now,
-      prisma,
+      env,
       sharedSecret,
-    },
-  );
+    }).clientId;
 
-  const accessTtl = resolveAccessTokenTtl(params.config, getEnv().ACCESS_TOKEN_TTL);
-  return issueTokenPairForUser(
-    {
-      userId: rotatedRefreshToken.userId,
-      config: params.config,
-      configUrl: params.configUrl,
-      clientId,
-      refreshToken: rotatedRefreshToken.refreshToken,
-      refreshTokenExpiresInSeconds: rotatedRefreshToken.expiresInSeconds,
-    },
-    { ...deps, accessTokenTtl: accessTtl },
-  );
+  const exchangeInsideTransaction = async (tx: PrismaClient): Promise<IssuedTokenPair> => {
+    await lockTokenIssuanceProductPolicy(
+      { clientDomainId: params.authenticatedClientDomainId, domain: params.config.domain },
+      { prisma: tx, afterLock: deps?.afterProductWorkspacePolicyLock },
+    );
+    const rotatedRefreshToken = await exchangeRefreshToken(
+      {
+        refreshToken: params.refreshToken,
+        domain: params.config.domain,
+        clientId,
+        configUrl: params.configUrl,
+      },
+      {
+        now: deps?.now,
+        prisma: tx,
+        sharedSecret,
+        beforeFamilyDecision: createRefreshTokenFamilyDecisionLock({
+          prisma: tx,
+          afterLock: deps?.afterRefreshSessionLock,
+        }),
+        beforeRotate: createRefreshTokenRotationPolicyGuard({
+          prisma: tx,
+          now: deps?.now,
+          afterWorkspaceLock: deps?.afterActiveWorkspaceLock,
+        }),
+      },
+    );
+
+    // Re-validate the exact selected workspace on every refresh. Product-bound
+    // clients use the same central eligibility policy as the chooser and code
+    // exchange; deactivated/removed membership or revoked product policy drops
+    // `active` within one access-token TTL.
+    const storedScopePresent = Boolean(rotatedRefreshToken.orgId || rotatedRefreshToken.teamId);
+    if (!storedScopePresent) {
+      const policy = await resolveProductWorkspacePolicy(
+        { domain: params.config.domain },
+        { prisma: tx },
+      );
+      if (requiresExactAuthorizationWorkspace(params.config, policy)) {
+        throw new AppError('UNAUTHORIZED', 401, 'INVALID_REFRESH_TOKEN');
+      }
+    }
+    let active: ActiveWorkspace | null = null;
+    if (storedScopePresent) {
+      if (!rotatedRefreshToken.orgId || !rotatedRefreshToken.teamId) {
+        throw new AppError('UNAUTHORIZED', 401, 'INVALID_REFRESH_TOKEN');
+      }
+      const orgContext = await getActiveClientOrgContext(
+        {
+          userId: rotatedRefreshToken.userId,
+          domain: params.config.domain,
+          orgId: rotatedRefreshToken.orgId,
+          groupsEnabled: params.config.org_features?.groups_enabled,
+        },
+        { crossProductPrisma: tx, env, policyPrisma: tx, prisma: tx },
+      );
+      if (
+        orgContext?.org_id !== rotatedRefreshToken.orgId ||
+        !orgContext.teams.includes(rotatedRefreshToken.teamId)
+      ) {
+        // Rotation and this decision share the same admin transaction. Throwing
+        // rolls the replacement token back and forces an interactive workspace
+        // selection instead of silently switching or creating a workspace.
+        throw new AppError('UNAUTHORIZED', 401, 'INVALID_REFRESH_TOKEN');
+      }
+      active = { orgId: rotatedRefreshToken.orgId, teamId: rotatedRefreshToken.teamId };
+    }
+
+    const accessTtl = resolveAccessTokenTtl(params.config, getEnv().ACCESS_TOKEN_TTL);
+    return issueTokenPairForUser(
+      {
+        userId: rotatedRefreshToken.userId,
+        config: params.config,
+        configUrl: params.configUrl,
+        clientId,
+        refreshToken: rotatedRefreshToken.refreshToken,
+        refreshTokenExpiresInSeconds: rotatedRefreshToken.expiresInSeconds,
+        active,
+      },
+      {
+        ...deps,
+        prisma: tx,
+        adminPrisma: tx,
+        accessTokenTtl: accessTtl,
+      },
+    );
+  };
+
+  // Production passes the BYPASSRLS client here. Keeping the complete refresh decision in
+  // one transaction makes policy publication/revocation checks atomic with token rotation.
+  return runRefreshTokenExchangeTransaction(adminPrisma, exchangeInsideTransaction);
 }

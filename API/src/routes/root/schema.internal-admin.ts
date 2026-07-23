@@ -1,5 +1,7 @@
 import type { EndpointSchema } from './schema.js';
 import { buildInternalAdminAppEndpoints } from './schema.internal-admin-apps.js';
+import { buildInternalAdminConfidentialDelegationEndpoints } from './schema.internal-admin-delegations.js';
+import { buildInternalAdminSignatureEndpoints } from './schema.internal-admin-signatures.js';
 
 const adminAuth =
   'Authorization: Bearer <access_token>; admin tokens must be signed with ADMIN_ACCESS_TOKEN_SECRET, token role must be superuser, domain must match ADMIN_AUTH_DOMAIN, and DB-backed deployments require a SUPERUSER domain_roles row';
@@ -19,7 +21,8 @@ export const internalAdminEndpoints: EndpointSchema[] = [
   {
     method: 'POST',
     path: '/internal/admin/token',
-    description: 'Browser-safe Admin UI authorization-code exchange; returns an admin access token only',
+    description:
+      'Browser-safe Admin UI authorization-code exchange; consumes the code and creates tokens in one BYPASSRLS transaction, and returns an admin access token only',
     auth: 'Verified config_url whose domain matches ADMIN_AUTH_DOMAIN; one-time authorization code with PKCE. Does not use domain-hash bearer auth and does not return refresh tokens.',
     body: {
       code: 'string (required)',
@@ -201,6 +204,8 @@ export const internalAdminEndpoints: EndpointSchema[] = [
     auth: adminAuth,
     response: { 204: 'No content', '401/403': authFailures },
   },
+  ...buildInternalAdminConfidentialDelegationEndpoints({ adminAuth, authFailures }),
+  ...buildInternalAdminSignatureEndpoints({ adminAuth, authFailures }),
   {
     method: 'GET',
     path: '/internal/admin/superusers',
@@ -347,13 +352,15 @@ export const internalAdminEndpoints: EndpointSchema[] = [
   {
     method: 'PATCH',
     path: '/internal/admin/organisations/:orgId/teams/:teamId',
-    description: 'Replace team login access whitelist lists',
+    description: 'Update team name, description, and/or login access whitelist lists',
     auth: adminAuth,
     body: {
+      name: 'string (optional, max 100)',
+      description: 'string | null (optional, max 500)',
       allowed_email_domains: 'string[] (optional, max 50)',
       allowed_emails: 'string[] (optional, max 200)',
     },
-    response: { 200: '{ org, team } or null with updated team whitelist', '401/403': authFailures },
+    response: { 200: '{ org, team } or null with updated team fields', '401/403': authFailures },
   },
   {
     method: 'GET',
@@ -400,6 +407,35 @@ export const internalAdminEndpoints: EndpointSchema[] = [
     auth: adminAuth,
     query: { limit: 'number (optional, max 500)' },
     response: { 200: 'Sanitized handshake error log array with requestJson, responseJson, jwtHeader, jwtPayload, and redactions', '401/403': authFailures },
+  },
+  {
+    method: 'GET',
+    path: '/internal/admin/bans',
+    description: 'List all admin bans grouped by type (emails, patterns, ips, users)',
+    auth: adminAuth,
+    response: { 200: '{ emails, patterns, ips, users } of { id, value, label, bannedAt, reason? }', '401/403': authFailures },
+  },
+  {
+    method: 'POST',
+    path: '/internal/admin/bans',
+    description: 'Create a ban. Scope is client-domain by default; supply org_id for an organisation ban or team_id for a team ban (the org/team must belong to domain). A ban overrides any allow-list and is enforced at login and registration.',
+    auth: adminAuth,
+    body: {
+      type: "string (required) — 'email' | 'pattern' | 'ip' | 'user'",
+      value: 'string (required) — email, glob pattern (e.g. *@evil.com), IP or CIDR, or userId',
+      domain: 'string (required) — client domain the ban is scoped to',
+      'org_id?': 'string — organisation ban (must belong to domain)',
+      'team_id?': 'string — team ban (must belong to domain); takes precedence over org_id',
+      'reason?': 'string (max 500) — audit note',
+    },
+    response: { 200: '{ id, value, label, bannedAt, reason? }', '401/403': authFailures },
+  },
+  {
+    method: 'DELETE',
+    path: '/internal/admin/bans/:id',
+    description: 'Remove a ban by id',
+    auth: adminAuth,
+    response: { 200: '{ id }', '401/403': authFailures },
   },
   {
     method: 'GET',

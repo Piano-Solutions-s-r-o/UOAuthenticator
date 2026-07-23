@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { getAdminAuthDomain, getAuthServiceIdentifier, parseEnv } from '../../src/config/env.js';
+import {
+  getAdminAuthDomain,
+  getAuthServiceIdentifier,
+  isMcpOAuthPublicProfileEnabled,
+  isOAuthAccessTokenJwksEnabled,
+  isTariffSnapshotJwksEnabled,
+  parseEnv,
+} from '../../src/config/env.js';
 
 function baseInput(overrides?: Partial<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
   return {
@@ -23,6 +30,29 @@ function baseInput(overrides?: Partial<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
 }
 
 describe('env', () => {
+  it('requires private production-safe storage when contract invoice PDFs are enabled', () => {
+    expect(parseEnv(baseInput()).BILLING_INVOICE_STORAGE_PROVIDER).toBe('disabled');
+    expect(() => parseEnv(baseInput({ BILLING_INVOICE_STORAGE_PROVIDER: 'filesystem' }))).toThrow();
+    expect(
+      parseEnv(
+        baseInput({
+          BILLING_INVOICE_STORAGE_PROVIDER: 'filesystem',
+          BILLING_INVOICE_FILESYSTEM_ROOT: '/tmp/uoa-invoices',
+        }),
+      ).BILLING_INVOICE_FILESYSTEM_ROOT,
+    ).toBe('/tmp/uoa-invoices');
+    expect(() =>
+      parseEnv(
+        baseInput({
+          NODE_ENV: 'production',
+          BILLING_INVOICE_STORAGE_PROVIDER: 'filesystem',
+          BILLING_INVOICE_FILESYSTEM_ROOT: '/tmp/uoa-invoices',
+        }),
+      ),
+    ).toThrow();
+    expect(() => parseEnv(baseInput({ BILLING_INVOICE_STORAGE_PROVIDER: 'gcs' }))).toThrow();
+  });
+
   it('accepts ses as EMAIL_PROVIDER', () => {
     const env = parseEnv(baseInput({ EMAIL_PROVIDER: 'ses', AWS_REGION: 'eu-west-1' }));
     expect(env.EMAIL_PROVIDER).toBe('ses');
@@ -30,7 +60,9 @@ describe('env', () => {
   });
 
   it('accepts sendgrid as EMAIL_PROVIDER', () => {
-    const env = parseEnv(baseInput({ EMAIL_PROVIDER: 'sendgrid', SENDGRID_API_KEY: 'SG.example-key' }));
+    const env = parseEnv(
+      baseInput({ EMAIL_PROVIDER: 'sendgrid', SENDGRID_API_KEY: 'SG.example-key' }),
+    );
     expect(env.EMAIL_PROVIDER).toBe('sendgrid');
     expect(env.SENDGRID_API_KEY).toBe('SG.example-key');
   });
@@ -106,6 +138,146 @@ describe('env', () => {
     expect(() => parseEnv(baseInput({ ACCESS_TOKEN_TTL: '30' }))).toThrow();
   });
 
+  it('keeps the public OAuth profile off when only the resource-token signer is configured', () => {
+    const env = parseEnv(
+      baseInput({
+        MCP_OAUTH_ACCESS_TOKEN_PRIVATE_JWK: '{}',
+      }),
+    );
+
+    expect(isOAuthAccessTokenJwksEnabled(env)).toBe(true);
+    expect(isMcpOAuthPublicProfileEnabled(env)).toBe(false);
+    expect(env.MCP_OAUTH_PUBLIC_PROFILE_ENABLED).toBe(false);
+  });
+
+  it('enables tariff snapshots only with a matching private key and overlapping public JWKS', () => {
+    const privateKey = JSON.stringify({
+      kty: 'RSA',
+      kid: 'tariff-2026-07',
+      alg: 'RS256',
+      use: 'sig',
+      n: 'modulus',
+      e: 'AQAB',
+      d: 'private',
+    });
+    const publicKeys = JSON.stringify({
+      keys: [
+        {
+          kty: 'RSA',
+          kid: 'tariff-2026-06',
+          alg: 'RS256',
+          use: 'sig',
+          n: 'retired-modulus',
+          e: 'AQAB',
+        },
+        {
+          kty: 'RSA',
+          kid: 'tariff-2026-07',
+          alg: 'RS256',
+          use: 'sig',
+          n: 'modulus',
+          e: 'AQAB',
+        },
+      ],
+    });
+
+    expect(isTariffSnapshotJwksEnabled(parseEnv(baseInput()))).toBe(false);
+    expect(
+      isTariffSnapshotJwksEnabled(
+        parseEnv(
+          baseInput({
+            TARIFF_SNAPSHOT_PRIVATE_JWK: privateKey,
+            TARIFF_SNAPSHOT_PUBLIC_JWKS_JSON: publicKeys,
+          }),
+        ),
+      ),
+    ).toBe(true);
+    expect(() =>
+      parseEnv(
+        baseInput({
+          TARIFF_SNAPSHOT_PRIVATE_JWK: JSON.stringify({
+            kty: 'RSA',
+            kid: 'public-only',
+            alg: 'RS256',
+            use: 'sig',
+            n: 'modulus',
+            e: 'AQAB',
+          }),
+          TARIFF_SNAPSHOT_PUBLIC_JWKS_JSON: publicKeys,
+        }),
+      ),
+    ).toThrow();
+    expect(() =>
+      parseEnv(
+        baseInput({
+          TARIFF_SNAPSHOT_PRIVATE_JWK: JSON.stringify({
+            kty: 'RSA',
+            kid: 'wrong-algorithm',
+            alg: 'ES256',
+            n: 'modulus',
+            e: 'AQAB',
+            d: 'private',
+          }),
+          TARIFF_SNAPSHOT_PUBLIC_JWKS_JSON: publicKeys,
+        }),
+      ),
+    ).toThrow();
+    expect(() => parseEnv(baseInput({ TARIFF_SNAPSHOT_PRIVATE_JWK: privateKey }))).toThrow();
+    expect(() => parseEnv(baseInput({ TARIFF_SNAPSHOT_PUBLIC_JWKS_JSON: publicKeys }))).toThrow();
+    expect(() =>
+      parseEnv(
+        baseInput({
+          TARIFF_SNAPSHOT_PRIVATE_JWK: privateKey,
+          TARIFF_SNAPSHOT_PUBLIC_JWKS_JSON: JSON.stringify({
+            keys: [
+              {
+                kty: 'RSA',
+                kid: 'tariff-2026-07',
+                alg: 'RS256',
+                use: 'sig',
+                n: 'different-modulus',
+                e: 'AQAB',
+              },
+            ],
+          }),
+        }),
+      ),
+    ).toThrow();
+  });
+
+  it('requires an explicit flag, signing key, and dedicated domain for public OAuth', () => {
+    expect(() => parseEnv(baseInput({ MCP_OAUTH_PUBLIC_PROFILE_ENABLED: 'true' }))).toThrow();
+    expect(() =>
+      parseEnv(
+        baseInput({
+          MCP_OAUTH_PUBLIC_PROFILE_ENABLED: 'true',
+          MCP_OAUTH_ACCESS_TOKEN_PRIVATE_JWK: '{}',
+        }),
+      ),
+    ).toThrow();
+
+    const env = parseEnv(
+      baseInput({
+        MCP_OAUTH_PUBLIC_PROFILE_ENABLED: 'true',
+        MCP_OAUTH_ACCESS_TOKEN_PRIVATE_JWK: '{}',
+        MCP_OAUTH_DOMAIN: 'oauth.example.com',
+      }),
+    );
+    expect(isMcpOAuthPublicProfileEnabled(env)).toBe(true);
+  });
+
+  it('fails the public OAuth gate closed when its domain is the admin domain', () => {
+    const env = parseEnv(
+      baseInput({
+        ADMIN_AUTH_DOMAIN: 'oauth.example.com',
+        MCP_OAUTH_PUBLIC_PROFILE_ENABLED: 'true',
+        MCP_OAUTH_ACCESS_TOKEN_PRIVATE_JWK: '{}',
+        MCP_OAUTH_DOMAIN: 'oauth.example.com',
+      }),
+    );
+    expect(isMcpOAuthPublicProfileEnabled(env)).toBe(false);
+  });
+
   it('accepts REFRESH_TOKEN_TTL_DAYS between 1 and 90', () => {
     expect(parseEnv(baseInput({ REFRESH_TOKEN_TTL_DAYS: '1' })).REFRESH_TOKEN_TTL_DAYS).toBe(1);
     expect(parseEnv(baseInput({ REFRESH_TOKEN_TTL_DAYS: '90' })).REFRESH_TOKEN_TTL_DAYS).toBe(90);
@@ -114,5 +286,132 @@ describe('env', () => {
   it('rejects REFRESH_TOKEN_TTL_DAYS outside the allowed window', () => {
     expect(() => parseEnv(baseInput({ REFRESH_TOKEN_TTL_DAYS: '0' }))).toThrow();
     expect(() => parseEnv(baseInput({ REFRESH_TOKEN_TTL_DAYS: '91' }))).toThrow();
+  });
+
+  it('keeps signature storage disabled by default with bounded PDF limits', () => {
+    const env = parseEnv(baseInput());
+
+    expect(env.SIGNATURE_STORAGE_PROVIDER).toBe('disabled');
+    expect(env.SIGNATURE_MALWARE_SCANNER).toBe('disabled');
+    expect(env.SIGNATURE_CLAMDSCAN_PATH).toBe('clamdscan');
+    expect(env.SIGNATURE_MALWARE_SCAN_TIMEOUT_MS).toBe(30_000);
+    expect(env.SIGNATURE_MAX_PDF_BYTES).toBe(25 * 1024 * 1024);
+    expect(env.SIGNATURE_MAX_PDF_PAGES).toBe(200);
+  });
+
+  it('requires a root for local signature storage and rejects it in production', () => {
+    expect(() => parseEnv(baseInput({ SIGNATURE_STORAGE_PROVIDER: 'filesystem' }))).toThrow();
+    expect(() =>
+      parseEnv(
+        baseInput({
+          NODE_ENV: 'production',
+          SIGNATURE_STORAGE_PROVIDER: 'filesystem',
+          SIGNATURE_FILESYSTEM_ROOT: '/private/signatures',
+        }),
+      ),
+    ).toThrow();
+    expect(
+      parseEnv(
+        baseInput({
+          SIGNATURE_STORAGE_PROVIDER: 'filesystem',
+          SIGNATURE_FILESYSTEM_ROOT: '/tmp/uoa-signatures',
+        }),
+      ).SIGNATURE_FILESYSTEM_ROOT,
+    ).toBe('/tmp/uoa-signatures');
+  });
+
+  it('requires a bucket for GCS signature storage', () => {
+    expect(() => parseEnv(baseInput({ SIGNATURE_STORAGE_PROVIDER: 'gcs' }))).toThrow();
+    expect(
+      parseEnv(
+        baseInput({ SIGNATURE_STORAGE_PROVIDER: 'gcs', SIGNATURE_GCS_BUCKET: 'uoa-signatures' }),
+      ).SIGNATURE_GCS_BUCKET,
+    ).toBe('uoa-signatures');
+  });
+
+  it('accepts a dedicated evidence key pair and requires matching current kids', () => {
+    const privateKey = JSON.stringify({
+      kty: 'RSA',
+      kid: 'evidence-2026-07',
+      alg: 'RS256',
+      use: 'sig',
+      n: 'modulus',
+      e: 'AQAB',
+      d: 'private',
+    });
+    const publicKeys = JSON.stringify({
+      keys: [
+        {
+          kty: 'RSA',
+          kid: 'evidence-2026-07',
+          alg: 'RS256',
+          use: 'sig',
+          n: 'modulus',
+          e: 'AQAB',
+        },
+      ],
+    });
+    const env = parseEnv(
+      baseInput({
+        SIGNATURE_EVIDENCE_PRIVATE_JWK: privateKey,
+        SIGNATURE_EVIDENCE_PUBLIC_JWKS_JSON: publicKeys,
+      }),
+    );
+    expect(env.SIGNATURE_EVIDENCE_PRIVATE_JWK).toBe(privateKey);
+    expect(env.SIGNATURE_EVIDENCE_PUBLIC_JWKS_JSON).toBe(publicKeys);
+
+    expect(() =>
+      parseEnv(
+        baseInput({
+          SIGNATURE_EVIDENCE_PRIVATE_JWK: privateKey,
+          SIGNATURE_EVIDENCE_PUBLIC_JWKS_JSON: JSON.stringify({
+            keys: [{ kty: 'RSA', kid: 'old', n: 'old', e: 'AQAB' }],
+          }),
+        }),
+      ),
+    ).toThrow();
+  });
+
+  it('rejects malformed, non-RS256, duplicate, and private evidence verification keys', () => {
+    expect(() => parseEnv(baseInput({ SIGNATURE_EVIDENCE_PRIVATE_JWK: '{}' }))).toThrow();
+    expect(() =>
+      parseEnv(
+        baseInput({
+          SIGNATURE_EVIDENCE_PRIVATE_JWK: JSON.stringify({
+            kty: 'RSA',
+            kid: 'wrong-alg',
+            alg: 'ES256',
+            n: 'modulus',
+            e: 'AQAB',
+            d: 'private',
+          }),
+        }),
+      ),
+    ).toThrow();
+    const publicKey = { kty: 'RSA', kid: 'duplicate', n: 'modulus', e: 'AQAB' };
+    expect(() =>
+      parseEnv(
+        baseInput({
+          SIGNATURE_EVIDENCE_PUBLIC_JWKS_JSON: JSON.stringify({ keys: [publicKey, publicKey] }),
+        }),
+      ),
+    ).toThrow();
+    expect(() =>
+      parseEnv(
+        baseInput({
+          SIGNATURE_EVIDENCE_PUBLIC_JWKS_JSON: JSON.stringify({
+            keys: [{ ...publicKey, d: 'private' }],
+          }),
+        }),
+      ),
+    ).toThrow();
+  });
+
+  it('rejects unbounded signature PDF limits', () => {
+    expect(() => parseEnv(baseInput({ SIGNATURE_MAX_PDF_BYTES: '512' }))).toThrow();
+    expect(() => parseEnv(baseInput({ SIGNATURE_MAX_PDF_PAGES: '0' }))).toThrow();
+    expect(() => parseEnv(baseInput({ SIGNATURE_MAX_PDF_PAGES: '2001' }))).toThrow();
+    expect(() => parseEnv(baseInput({ SIGNATURE_MALWARE_SCAN_TIMEOUT_MS: '999' }))).toThrow();
+    expect(() => parseEnv(baseInput({ SIGNATURE_MALWARE_SCAN_TIMEOUT_MS: '120001' }))).toThrow();
   });
 });

@@ -1,18 +1,29 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
+import { LOGIN_SESSION_AUDIENCE } from '../../config/constants.js';
+import { requireEnv } from '../../config/env.js';
+import { runInTransaction } from '../../db/tenant-context.js';
 import { configVerifier } from '../../middleware/config-verifier.js';
 import { AppError } from '../../utils/errors.js';
 import {
   validateVerifyEmailToken,
   verifyEmailToken,
 } from '../../services/auth-verify-email.service.js';
-import { recordLoginLog } from '../../services/login-log.service.js';
 import {
-  finalizeAuthenticatedUser,
-  parseRequestAccessFlag,
-} from '../../services/access-request-flow.service.js';
-import { selectRedirectUrl } from '../../services/token.service.js';
+  buildWorkspaceChoices,
+  resolveAutoSelectedWorkspace,
+  shouldPresentWorkspaceChooser,
+  type AutoSelectedWorkspace,
+} from '../../services/first-login.service.js';
+import { signLoginSession } from '../../services/login-session.service.js';
+import { lockAndAssertAuthenticationEpoch } from '../../services/authentication-epoch.service.js';
+import { recordLoginLog } from '../../services/login-log.service.js';
+import { parseRequestAccessFlag } from '../../services/access-request-flow.service.js';
+import { resolveProductWorkspaceBeforeTwoFa } from '../../services/required-workspace-placement.service.js';
+import { selectRedirectUrl } from '../../services/authorization-code.service.js';
+import { finalizeWithTwoFaPolicy } from '../../services/workspace-finalize.service.js';
+import { lockProductWorkspacePolicyShared } from '../../services/product-workspace-policy-lock.service.js';
 import { parseRequiredPkceChallenge } from '../../utils/pkce.js';
 import { tokenConsumeRateLimiter } from './rate-limit-keys.js';
 
@@ -50,15 +61,17 @@ export function registerAuthVerifyEmailRoute(app: FastifyInstance): void {
         codeChallengeMethod: code_challenge_method,
       });
 
-      if (!request.config || !request.configUrl) {
+      const config = request.config;
+      const configUrl = request.configUrl;
+      if (!config || !configUrl) {
         throw new AppError('BAD_REQUEST', 400, 'MISSING_CONFIG');
       }
 
       const tokenType = await validateVerifyEmailToken(
         {
           token,
-          config: request.config,
-          configUrl: request.configUrl,
+          config,
+          configUrl,
         },
         { prisma: request.adminDb },
       );
@@ -67,40 +80,135 @@ export function registerAuthVerifyEmailRoute(app: FastifyInstance): void {
         throw new AppError('BAD_REQUEST', 400, 'MISSING_PASSWORD');
       }
 
-      const { userId, type } = await verifyEmailToken(
-        {
-          token,
-          password,
-          config: request.config,
-          configUrl: request.configUrl,
-        },
-        { prisma: request.adminDb },
-      );
+      const { userId, credentialEpoch, type, twoFaEnabled, acceptedInvite } =
+        await verifyEmailToken(
+          {
+            token,
+            password,
+            config,
+            configUrl,
+          },
+          { prisma: request.adminDb },
+        );
 
       const redirectUrl = selectRedirectUrl({
-        allowedRedirectUrls: request.config.redirect_urls,
+        allowedRedirectUrls: config.redirect_urls,
         requestedRedirectUrl: redirect_url,
       });
-      const finalResult = await finalizeAuthenticatedUser(
-        {
-          userId,
-          config: request.config,
-          configUrl: request.configUrl,
-          redirectUrl,
-          rememberMe: request.config.session?.remember_me_default ?? true,
-          requestAccess: parseRequestAccessFlag(request_access),
-          codeChallenge: pkce.codeChallenge,
-          codeChallengeMethod: pkce.codeChallengeMethod,
-        },
-        { prisma: request.adminDb },
-      );
+      const rememberMe = config.session?.remember_me_default ?? true;
+      const requestAccess = parseRequestAccessFlag(request_access);
+
+      const authMethod =
+        type === 'LOGIN_LINK'
+          ? 'login_link'
+          : type === 'VERIFY_EMAIL'
+            ? 'verify_email'
+            : 'verify_email_set_password';
+      const continuation = await runInTransaction(request.adminDb, async (tx) => {
+        await lockProductWorkspacePolicyShared(tx);
+        const authenticationState = await lockAndAssertAuthenticationEpoch(
+          { userId, domain: config.domain, credentialEpoch },
+          { prisma: tx, fallbackTwoFaEnabled: twoFaEnabled },
+        );
+
+        // Hold first-placement selection through exact-scope policy evaluation and code issuance.
+        // The admin transaction preserves intentional cross-product and accepted-invite reads.
+        let selectedWorkspace: AutoSelectedWorkspace | null = acceptedInvite
+          ? { orgId: acceptedInvite.orgId, teamId: acceptedInvite.teamId }
+          : null;
+        if (!acceptedInvite && config.login_flow?.workspace_selection === 'auto') {
+          const choices = await buildWorkspaceChoices(
+            { userId, config },
+            { crossProductPrisma: tx, policyPrisma: tx, prisma: tx },
+          );
+          selectedWorkspace = resolveAutoSelectedWorkspace(choices);
+          if (shouldPresentWorkspaceChooser(choices, selectedWorkspace)) {
+            const { SHARED_SECRET } = requireEnv('SHARED_SECRET');
+            const loginToken = await signLoginSession({
+              userId,
+              credentialEpoch,
+              authMethod,
+              config,
+              configUrl,
+              redirectUrl,
+              rememberMe,
+              requestAccess,
+              codeChallenge: pkce.codeChallenge,
+              codeChallengeMethod: pkce.codeChallengeMethod,
+              sharedSecret: SHARED_SECRET,
+              audience: LOGIN_SESSION_AUDIENCE,
+            });
+            return { kind: 'workspace_chooser' as const, choices, loginToken };
+          }
+        }
+        selectedWorkspace ??= await resolveProductWorkspaceBeforeTwoFa(
+          { userId, config },
+          { prisma: tx, workspacePrisma: tx },
+        );
+
+        const outcome = await finalizeWithTwoFaPolicy(
+          {
+            userId,
+            credentialEpoch,
+            twoFaEnabled,
+            config,
+            configUrl,
+            redirectUrl,
+            rememberMe,
+            requestAccess,
+            authMethod,
+            codeChallenge: pkce.codeChallenge,
+            codeChallengeMethod: pkce.codeChallengeMethod,
+            ip: request.ip ?? null,
+            ...(selectedWorkspace ?? {}),
+          },
+          {
+            currentTwoFaEnabled: authenticationState.twoFaEnabled,
+            policyLockHeld: true,
+            policyPrisma: tx,
+            prisma: tx,
+            twoFaPolicyPrisma: tx,
+            workspacePrisma: tx,
+          },
+        );
+        return { kind: 'finalized' as const, outcome };
+      });
+
+      if (continuation.kind === 'workspace_chooser') {
+        reply.status(200).send({
+          login_token: continuation.loginToken,
+          ...continuation.choices,
+        });
+        return;
+      }
+
+      const { outcome } = continuation;
+
+      if (outcome.kind === 'twofa') {
+        reply.status(200).send({
+          ok: true,
+          twofa_required: true,
+          twofa_token: outcome.twofa_token,
+        });
+        return;
+      }
+
+      if (outcome.kind === 'twofa_enroll_required') {
+        reply.status(200).send({
+          ok: true,
+          kind: 'twofa_enroll_required',
+          twofa_enroll_required: true,
+          ...outcome.setup,
+        });
+        return;
+      }
 
       try {
         await recordLoginLog(
           {
             userId,
-            domain: request.config.domain,
-            authMethod: type === 'VERIFY_EMAIL' ? 'verify_email' : 'verify_email_set_password',
+            domain: config.domain,
+            authMethod,
             ip: request.ip ?? null,
             userAgent:
               typeof request.headers['user-agent'] === 'string'
@@ -115,9 +223,9 @@ export function registerAuthVerifyEmailRoute(app: FastifyInstance): void {
 
       reply.status(200).send({
         ok: true,
-        code: finalResult.status === 'granted' ? finalResult.code : undefined,
-        redirect_to: finalResult.redirectTo,
-        access_request_status: finalResult.status === 'requested' ? 'pending' : undefined,
+        code: outcome.finalResult.status === 'granted' ? outcome.finalResult.code : undefined,
+        redirect_to: outcome.finalResult.redirectTo,
+        access_request_status: outcome.finalResult.status === 'requested' ? 'pending' : undefined,
       });
     },
   );

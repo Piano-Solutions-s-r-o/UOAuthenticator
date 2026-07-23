@@ -39,6 +39,18 @@ describe('retention-pruning.service', () => {
           return { count: 2 };
         },
       },
+      confidentialAssertionUse: {
+        deleteMany: async (args: unknown) => {
+          calls.confidentialAssertionUse = args;
+          return { count: 6 };
+        },
+      },
+      loginSessionUse: {
+        deleteMany: async (args: unknown) => {
+          calls.loginSessionUse = args;
+          return { count: 7 };
+        },
+      },
       verificationToken: {
         deleteMany: async (args: unknown) => {
           calls.verificationToken = args;
@@ -74,6 +86,12 @@ describe('retention-pruning.service', () => {
     expect(calls.verificationToken).toMatchObject({
       where: { expiresAt: { lt: now } },
     });
+    expect(calls.confidentialAssertionUse).toMatchObject({
+      where: { expiresAt: { lte: now } },
+    });
+    expect(calls.loginSessionUse).toMatchObject({
+      where: { expiresAt: { lte: now } },
+    });
     expect(calls.loginLog).toMatchObject({
       where: { createdAt: { lt: new Date('2026-01-20T12:00:00.000Z') } },
     });
@@ -82,7 +100,9 @@ describe('retention-pruning.service', () => {
     });
     expect(result).toEqual({
       authorizationCodesDeleted: 2,
+      confidentialAssertionUsesDeleted: 6,
       handshakeErrorLogsDeleted: 5,
+      loginSessionUsesDeleted: 7,
       loginLogsDeleted: 4,
       refreshTokensDeleted: 1,
       verificationTokensDeleted: 3,

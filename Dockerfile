@@ -11,15 +11,18 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY API/package.json API/
 COPY Auth/package.json Auth/
 COPY Admin/package.json Admin/
+COPY packages/billing-statement-protocol/package.json packages/billing-statement-protocol/
 
 RUN pnpm install --frozen-lockfile
 
 COPY API/ API/
 COPY Auth/ Auth/
 COPY Admin/ Admin/
+COPY packages/billing-statement-protocol/ packages/billing-statement-protocol/
 COPY assets/ assets/
 COPY tsconfig.base.json ./
 
+RUN pnpm --filter @unlikeotherai/billing-statement-protocol build
 RUN pnpm --filter @uoa/api prisma:generate
 RUN pnpm --filter @uoa/api build
 RUN pnpm --filter @uoa/auth build
@@ -42,6 +45,7 @@ COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --chown=node:node API/package.json API/
 COPY --chown=node:node Auth/package.json Auth/
 COPY --chown=node:node Admin/package.json Admin/
+COPY --chown=node:node packages/billing-statement-protocol/package.json packages/billing-statement-protocol/
 COPY --chown=node:node API/prisma/ API/prisma/
 
 RUN pnpm install --frozen-lockfile --filter @uoa/api... --filter @uoa/auth...
@@ -49,9 +53,15 @@ RUN pnpm --filter @uoa/api prisma:generate
 
 COPY --from=build --chown=node:node /app/API/dist/ API/dist/
 COPY --from=build --chown=node:node /app/API/prisma/ API/prisma/
+COPY --from=build --chown=node:node /app/assets/fonts/ assets/fonts/
+COPY --from=build --chown=node:node /app/packages/billing-statement-protocol/dist/ packages/billing-statement-protocol/dist/
+COPY --from=build --chown=node:node /app/packages/billing-statement-protocol/schema/ packages/billing-statement-protocol/schema/
+COPY --from=build --chown=node:node /app/packages/billing-statement-protocol/fixtures/ packages/billing-statement-protocol/fixtures/
+COPY --from=build --chown=node:node /app/packages/billing-statement-protocol/openapi/ packages/billing-statement-protocol/openapi/
 COPY --from=build --chown=node:node /app/Auth/dist/ Auth/dist/
 COPY --from=build --chown=node:node /app/Auth/dist-ssr/ Auth/dist-ssr/
 COPY --from=build --chown=node:node /app/Admin/dist/ Admin/dist/
+COPY --chown=node:node docker/start-production.sh docker/start-production.sh
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
@@ -59,4 +69,4 @@ ENV PORT=3000
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "pnpm --filter @uoa/api exec prisma migrate deploy --schema prisma/schema.prisma && node API/dist/server.js"]
+CMD ["sh", "/app/docker/start-production.sh"]

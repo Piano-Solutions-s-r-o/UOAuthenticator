@@ -20,6 +20,13 @@ export const ListQuerySchema = DomainQuerySchema.extend({
   cursor: z.string().trim().min(1).optional(),
 }).strict();
 
+// Gap-fix A Task 2 (design §11.4 "Invited" tab): `?include=invited` on the team detail read only.
+// Any value other than the exact literal `"invited"` is ignored (ie. treated the same as absent),
+// not rejected — kept a plain string here (rather than z.literal) so unrecognised values don't 400.
+export const TeamDetailQuerySchema = DomainQuerySchema.extend({
+  include: z.string().trim().optional(),
+}).strict();
+
 export const OrgPathSchema = z.object({
   orgId: z.string().trim().min(1),
 });
@@ -39,6 +46,15 @@ export const TeamUpdateBodySchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   slug: z.string().trim().min(1).max(120).optional(),
   description: z.string().trim().max(500).nullable().optional(),
+  // Join policy (design §4.6, Phase 4) — owner/admin only; omitted leaves the current policy
+  // unchanged. Validated against the enum at the service layer.
+  joinPolicy: z
+    .enum(['INVITE_ONLY', 'APPROVED_DOMAIN', 'REQUEST_TO_JOIN', 'OPEN_TO_ORG', 'HIDDEN'])
+    .optional(),
+  // Workspace icon (design §11.3, gap-fix A Task 3) — owner/admin only (same PUT authorization);
+  // omitted leaves the current icon unchanged, `null` clears it. https-only, ≤2048 chars enforced
+  // at the service layer (`normalizeIconUrl`) with a generic error otherwise.
+  icon_url: z.string().trim().max(2048).nullable().optional(),
 });
 
 export const AddTeamMemberBodySchema = z.object({
@@ -54,6 +70,24 @@ const TeamInviteeSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
   name: z.string().trim().max(120).optional(),
   teamRole: z.string().trim().min(1).optional(),
+});
+
+// Member-initiated invite (Phase 4 Task 4, design §4.7) — the user-token variant of the bulk-invite
+// endpoint above, single invite only (one teammate at a time, matching Slack's "invite people" UX).
+export const MemberInviteBodySchema = z.object({
+  redirectUrl: z.string().trim().min(1).optional(),
+  email: z.string().trim().toLowerCase().email(),
+  name: z.string().trim().max(120).optional(),
+  teamRole: z.string().trim().min(1).optional(),
+});
+
+// Team invite links (Phase 5, design §4.7) — create body. `roleToAssign`/`maxUses`/`expiresInDays`
+// are all optional; the service layer clamps/validates them (member|admin only, max 400 uses, max
+// 30-day expiry).
+export const InviteLinkCreateBodySchema = z.object({
+  roleToAssign: z.string().trim().min(1).optional(),
+  maxUses: z.number().int().positive().optional(),
+  expiresInDays: z.number().int().positive().optional(),
 });
 
 export const BulkInviteBodySchema = z.object({
@@ -114,6 +148,12 @@ export function parseLimitCursor(request: FastifyRequest) {
   return parsed;
 }
 
+export function parseTeamDetailQuery(request: FastifyRequest) {
+  const parsed = TeamDetailQuerySchema.parse(request.query);
+  assertVerifiedDomainMatchesQuery(request, parsed.domain);
+  return parsed;
+}
+
 export function getActorUserId(request: RequestWithClaims): string {
   const userId = request.accessTokenClaims?.userId;
   if (!userId) {
@@ -143,6 +183,11 @@ export function getInviteIdFromParams(params: unknown): string {
   return parsed.inviteId;
 }
 
+export function getLinkIdFromParams(params: unknown): string {
+  const parsed = z.object({ linkId: z.string().trim().min(1) }).parse(params ?? {});
+  return parsed.linkId;
+}
+
 export function keyCreateTeamRateLimit(request: FastifyRequest) {
   const domain = parseDomainFromRequest(request);
   const orgId = getOrgIdFromParams(request.params);
@@ -154,4 +199,11 @@ export function keyInviteTeamRateLimit(request: FastifyRequest) {
   const orgId = getOrgIdFromParams(request.params);
   const teamId = getTeamIdFromParams(request.params);
   return `org:invite-team:${domain}:${orgId}:${teamId}`;
+}
+
+export function keyInviteLinkRateLimit(request: FastifyRequest) {
+  const domain = parseDomainFromRequest(request);
+  const orgId = getOrgIdFromParams(request.params);
+  const teamId = getTeamIdFromParams(request.params);
+  return `org:invite-link:${domain}:${orgId}:${teamId}`;
 }

@@ -8,8 +8,7 @@ let app: FastifyInstance;
 
 beforeAll(async () => {
   process.env.SHARED_SECRET = process.env.SHARED_SECRET ?? 'test-shared-secret-with-enough-length';
-  process.env.AUTH_SERVICE_IDENTIFIER =
-    process.env.AUTH_SERVICE_IDENTIFIER ?? 'uoa-auth-service';
+  process.env.AUTH_SERVICE_IDENTIFIER = process.env.AUTH_SERVICE_IDENTIFIER ?? 'uoa-auth-service';
 
   app = await createApp();
   await app.ready();
@@ -50,16 +49,25 @@ describe('GET /api', () => {
     expect(body.name).toBe('UnlikeOtherAuthenticator');
     expect(body.description).toEqual(expect.any(String));
     expect(body.version).toEqual(expect.any(String));
-    expect(body.repository).toBe(
-      'https://github.com/UnlikeOtherAI/UnlikeOtherAuthenticator',
-    );
+    expect(body.repository).toBe('https://github.com/UnlikeOtherAI/UnlikeOtherAuthenticator');
     expect(body.home).toBe('/');
     expect(body.api).toBe('/api');
-    expect(body.config_jwt.required_fields.ui_theme.required_sections.colors.required_keys).toContain(
-      'primary',
-    );
+    expect(
+      body.config_jwt.required_fields.ui_theme.required_sections.colors.required_keys,
+    ).toContain('primary');
     expect(body.config_validation.path).toBe('/config/validate');
     expect(body.config_verification.path).toBe('/config/verify');
+    expect(body.confidential_token_exchange.issued_access_token.algorithm).toBe('RS256');
+    expect(body.confidential_token_exchange.issued_access_token.forbidden_claims).toContain(
+      'client_id',
+    );
+    expect(body.confidential_token_exchange.request.subject_token).toContain('optional active');
+    expect(body.confidential_token_exchange.subject_assertion_binding.replay_protection).toContain(
+      'atomically consumes',
+    );
+    expect(body.confidential_token_exchange.issued_access_token.claims).toContain(
+      'org and active are present together',
+    );
     expect(body.endpoints).toEqual(expect.any(Array));
     expect(body.endpoints.length).toBeGreaterThan(0);
 
@@ -75,12 +83,8 @@ describe('GET /api', () => {
     }
 
     // The root holding page and API schema endpoint are listed
-    expect(body.endpoints).toContainEqual(
-      expect.objectContaining({ method: 'GET', path: '/' }),
-    );
-    expect(body.endpoints).toContainEqual(
-      expect.objectContaining({ method: 'GET', path: '/api' }),
-    );
+    expect(body.endpoints).toContainEqual(expect.objectContaining({ method: 'GET', path: '/' }));
+    expect(body.endpoints).toContainEqual(expect.objectContaining({ method: 'GET', path: '/api' }));
 
     // Spot-check well-known routes with correct methods and paths
     expect(body.endpoints).toContainEqual(
@@ -88,6 +92,71 @@ describe('GET /api', () => {
     );
     expect(body.endpoints).toContainEqual(
       expect.objectContaining({ method: 'GET', path: '/.well-known/jwks.json' }),
+    );
+    expect(body.endpoints).toContainEqual(
+      expect.objectContaining({ method: 'GET', path: '/billing/v1/jwks.json' }),
+    );
+    expect(body.endpoints).toContainEqual(
+      expect.objectContaining({ method: 'GET', path: '/billing/v1/service-jwks.json' }),
+    );
+    expect(body.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: 'POST',
+        path: '/billing/v1/effective-tariff',
+        auth: expect.stringContaining('X-UOA-App-Key'),
+      }),
+    );
+    expect(body.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: 'POST',
+        path: '/billing/v1/credits',
+        auth: expect.stringContaining('customer_lifecycle'),
+      }),
+    );
+    for (const path of [
+      '/billing/v1/credits/top-up-checkout',
+      '/billing/v1/credits/auto-top-up/setup',
+      '/billing/v1/credits/auto-top-up/update',
+      '/billing/v1/credits/auto-top-up/disable',
+      '/billing/v1/credits/auto-top-up/recover',
+    ]) {
+      expect(body.endpoints).toContainEqual(
+        expect.objectContaining({
+          method: 'POST',
+          path,
+          auth: expect.stringContaining('customer_lifecycle'),
+        }),
+      );
+    }
+    expect(body.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: 'POST',
+        path: '/billing/v1/recurring-addons',
+      }),
+    );
+    expect(body.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: 'GET',
+        path: '/schemas/billing-credits-v1.json',
+      }),
+    );
+    expect(body.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: 'POST',
+        path: '/billing/v1/stripe/checkout-session',
+      }),
+    );
+    expect(body.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: 'POST',
+        path: '/billing/v1/stripe/webhook',
+      }),
+    );
+    expect(body.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: 'POST',
+        path: '/internal/admin/billing/stripe/usage-exports',
+      }),
     );
     expect(body.endpoints).toContainEqual(
       expect.objectContaining({ method: 'POST', path: '/config/verify' }),
@@ -156,6 +225,13 @@ describe('GET /api', () => {
     );
     expect(body.endpoints).toContainEqual(
       expect.objectContaining({
+        method: 'POST',
+        path: '/internal/admin/billing/services/:serviceId/app-keys',
+        auth: expect.stringContaining('superuser'),
+      }),
+    );
+    expect(body.endpoints).toContainEqual(
+      expect.objectContaining({
         method: 'GET',
         path: '/integrations/claim/:token',
       }),
@@ -182,6 +258,33 @@ describe('GET /api', () => {
       expect.objectContaining({
         method: 'GET',
         path: '/internal/admin/domains/:domain/jwks',
+      }),
+    );
+    expect(body.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: 'PUT',
+        path: '/internal/admin/domains/:domain/signatures/settings',
+        auth: expect.stringContaining('superuser'),
+      }),
+    );
+    expect(body.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: 'POST',
+        path: '/internal/admin/domains/:domain/signatures/agreements/:agreementId/versions',
+        description: expect.stringContaining('ClamAV'),
+      }),
+    );
+    expect(body.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: 'GET',
+        path: '/internal/admin/domains/:domain/signatures/records/:signatureId/receipt',
+        description: expect.stringContaining('SHA-256'),
+      }),
+    );
+    expect(body.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: 'POST',
+        path: '/internal/admin/domains/:domain/signatures/records/:signatureId/revoke',
       }),
     );
   });
@@ -273,5 +376,23 @@ describe('GET /llm', () => {
     expect(res.body).toContain('jwks_url');
     expect(res.body).toContain('contact_email');
     expect(res.body).toContain('INTEGRATION_JWKS_HOST_MISMATCH');
+    expect(res.body).toContain('Optional per-domain agreement signatures');
+    expect(res.body).toContain('SIGNATURE_EVIDENCE_PUBLIC_JWKS_JSON');
+    expect(res.body).toContain('Per-product confidential assertion exchange');
+    expect(res.body).toContain('urn:ietf:params:oauth:grant-type:token-exchange');
+    expect(res.body).toContain('/oauth/jwks.json');
+    expect(res.body).toContain('first-time or workspace-less users');
+    expect(res.body).toContain('concurrent replays are rejected');
+    expect(res.body).toContain('Canonical tariff and entitlement control plane');
+    expect(res.body).toContain('Raw token, request, byte, and search counts');
+    expect(res.body).toContain('customer billable units');
+    expect(res.body).toContain('search-equivalent for SERP');
+    expect(res.body).toContain('authorized app-key ID');
+    expect(res.body).toContain('/billing/v1/effective-tariff');
+    expect(res.body).toContain('collection_mode=stripe|manual|none');
+    expect(res.body).toContain('Shared team credits and recurring add-ons');
+    expect(res.body).toContain('Remaining credits');
+    expect(res.body).toContain('/billing/v1/credits');
+    expect(res.body).toContain('/billing/v1/recurring-addons');
   });
 });

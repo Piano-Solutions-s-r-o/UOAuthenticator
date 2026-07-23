@@ -9,6 +9,7 @@ const TWOFA_CHALLENGE_ISSUER = 'uoa:twofa-challenge';
 
 const TwoFaChallengeSchema = z.object({
   sub: z.string().min(1),
+  credential_epoch: z.number().int().nonnegative(),
   config_url: z.string().min(1),
   redirect_url: z.string().min(1),
   domain: z.string().min(1),
@@ -17,10 +18,15 @@ const TwoFaChallengeSchema = z.object({
   request_access: z.boolean().optional(),
   code_challenge: z.string().min(1).optional(),
   code_challenge_method: z.literal('S256').optional(),
+  // Exact scope selected explicitly, auto-selected, or pre-bound for a recognized product.
+  // Legacy clients without a resolved workspace omit both values.
+  org_id: z.string().min(1).optional(),
+  team_id: z.string().min(1).optional(),
 });
 
 export type TwoFaChallenge = {
   userId: string;
+  credentialEpoch: number;
   configUrl: string;
   redirectUrl: string;
   domain: string;
@@ -29,6 +35,8 @@ export type TwoFaChallenge = {
   requestAccess: boolean;
   codeChallenge?: string;
   codeChallengeMethod?: 'S256';
+  orgId?: string;
+  teamId?: string;
 };
 
 function sharedSecretKey(sharedSecret: string): Uint8Array {
@@ -43,6 +51,7 @@ function sharedSecretKey(sharedSecret: string): Uint8Array {
  */
 export async function signTwoFaChallenge(params: {
   userId: string;
+  credentialEpoch: number;
   configUrl: string;
   redirectUrl: string;
   domain: string;
@@ -51,6 +60,8 @@ export async function signTwoFaChallenge(params: {
   requestAccess?: boolean;
   codeChallenge?: string;
   codeChallengeMethod?: 'S256';
+  orgId?: string;
+  teamId?: string;
   sharedSecret: string;
   audience: string;
   now?: Date;
@@ -63,6 +74,7 @@ export async function signTwoFaChallenge(params: {
   try {
     return await new SignJWT({
       config_url: params.configUrl,
+      credential_epoch: params.credentialEpoch,
       redirect_url: params.redirectUrl,
       domain: params.domain,
       auth_method: params.authMethod,
@@ -70,6 +82,8 @@ export async function signTwoFaChallenge(params: {
       request_access: params.requestAccess ?? false,
       code_challenge: params.codeChallenge,
       code_challenge_method: params.codeChallengeMethod,
+      org_id: params.orgId,
+      team_id: params.teamId,
     })
       .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
       .setIssuer(TWOFA_CHALLENGE_ISSUER)
@@ -112,6 +126,7 @@ export async function verifyTwoFaChallenge(params: {
 
   const challenge: TwoFaChallenge = {
     userId: parsed.sub,
+    credentialEpoch: parsed.credential_epoch,
     configUrl: parsed.config_url,
     redirectUrl: parsed.redirect_url,
     domain: parsed.domain,
@@ -123,5 +138,7 @@ export async function verifyTwoFaChallenge(params: {
     challenge.codeChallenge = parsed.code_challenge;
     challenge.codeChallengeMethod = parsed.code_challenge_method;
   }
+  if (parsed.org_id) challenge.orgId = parsed.org_id;
+  if (parsed.team_id) challenge.teamId = parsed.team_id;
   return challenge;
 }

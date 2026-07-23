@@ -1,15 +1,21 @@
 import type { PrismaClient } from '@prisma/client';
 
 import { getEnv } from '../config/env.js';
-import { getPrisma } from '../db/prisma.js';
+import { getAdminPrisma, getPrisma } from '../db/prisma.js';
 import { AppError } from '../utils/errors.js';
 import type { ClientConfig } from './config.service.js';
 import { assertDatabaseEnabled, normalizeDomain } from './organisation.service.base.js';
+import {
+  resolveProductWorkspacePolicy,
+  type ProductWorkspacePolicyPrisma,
+} from './product-workspace-policy.service.js';
 
 type OrgContextPrisma = PrismaClient;
 
 type OrgContextDeps = {
+  crossProductPrisma?: OrgContextPrisma;
   env?: ReturnType<typeof getEnv>;
+  policyPrisma?: ProductWorkspacePolicyPrisma;
   prisma?: OrgContextPrisma;
 };
 
@@ -28,31 +34,38 @@ function ensureFeatureEnabled(config: ClientConfig): void {
   }
 }
 
-export async function getUserOrgContext(
+export async function getActiveUserOrgContext(
   params: {
     userId: string;
     domain: string;
-    config: ClientConfig;
+    /** Resolve one requested organisation instead of the first active membership. */
+    orgId?: string;
+    groupsEnabled?: boolean;
+    /** Server-owned product policy only; callers must never derive this from browser input. */
+    allowCrossDomain?: boolean;
   },
   deps?: OrgContextDeps,
 ): Promise<OrgContext | null> {
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  ensureFeatureEnabled(params.config);
-
   const userId = params.userId.trim();
   const domain = normalizeDomain(params.domain);
+  const orgId = params.orgId?.trim();
   if (!userId || !domain) throw new AppError('BAD_REQUEST', 400);
+  if (params.orgId !== undefined && !orgId) throw new AppError('BAD_REQUEST', 400);
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgContextPrisma);
 
+  // Lifecycle enforcement (design §4.1): only ACTIVE memberships appear in the token/context.
+  // A DEACTIVATED or REMOVED membership disappears from claims within one access-token TTL because
+  // org claims are re-resolved on every refresh — no separate revocation machinery needed.
   const orgMembership = await prisma.orgMember.findFirst({
     where: {
       userId,
-      org: {
-        domain,
-      },
+      ...(orgId ? { orgId } : {}),
+      status: 'ACTIVE',
+      ...(params.allowCrossDomain ? {} : { org: { domain } }),
     },
     select: {
       orgId: true,
@@ -65,6 +78,7 @@ export async function getUserOrgContext(
   const teamMemberships = await prisma.teamMember.findMany({
     where: {
       userId,
+      status: 'ACTIVE',
       team: {
         orgId: orgMembership.orgId,
       },
@@ -89,7 +103,7 @@ export async function getUserOrgContext(
     team_roles: teamRoles,
   };
 
-  if (!params.config.org_features?.groups_enabled) {
+  if (!params.groupsEnabled) {
     return context;
   }
 
@@ -118,4 +132,58 @@ export async function getUserOrgContext(
   }
 
   return context;
+}
+
+/**
+ * Resolve one exact active organisation for a client. Legacy same-domain scope
+ * wins; only an unambiguous active product mapping may retry across domains.
+ */
+export async function getActiveClientOrgContext(
+  params: {
+    userId: string;
+    domain: string;
+    orgId: string;
+    groupsEnabled?: boolean;
+  },
+  deps?: OrgContextDeps,
+): Promise<OrgContext | null> {
+  const sameDomain = await getActiveUserOrgContext(params, deps);
+  if (sameDomain) return sameDomain;
+
+  const policy = await resolveProductWorkspacePolicy(
+    { domain: params.domain },
+    {
+      prisma: deps?.policyPrisma ?? (getAdminPrisma() as unknown as ProductWorkspacePolicyPrisma),
+    },
+  );
+  if (policy.scope !== 'all_active_memberships') return null;
+
+  const crossProductPrisma =
+    deps?.crossProductPrisma ?? (getAdminPrisma() as unknown as OrgContextPrisma);
+  return getActiveUserOrgContext(
+    { ...params, allowCrossDomain: true },
+    { ...deps, prisma: crossProductPrisma },
+  );
+}
+
+export async function getUserOrgContext(
+  params: {
+    userId: string;
+    domain: string;
+    config: ClientConfig;
+    /** Resolve one requested organisation instead of the first active membership. */
+    orgId?: string;
+  },
+  deps?: OrgContextDeps,
+): Promise<OrgContext | null> {
+  ensureFeatureEnabled(params.config);
+  return getActiveUserOrgContext(
+    {
+      userId: params.userId,
+      domain: params.domain,
+      orgId: params.orgId,
+      groupsEnabled: params.config.org_features?.groups_enabled,
+    },
+    deps,
+  );
 }

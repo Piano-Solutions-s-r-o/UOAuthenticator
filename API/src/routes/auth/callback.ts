@@ -2,8 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { getAuthServiceIdentifier, getEnv, requireEnv } from '../../config/env.js';
-import { asPrismaClient } from '../../db/tenant-context.js';
-import { setTenantContextFromRequest } from '../../plugins/tenant-context.plugin.js';
+import { runWithRequestAdminTransaction } from '../../plugins/tenant-context.plugin.js';
 import { AppError } from '../../utils/errors.js';
 import {
   assertConfigDomainMatchesConfigUrl,
@@ -12,6 +11,14 @@ import {
 } from '../../services/config.service.js';
 import { readConfigJwtFromTrustedSource } from '../../services/config-jwt-source.service.js';
 import { applyDomainRedirectAllowlist } from '../../services/domain-redirect-allowlist.service.js';
+import { LOGIN_SESSION_AUDIENCE } from '../../config/constants.js';
+import {
+  buildWorkspaceChoices,
+  resolveAutoSelectedWorkspace,
+  shouldPresentWorkspaceChooser,
+  type AutoSelectedWorkspace,
+} from '../../services/first-login.service.js';
+import { signLoginSession } from '../../services/login-session.service.js';
 import { assertSocialProviderAllowed } from '../../services/social/index.js';
 import { getAppleProfileFromCode } from '../../services/social/apple.service.js';
 import { getFacebookProfileFromCode } from '../../services/social/facebook.service.js';
@@ -27,15 +34,19 @@ import {
 } from '../../services/social/social-state-cookie.js';
 import { setSocialCallbackDebugContext } from '../../services/auth-debug-page.service.js';
 import { recordLoginLog } from '../../services/login-log.service.js';
+import { lockProductWorkspacePolicyShared } from '../../services/product-workspace-policy-lock.service.js';
 import { sendDeepLinkHandoff } from '../../services/auth-ui.service.js';
 import { isCustomSchemeUrl } from '../../utils/http-url.js';
-import { finalizeAuthenticatedUser } from '../../services/access-request-flow.service.js';
 import { requestRegistrationInstructions } from '../../services/auth-register.service.js';
+// Piano (HUGO-626/553): locale for the unverified-email registration mail below.
+// The old Piano 2FA imports (resolveTwoFaPolicy/signTwoFaChallenge/startTwoFactorSetup,
+// selectRedirectUrl from token.service) are superseded by upstream's
+// finalizeWithTwoFaPolicy / resolveProductWorkspaceBeforeTwoFa flow used below.
 import { resolveEmailLocale } from '../../utils/email-locale.js';
-import { resolveTwoFaPolicy } from '../../services/twofactor-policy.service.js';
-import { signTwoFaChallenge } from '../../services/twofactor-challenge.service.js';
-import { startTwoFactorSetup } from '../../services/twofactor-setup.service.js';
-import { selectRedirectUrl } from '../../services/token.service.js';
+import { resolveProductWorkspaceBeforeTwoFa } from '../../services/required-workspace-placement.service.js';
+import { finalizeWithTwoFaPolicy } from '../../services/workspace-finalize.service.js';
+import { selectRedirectUrl } from '../../services/authorization-code.service.js';
+import { lockAndAssertAuthenticationEpoch } from '../../services/authentication-epoch.service.js';
 import { socialCallbackRateLimiter } from './rate-limit-keys.js';
 
 const ParamsSchema = z.object({
@@ -183,7 +194,6 @@ async function handleSocialCallback(
       // redirect check below enforces the same merged set as the other auth routes.
       const config = await applyDomainRedirectAllowlist(baseConfig);
 
-      // setTenantContextFromRequest reads the verified domain from request.config below.
       request.config = config;
       request.configUrl = configUrl;
 
@@ -268,10 +278,8 @@ async function handleSocialCallback(
         throw new AppError('BAD_REQUEST', 400);
       }
 
-      setTenantContextFromRequest(request, { orgId: null, userId: null });
-
-      const outcome = await request.withTenantTx(async (tx) => {
-        const prisma = asPrismaClient(tx);
+      const outcome = await runWithRequestAdminTransaction(request, async (prisma) => {
+        await lockProductWorkspacePolicyShared(prisma);
 
         if (!profile.emailVerified) {
           await requestRegistrationInstructions(
@@ -295,6 +303,7 @@ async function handleSocialCallback(
             profile,
             config,
             requestAccess: socialState.request_access === true,
+            ip: request.ip ?? null,
           },
           { prisma },
         );
@@ -304,59 +313,103 @@ async function handleSocialCallback(
         }
 
         const { userId, twoFaEnabled } = socialLoginResult;
+        const returnedEpoch = (socialLoginResult as { credentialEpoch?: unknown }).credentialEpoch;
+        if (
+          returnedEpoch !== undefined &&
+          (typeof returnedEpoch !== 'number' ||
+            !Number.isInteger(returnedEpoch) ||
+            returnedEpoch < 0)
+        ) {
+          throw new AppError('UNAUTHORIZED', 401, 'AUTHENTICATION_FAILED');
+        }
+        let credentialEpoch = typeof returnedEpoch === 'number' ? returnedEpoch : 0;
+        if (returnedEpoch === undefined && getEnv().DATABASE_URL) {
+          const currentUser = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { tokenVersion: true },
+          });
+          if (!currentUser) {
+            throw new AppError('UNAUTHORIZED', 401, 'AUTHENTICATION_FAILED');
+          }
+          credentialEpoch = currentUser.tokenVersion;
+        }
+        const authenticationState = await lockAndAssertAuthenticationEpoch(
+          { userId, domain: config.domain, credentialEpoch },
+          { prisma, fallbackTwoFaEnabled: twoFaEnabled },
+        );
         const rememberMe = config.session?.remember_me_default ?? true;
 
-        const twoFaPolicy = await resolveTwoFaPolicy({ config, userId });
-        if (twoFaPolicy !== 'OFF' && twoFaEnabled) {
-          const twofa_token = await signTwoFaChallenge({
-            userId,
-            domain: config.domain,
-            configUrl,
-            redirectUrl,
-            authMethod: provider,
-            rememberMe,
-            requestAccess: socialState.request_access === true,
-            codeChallenge: socialState.code_challenge,
-            codeChallengeMethod: socialState.code_challenge_method,
-            sharedSecret: SHARED_SECRET,
-            audience: authServiceIdentifier,
-          });
-          return { kind: 'twofa' as const, twofa_token };
-        }
-
-        if (twoFaPolicy === 'REQUIRED') {
-          const setup = await startTwoFactorSetup(
+        let autoSelectedWorkspace: AutoSelectedWorkspace | null = null;
+        if (config.login_flow?.workspace_selection === 'auto') {
+          const choices = await buildWorkspaceChoices(
+            { userId, config },
             {
+              crossProductPrisma: prisma,
+              policyPrisma: prisma,
+              prisma,
+            },
+          );
+          autoSelectedWorkspace = resolveAutoSelectedWorkspace(choices);
+          if (shouldPresentWorkspaceChooser(choices, autoSelectedWorkspace)) {
+            const loginToken = await signLoginSession({
               userId,
+              credentialEpoch,
+              authMethod: provider,
               config,
               configUrl,
-              finalize: {
-                authMethod: provider,
-                redirectUrl,
-                rememberMe,
-                requestAccess: socialState.request_access === true,
-                codeChallenge: socialState.code_challenge,
-                codeChallengeMethod: socialState.code_challenge_method,
-              },
-            },
-            { prisma },
-          );
-          return { kind: 'twofa_enroll_required' as const, setupToken: setup.setup_token };
+              redirectUrl,
+              rememberMe,
+              requestAccess: socialState.request_access === true,
+              codeChallenge: socialState.code_challenge,
+              codeChallengeMethod: socialState.code_challenge_method,
+              sharedSecret: SHARED_SECRET,
+              audience: LOGIN_SESSION_AUDIENCE,
+            });
+            return { kind: 'workspace_chooser' as const, loginToken };
+          }
         }
 
-        const finalResult = await finalizeAuthenticatedUser(
+        autoSelectedWorkspace ??= await resolveProductWorkspaceBeforeTwoFa(
+          { userId, config },
+          { prisma, workspacePrisma: prisma },
+        );
+
+        // The workspace decision happens before 2FA: an explicit chooser returns above, while an
+        // unambiguous auto-skip is carried through any 2FA bridge and bound to the final code.
+        const finalized = await finalizeWithTwoFaPolicy(
           {
             userId,
+            credentialEpoch,
+            twoFaEnabled,
             config,
             configUrl,
             redirectUrl,
             rememberMe,
             requestAccess: socialState.request_access === true,
+            authMethod: provider,
             codeChallenge: socialState.code_challenge,
             codeChallengeMethod: socialState.code_challenge_method,
+            ip: request.ip ?? null,
+            ...(autoSelectedWorkspace ?? {}),
           },
-          { prisma },
+          {
+            currentTwoFaEnabled: authenticationState.twoFaEnabled,
+            policyLockHeld: true,
+            policyPrisma: prisma,
+            prisma,
+            twoFaPolicyPrisma: prisma,
+            workspacePrisma: prisma,
+          },
         );
+
+        if (finalized.kind !== 'granted') {
+          return finalized.kind === 'twofa_enroll_required'
+            ? {
+                kind: 'twofa_enroll_required' as const,
+                setupToken: finalized.setup.setup_token,
+              }
+            : finalized;
+        }
 
         try {
           await recordLoginLog(
@@ -377,7 +430,7 @@ async function handleSocialCallback(
           request.log.error({ err }, 'failed to record login log');
         }
 
-        return { kind: 'granted' as const, finalResult };
+        return finalized;
       });
 
       if (outcome.kind === 'auth_failed') {
@@ -390,6 +443,29 @@ async function handleSocialCallback(
         u.searchParams.set('config_url', configUrl);
         u.searchParams.set('redirect_url', redirectUrl);
         u.searchParams.set('twofa_token', outcome.twofa_token);
+        if (socialState.request_access === true) {
+          u.searchParams.set('request_access', 'true');
+        }
+        redirectNoStore(reply, u.toString());
+        return;
+      }
+
+      if (outcome.kind === 'workspace_chooser') {
+        const u = new URL(`${baseUrl}/auth`);
+        u.searchParams.set('config_url', configUrl);
+        u.searchParams.set('redirect_url', redirectUrl);
+        // Gap-fix B follow-up: unlike the twofa/twofa_enroll redirects below (whose bridge JWTs
+        // embed the PKCE challenge — signTwoFaChallenge/startTwoFactorSetup carry it inside the
+        // token), the login_token bridge holds only userId+domain. The SPA must re-present the
+        // challenge on POST /auth/select-team, where issueAuthorizationCode requires it — so it
+        // has to survive this redirect via the URL, same as email-registration-link.ts's
+        // buildWorkspaceChooserAuthUrl.
+        if (socialState.code_challenge && socialState.code_challenge_method) {
+          u.searchParams.set('code_challenge', socialState.code_challenge);
+          u.searchParams.set('code_challenge_method', socialState.code_challenge_method);
+        }
+        u.searchParams.set('login_token', outcome.loginToken);
+        u.searchParams.set('flow', 'workspace_chooser');
         if (socialState.request_access === true) {
           u.searchParams.set('request_access', 'true');
         }

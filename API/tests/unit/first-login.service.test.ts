@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ClientConfig } from '../../src/services/config.service.js';
-import { buildFirstLoginBlock } from '../../src/services/first-login.service.js';
+import {
+  buildFirstLoginBlock,
+  buildWorkspaceChoices,
+  shouldPresentWorkspaceChooser,
+} from '../../src/services/first-login.service.js';
+import { CLIENT_DOMAIN_WORKSPACE_POLICY } from '../../src/services/product-workspace-policy.service.js';
 import { testUiTheme } from '../helpers/test-config.js';
 
 function makeConfig(overrides?: Partial<ClientConfig>): ClientConfig {
@@ -88,7 +93,7 @@ describe('first-login.service', () => {
         userId: 'user-1',
         config: makeConfig({ org_features: { allow_user_create_org: true } }),
       },
-      { prisma },
+      { policy: CLIENT_DOMAIN_WORKSPACE_POLICY, prisma },
     );
 
     expect(result).toEqual({
@@ -129,7 +134,7 @@ describe('first-login.service', () => {
         userId: 'user-1',
         config: makeConfig({ org_features: { allow_user_create_org: false } }),
       },
-      { prisma },
+      { policy: CLIENT_DOMAIN_WORKSPACE_POLICY, prisma },
     );
 
     expect(result).toEqual({
@@ -153,7 +158,7 @@ describe('first-login.service', () => {
     });
 
     expect(prisma.orgMember.findMany).toHaveBeenCalledWith({
-      where: { userId: 'user-1', org: { domain: 'client.example.com' } },
+      where: { userId: 'user-1', status: 'ACTIVE', org: { domain: 'client.example.com' } },
       select: { orgId: true, role: true },
     });
     expect(prisma.teamInvite.findMany).toHaveBeenCalledWith({
@@ -162,6 +167,8 @@ describe('first-login.service', () => {
         acceptedAt: null,
         declinedAt: null,
         revokedAt: null,
+        approvalStatus: { in: ['NOT_REQUIRED', 'APPROVED'] },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }],
         org: { domain: 'client.example.com' },
       },
       select: {
@@ -171,5 +178,265 @@ describe('first-login.service', () => {
         team: { select: { name: true } },
       },
     });
+  });
+
+  it('includes selected cross-domain memberships in firstLogin for a bound product', async () => {
+    const prisma = {
+      user: { findUnique: vi.fn(async () => ({ email: 'jane@acme.com' })) },
+      orgMember: { findMany: vi.fn(async () => []) },
+      teamMember: { findMany: vi.fn(async () => []) },
+      teamInvite: { findMany: vi.fn(async () => []) },
+    };
+    const crossProductPrisma = {
+      user: { findUnique: vi.fn() },
+      orgMember: {
+        findMany: vi.fn(async () => [{ orgId: 'org-nessie', role: 'member' }]),
+      },
+      teamMember: {
+        findMany: vi.fn(async () => [
+          {
+            teamId: 'team-nessie',
+            teamRole: 'member',
+            team: { orgId: 'org-nessie', iconUrl: null },
+          },
+        ]),
+      },
+      teamInvite: { findMany: vi.fn() },
+    };
+
+    const result = await buildFirstLoginBlock(
+      {
+        userId: 'user-1',
+        config: makeConfig({ domain: 'api.deepsignal.live' }),
+      },
+      {
+        crossProductPrisma,
+        policy: {
+          scope: 'all_active_memberships',
+          serviceId: 'service-deepsignal',
+          product: 'deepsignal',
+        },
+        prisma,
+      },
+    );
+
+    expect(result?.memberships).toEqual({
+      orgs: [{ orgId: 'org-nessie', role: 'member' }],
+      teams: [
+        {
+          teamId: 'team-nessie',
+          orgId: 'org-nessie',
+          role: 'member',
+          iconUrl: null,
+        },
+      ],
+    });
+    expect(crossProductPrisma.teamMember.findMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        status: 'ACTIVE',
+        team: {
+          org: {
+            members: { some: { userId: 'user-1', status: 'ACTIVE' } },
+          },
+        },
+      },
+      select: {
+        teamId: true,
+        teamRole: true,
+        team: { select: { orgId: true, iconUrl: true } },
+      },
+    });
+  });
+});
+
+describe('buildWorkspaceChoices', () => {
+  it('returns empty choices when the user cannot be found', async () => {
+    const prisma = {
+      user: { findUnique: vi.fn(async () => null) },
+      teamMember: { findMany: vi.fn() },
+      teamInvite: { findMany: vi.fn() },
+    };
+
+    const result = await buildWorkspaceChoices(
+      { userId: 'user-1', config: makeConfig() },
+      { policy: CLIENT_DOMAIN_WORKSPACE_POLICY, prisma },
+    );
+
+    expect(result).toEqual({ teams: [], pending_invites: [], can_create_org: false });
+    expect(prisma.teamMember.findMany).not.toHaveBeenCalled();
+  });
+
+  it('only queries ACTIVE team memberships — DEACTIVATED/REMOVED never surface', async () => {
+    const prisma = {
+      user: { findUnique: vi.fn(async () => ({ email: 'jane@acme.com' })) },
+      teamMember: {
+        findMany: vi.fn(async () => [
+          {
+            teamId: 'team-1',
+            teamRole: 'owner',
+            team: {
+              name: 'Backend Team',
+              slug: 'backend-team',
+              orgId: 'org-1',
+              iconUrl: 'https://cdn.example.com/a.png',
+            },
+          },
+        ]),
+      },
+      teamInvite: { findMany: vi.fn(async () => []) },
+    };
+
+    const result = await buildWorkspaceChoices(
+      { userId: 'user-1', config: makeConfig({ org_features: { allow_user_create_org: true } }) },
+      { policy: CLIENT_DOMAIN_WORKSPACE_POLICY, prisma },
+    );
+
+    expect(result).toEqual({
+      teams: [
+        {
+          teamId: 'team-1',
+          orgId: 'org-1',
+          name: 'Backend Team',
+          role: 'owner',
+          iconUrl: 'https://cdn.example.com/a.png',
+          slug: 'backend-team',
+        },
+      ],
+      pending_invites: [],
+      can_create_org: true,
+    });
+    expect(prisma.teamMember.findMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        status: 'ACTIVE',
+        team: { org: { domain: 'client.example.com' } },
+      },
+      select: {
+        teamId: true,
+        teamRole: true,
+        team: { select: { name: true, slug: true, orgId: true, iconUrl: true } },
+      },
+    });
+  });
+
+  it('maps pending invites and falls back from invitedByName to invitedByEmail', async () => {
+    const prisma = {
+      user: { findUnique: vi.fn(async () => ({ email: 'jane@acme.com' })) },
+      teamMember: { findMany: vi.fn(async () => []) },
+      teamInvite: {
+        findMany: vi.fn(async () => [
+          {
+            id: 'invite-1',
+            team: { name: 'Design' },
+            invitedByName: 'Alice Admin',
+            invitedByEmail: 'alice@acme.com',
+          },
+          {
+            id: 'invite-2',
+            team: { name: 'Ops' },
+            invitedByName: null,
+            invitedByEmail: 'bob@acme.com',
+          },
+        ]),
+      },
+    };
+
+    const result = await buildWorkspaceChoices(
+      { userId: 'user-1', config: makeConfig() },
+      { policy: CLIENT_DOMAIN_WORKSPACE_POLICY, prisma },
+    );
+
+    expect(result.pending_invites).toEqual([
+      { inviteId: 'invite-1', teamName: 'Design', invitedBy: 'Alice Admin' },
+      { inviteId: 'invite-2', teamName: 'Ops', invitedBy: 'bob@acme.com' },
+    ]);
+    expect(prisma.teamInvite.findMany).toHaveBeenCalledWith({
+      where: {
+        email: 'jane@acme.com',
+        acceptedAt: null,
+        declinedAt: null,
+        revokedAt: null,
+        approvalStatus: { in: ['NOT_REQUIRED', 'APPROVED'] },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }],
+        org: { domain: 'client.example.com' },
+      },
+      select: {
+        id: true,
+        team: { select: { name: true } },
+        invitedByName: true,
+        invitedByEmail: true,
+      },
+    });
+  });
+
+  it('lists all exact ACTIVE memberships for one centrally bound product', async () => {
+    const prisma = {
+      user: { findUnique: vi.fn(async () => ({ email: 'jane@acme.com' })) },
+      teamMember: { findMany: vi.fn(async () => []) },
+      teamInvite: { findMany: vi.fn(async () => []) },
+    };
+    const crossProductPrisma = {
+      user: { findUnique: vi.fn() },
+      teamMember: {
+        findMany: vi.fn(async () => [
+          {
+            teamId: 'team-nessie',
+            teamRole: 'owner',
+            team: {
+              name: 'Nessie Works',
+              slug: 'nessie-works',
+              orgId: 'org-nessie',
+              iconUrl: null,
+            },
+          },
+          {
+            teamId: 'team-second',
+            teamRole: 'member',
+            team: {
+              name: 'Second Team',
+              slug: 'second-team',
+              orgId: 'org-second',
+              iconUrl: null,
+            },
+          },
+        ]),
+      },
+      teamInvite: { findMany: vi.fn() },
+    };
+
+    const result = await buildWorkspaceChoices(
+      { userId: 'user-1', config: makeConfig({ domain: 'api.deepsignal.live' }) },
+      {
+        crossProductPrisma,
+        policy: {
+          scope: 'all_active_memberships',
+          serviceId: 'service-deepsignal',
+          product: 'deepsignal',
+        },
+        prisma,
+      },
+    );
+
+    expect(result.teams.map((team) => team.teamId)).toEqual(['team-nessie', 'team-second']);
+    expect(crossProductPrisma.teamMember.findMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        status: 'ACTIVE',
+        team: {
+          org: {
+            members: {
+              some: { userId: 'user-1', status: 'ACTIVE' },
+            },
+          },
+        },
+      },
+      select: {
+        teamId: true,
+        teamRole: true,
+        team: { select: { name: true, slug: true, orgId: true, iconUrl: true } },
+      },
+    });
+    expect(shouldPresentWorkspaceChooser(result)).toBe(true);
   });
 });

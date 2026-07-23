@@ -135,11 +135,18 @@ export const configJwtDocumentation = {
     debug_enabled: 'boolean (default false)',
     user_scope: '"global" | "per_domain" (default "global")',
     allow_registration: 'boolean (default true)',
+    existing_user_registration_behavior:
+      '"email_login_link" | "inline_sign_in" (default "email_login_link") — opt-in override for clients that prefer an inline already-registered sign-in prompt over sending a login-link email during registration',
     registration_mode: '"password_required" | "passwordless" (default "password_required")',
     allowed_registration_domains: 'string[] — lowercase email domains allowed to register',
     registration_domain_mapping:
       'array of { email_domain, org_id, team_id? } — email-domain-based org/team placement',
     language: 'string — currently selected language override',
+    login_flow: {
+      email_code_enabled: 'boolean (default false)',
+      workspace_selection:
+        '"off" | "auto" (default "off") — "auto" resolves workspace after identity verification. Legacy clients use ACTIVE org+team memberships on their own config domain. A server-recognized product domain (active ClientDomain plus one unambiguous active/current CUSTOMER_LIFECYCLE app-key service mapping with exact HTTPS actorIssuer) uses all exact ACTIVE org+team memberships; unknown/revoked/ambiguous mappings remain same-domain and pending invites are always same-domain. Exactly one eligible membership with no pending invite is selected server-side and bound through applicable 2FA to the authorization code/active claim; multiple teams, any invite, or zero teams with can_create_org preserve the chooser. "off" suppresses the chooser, but a recognized product still resolves one exact workspace (or required first placement) before 2FA and fails closed on ambiguity; only legacy non-product login remains unscoped. The exact selected Organisation policy participates in strongest-wins even across domains. The chooser login_token cryptographically binds the exact verified config URL+semantics, redirect, PKCE, remember-me, and access-request continuation and is consumed once with the final selection. An accepted email invite is already an explicit selection and carries its exact ACTIVE org/team through 2FA.',
+    },
     session: {
       remember_me_enabled: 'boolean (default true)',
       remember_me_default: 'boolean (default true)',
@@ -213,22 +220,23 @@ export const configValidationEndpointDocumentation = {
 
 export const accessTokenDocumentation = {
   description:
-    'The access_token returned by POST /auth/token is an HS256 JWT signed with the deployment SHARED_SECRET. Relying parties cannot and should not verify it cryptographically — trust derives from the authenticated backend channel (domain-hash bearer + PKCE). When an RP needs to validate a presented access token later, it should call UOA (e.g. GET /org/me) rather than attempting local verification.',
+    'Authorization-code and refresh grants at POST /auth/token return the legacy HS256 JWT signed with SHARED_SECRET. The confidential RFC 8693 token-exchange grant is separate: it returns a 5-minute, resource-bound RS256 token verified with GET /oauth/jwks.json. Never apply one profile’s verification rules to the other.',
   signing: {
+    profile: 'legacy authorization-code and refresh-token grants only',
     algorithm: 'HS256',
     key: 'deployment-wide SHARED_SECRET (not exposed, no UOA-side public JWKS)',
     audience: 'uoa:access-token',
   },
   claims: {
     sub: 'string — stable external user id. Primary foreign key for the RP into the UOA user.',
-    email: 'string — user primary email. Advisory (user may change it); sub is the stable identity.',
-    role:
-      'string — UOA platform role, "user" or "superuser". Gates UOA admin surfaces only. DO NOT use for RP authorization; honour firstLogin.memberships.orgs[].role (or GET /org/me) instead.',
-    domain: 'string — integration domain from the config JWT. Confirms which integration minted this token.',
+    email:
+      'string — user primary email. Advisory (user may change it); sub is the stable identity.',
+    role: 'string — UOA platform role, "user" or "superuser". Gates UOA admin surfaces only. DO NOT use for RP authorization; honour firstLogin.memberships.orgs[].role (or GET /org/me) instead.',
+    domain:
+      'string — integration domain from the config JWT. Confirms which integration minted this token.',
     client_id:
       'string — SHA256(domain + clientSecret) hex. Identifies the exact client credential used.',
-    org:
-      'object | absent — present only when org_features.enabled and the user has an org on this domain. Shape: { org_id, org_role, teams[], team_roles{}, groups?[], group_admin?[] }.',
+    org: 'object | absent — present only when org_features.enabled and the user has an org on this domain. Shape: { org_id, org_role, teams[], team_roles{}, groups?[], group_admin?[] }.',
     iss: 'string — UOA host (e.g. authentication.unlikeotherai.com).',
     aud: 'string — always "uoa:access-token".',
     iat: 'number — issued at, epoch seconds.',
@@ -243,6 +251,63 @@ export const accessTokenDocumentation = {
   ],
   response_envelope_casing:
     'The /auth/token response envelope is snake_case (access_token, refresh_token, expires_in, refresh_token_expires_in, token_type). The key firstLogin is camelCase; memberships.orgs[].orgId, memberships.teams[].teamId, memberships.teams[].orgId, and pending_invites[].inviteId/orgId/teamId/teamName are camelCase. pending_invites and capabilities.can_* remain snake_case.',
+};
+
+export const confidentialTokenExchangeDocumentation = {
+  description:
+    'Confidential RFC 8693-style exchange on POST /auth/token. Every calling product authenticates with its own existing per-domain app credential and selects one enabled DB mapping bound to that ClientDomain, product, exact resource, and scope allowlist; there is no shared credential or singleton env fallback. A first hop supplies a short-lived source-signed JWT assertion. A later app-to-app hop may instead submit the already UOA-issued access token whose audience is exactly that authenticated next-hop app. Both profiles re-resolve current identity and membership before UOA issues a narrowed, resource-bound RS256 access token.',
+  request: {
+    grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+    subject_token:
+      'Either a source-signed one-time RS256 JWT assertion carrying optional active workspace context, or a UOA-issued RS256 at+jwt access token already bound to the authenticated calling app with mandatory org/active context',
+    subject_token_type:
+      'urn:ietf:params:oauth:token-type:jwt for the first hop, or urn:ietf:params:oauth:token-type:access_token for a chained hop',
+    product:
+      'lowercase product identifier; must match the mapping bound to the authenticated ClientDomain',
+    resource: 'exact HTTPS resource URI stored in that product mapping',
+    scope:
+      'space-delimited exact requested subset of ai.invoke, billing.read, and/or token.provision; token provisioning is never implied by ai.invoke and UOA rejects any scope outside the mapping allowlist',
+  },
+  application_binding: {
+    authentication:
+      'the normal domain-hash bearer for the immediate caller config domain; credential rotation preserves the ClientDomain-bound mapping',
+    mapping:
+      'DB-backed exact ClientDomain + product -> HTTPS resource + supported-scope allowlist; unknown, disabled, cross-domain, cross-product, wrong-resource, and widening requests fail closed',
+    administration:
+      'audited superuser CRUD at /internal/admin/confidential-delegations; responses never expose credential material',
+  },
+  subject_assertion_binding: {
+    issuer: 'exact source config domain',
+    audience: 'PUBLIC_BASE_URL + /auth/token',
+    key_source: 'same-host jwks_url claim from the verified source config JWT',
+    replay_protection:
+      'A fresh unique jti is mandatory. After current identity and optional workspace validation, UOA atomically consumes source-domain+jti once in PostgreSQL through exp plus clock tolerance; exact/concurrent replay is rejected across instances.',
+  },
+  chained_access_token_binding: {
+    authentication:
+      'the immediate caller still presents only its own per-domain app credential; another product credential, a webhook secret, a user token, or a shared fallback is never accepted as caller authentication',
+    verification:
+      'the subject must be a UOA RS256 at+jwt with iss equal to UOA and aud exactly https://<authenticated caller config domain>; source_domain and azp must identify the same inbound source product domain',
+    workspace:
+      'org and active are mandatory and internally consistent. UOA revalidates the inbound source-product mapping, then checks the stable user, source-domain role, ACTIVE organisation, and ACTIVE selected team under the ultimate signed origin at the tail of the act chain.',
+    narrowing:
+      'requested scope must be allowed by the immediate caller mapping and be a subset of the inbound token scope. The downstream expiry is capped to the remaining inbound lifetime.',
+    reuse:
+      'Unlike a source-signed JWT assertion, an audience-bound access-token subject is reusable until exp so concurrent multi-process calls do not turn a normal bearer token into a one-shot credential.',
+  },
+  issued_access_token: {
+    algorithm: 'RS256',
+    lifetime: 'maximum 300 seconds; a chained result never outlives its inbound access token',
+    jwks: 'GET /oauth/jwks.json',
+    claims:
+      'iss, aud, sub, email (advisory), source_domain, azp (immediate caller domain only), product, exact requested scope, jti, iat, exp; org and active are present together for a validated workspace and preserve the revalidated original tenancy. Chained tokens add an RFC 8693 act chain containing upstream source/product provenance.',
+    forbidden_claims:
+      'client_id and the 64-character domain-hash bearer credential are never copied into this token',
+  },
+  rate_limit:
+    'Confidential exchange is isolated from the legacy 10/min/IP token bucket: 600/min per authenticated caller domain, plus 60/min per verified caller-domain user.',
+  public_oauth_boundary:
+    'The signing key publishes GET /oauth/jwks.json but does not enable public registration, authorize, login, or PKCE token routes. Those require MCP_OAUTH_PUBLIC_PROFILE_ENABLED=true.',
 };
 
 export const configVerificationEndpointDocumentation = {

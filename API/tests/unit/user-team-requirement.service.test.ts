@@ -66,11 +66,13 @@ describe('ensureUserHasRequiredTeam', () => {
 
   it('creates a personal team and promotes the user to admin when they are in an org but have zero teams', async () => {
     const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'user-1' }]),
       orgMember: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'org-member-1',
           orgId: 'org-1',
           role: 'member',
+          status: 'ACTIVE',
         }),
         update: vi.fn().mockResolvedValue({ id: 'org-member-1' }),
       },
@@ -82,6 +84,13 @@ describe('ensureUserHasRequiredTeam', () => {
         count: vi.fn().mockResolvedValue(1),
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({ id: 'team-1' }),
+      },
+      user: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'user-1',
+          email: 'alice@example.com',
+          name: 'Alice',
+        }),
       },
     };
 
@@ -96,7 +105,7 @@ describe('ensureUserHasRequiredTeam', () => {
       $transaction: vi.fn(async (fn: (inner: typeof tx) => Promise<void>) => await fn(tx)),
     } as unknown as PrismaClient;
 
-    await ensureUserHasRequiredTeam(
+    const placement = await ensureUserHasRequiredTeam(
       {
         userId: 'user-1',
         config: makeConfig(),
@@ -120,7 +129,7 @@ describe('ensureUserHasRequiredTeam', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           userId: 'user-1',
-          teamRole: 'lead',
+          teamRole: 'admin',
         }),
       }),
     );
@@ -128,10 +137,12 @@ describe('ensureUserHasRequiredTeam', () => {
       where: { id: 'org-member-1' },
       data: { role: 'admin' },
     });
+    expect(placement).toEqual({ orgId: 'org-1', teamId: 'team-1' });
   });
 
   it('creates a personal org and default team when the user has no org on the domain', async () => {
     const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'user-1' }]),
       orgMember: {
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({ id: 'org-member-1' }),
@@ -147,6 +158,13 @@ describe('ensureUserHasRequiredTeam', () => {
       teamMember: {
         create: vi.fn().mockResolvedValue({ id: 'team-member-1' }),
       },
+      user: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'user-1',
+          email: 'alice@example.com',
+          name: 'Alice',
+        }),
+      },
     };
 
     const prisma = {
@@ -160,7 +178,7 @@ describe('ensureUserHasRequiredTeam', () => {
       $transaction: vi.fn(async (fn: (inner: typeof tx) => Promise<void>) => await fn(tx)),
     } as unknown as PrismaClient;
 
-    await ensureUserHasRequiredTeam(
+    const placement = await ensureUserHasRequiredTeam(
       {
         userId: 'user-1',
         config: makeConfig(),
@@ -200,8 +218,9 @@ describe('ensureUserHasRequiredTeam', () => {
       data: {
         teamId: 'team-1',
         userId: 'user-1',
-        teamRole: 'lead',
+        teamRole: 'admin',
       },
     });
+    expect(placement).toEqual({ orgId: 'org-1', teamId: 'team-1' });
   });
 });

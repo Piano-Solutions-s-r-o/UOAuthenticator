@@ -63,6 +63,7 @@ function makePrismaMock() {
     user: {
       findUnique: vi.fn(),
     },
+    $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked-row' }]),
     $transaction: vi.fn(),
   } as unknown as PrismaClient;
 
@@ -288,6 +289,9 @@ describe('Organisation service: organisation CRUD', () => {
     expect(randomBytes).toHaveBeenCalledTimes(1);
   });
 
+  // icon_url validation coverage (accept https, clear on null, reject http/oversized) lives in
+  // organisation.service.icon-url.test.ts (CLAUDE.md 500-line split).
+
   it('lists organisations for a domain with cursor pagination', async () => {
     const prisma = makePrismaMock();
 
@@ -409,6 +413,7 @@ describe('Organisation service: organisation CRUD', () => {
       createdAt: now,
       updatedAt: now,
     });
+    prisma.orgMember.findMany.mockResolvedValue([{ userId: 'u-owner' }]);
 
     const result = await deleteOrganisation(
       {
@@ -420,6 +425,7 @@ describe('Organisation service: organisation CRUD', () => {
     );
 
     expect(result).toEqual({ deleted: true });
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(3);
     expect(prisma.organisation.delete).toHaveBeenCalledWith({ where: { id: 'org-1' } });
   });
 

@@ -1,4 +1,5 @@
 import { getAdminPrisma } from '../db/prisma.js';
+import { runInTransaction } from '../db/tenant-context.js';
 import {
   normalizeAllowedEmailDomains,
   normalizeAllowedEmails,
@@ -16,7 +17,7 @@ import {
   normalizeDomain,
 } from './internal-admin.service.base.js';
 import { deriveSlugWithValidation, isP2002Error, isP2003Error } from './organisation.service.base.js';
-import { deriveUniqueTeamSlug } from './team.service.base.js';
+import { deriveUniqueTeamSlug, normalizeTeamDescription, normalizeTeamName } from './team.service.base.js';
 import type { TwoFaPolicyValue } from './twofactor-policy.service.js';
 
 export async function getAdminOrganisations(limit?: number) {
@@ -92,7 +93,7 @@ export async function createAdminOrganisation(input: {
   });
   if (!owner) throw new AppError('BAD_REQUEST', 400, 'OWNER_NOT_FOUND');
 
-  const created = await prisma.$transaction(async (tx) => {
+  const created = await runInTransaction(prisma, async (tx) => {
     const slug = await deriveSlugWithValidation(domain, tx, name);
     const org = await tx.organisation.create({
       data: {
@@ -190,13 +191,29 @@ export async function updateAdminOrganisation(
 export async function updateAdminTeam(
   orgId: string,
   teamId: string,
-  input: { allowedEmailDomains?: string[]; allowedEmails?: string[] },
+  input: {
+    name?: string;
+    description?: string | null;
+    allowedEmailDomains?: string[];
+    allowedEmails?: string[];
+  },
 ) {
   const prisma = getAdminPrisma();
   const team = await prisma.team.findFirst({ where: { id: teamId, orgId }, select: { id: true } });
   if (!team) throw new AppError('NOT_FOUND', 404, 'TEAM_NOT_FOUND');
 
-  const data: { allowedEmailDomains?: string[]; allowedEmails?: string[] } = {};
+  const data: {
+    name?: string;
+    description?: string | null;
+    allowedEmailDomains?: string[];
+    allowedEmails?: string[];
+  } = {};
+  if (input.name !== undefined) {
+    data.name = normalizeTeamName(input.name);
+  }
+  if (input.description !== undefined) {
+    data.description = normalizeTeamDescription(input.description) ?? null;
+  }
   if (input.allowedEmailDomains !== undefined) {
     data.allowedEmailDomains = normalizeAllowedEmailDomains(input.allowedEmailDomains);
   }
@@ -205,7 +222,12 @@ export async function updateAdminTeam(
   }
 
   if (Object.keys(data).length > 0) {
-    await prisma.team.update({ where: { id: teamId }, data });
+    try {
+      await prisma.team.update({ where: { id: teamId }, data });
+    } catch (err) {
+      if (isP2002Error(err)) throw new AppError('BAD_REQUEST', 400, 'TEAM_NAME_EXISTS');
+      throw err;
+    }
   }
 
   return getAdminTeam(orgId, teamId);

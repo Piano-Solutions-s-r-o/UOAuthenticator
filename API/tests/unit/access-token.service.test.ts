@@ -36,10 +36,15 @@ async function signAccessToken(params: {
     groups?: string[];
     group_admin?: string[];
   };
+  active?: {
+    orgId: string;
+    teamId: string;
+  };
 }): Promise<string> {
   const alg = params.alg ?? 'HS256';
   const ttl = params.ttl ?? '30m';
   const org = params.org;
+  const active = params.active;
 
   const jwt = new SignJWT({
     email: 'user@example.com',
@@ -48,6 +53,7 @@ async function signAccessToken(params: {
     role: 'superuser',
     tv: params.tv ?? 0,
     ...(org ? { org } : {}),
+    ...(active ? { active } : {}),
   })
     .setProtectedHeader({ alg, typ: 'JWT' })
     .setIssuer(params.issuer)
@@ -88,6 +94,7 @@ describe('verifyAccessToken', () => {
     const claims = await verifyAccessToken(token, depsWithTokenVersion(0));
     expect(claims).toEqual({
       userId: 'u1',
+      tokenVersion: 0,
       email: 'user@example.com',
       domain: 'client.example.com',
       clientId: 'client-id',
@@ -111,6 +118,7 @@ describe('verifyAccessToken', () => {
     const claims = await verifyAccessToken(token, depsWithTokenVersion(0));
     expect(claims).toEqual({
       userId: 'u2',
+      tokenVersion: 0,
       email: 'user@example.com',
       domain: 'client.example.com',
       clientId: 'client-id',
@@ -121,6 +129,26 @@ describe('verifyAccessToken', () => {
         teams: ['team_a', 'team_b'],
         team_roles: { team_a: 'lead', team_b: 'member' },
       },
+    });
+  });
+
+  it('accepts a valid JWT with an active workspace claim', async () => {
+    const token = await signAccessToken({
+      sharedSecret: process.env.SHARED_SECRET!,
+      issuer: process.env.AUTH_SERVICE_IDENTIFIER!,
+      subject: 'u3',
+      active: { orgId: 'org_1', teamId: 'team_a' },
+    });
+
+    const claims = await verifyAccessToken(token, depsWithTokenVersion(0));
+    expect(claims).toEqual({
+      userId: 'u3',
+      tokenVersion: 0,
+      email: 'user@example.com',
+      domain: 'client.example.com',
+      clientId: 'client-id',
+      role: 'superuser',
+      active: { orgId: 'org_1', teamId: 'team_a' },
     });
   });
 
@@ -220,7 +248,25 @@ describe('verifyAccessToken', () => {
     });
   });
 
-  it('rejects a token with no tv claim', async () => {
+  it('surfaces an unexpected token-version lookup failure instead of logging the user out', async () => {
+    const token = await signAccessToken({
+      sharedSecret: process.env.SHARED_SECRET!,
+      issuer: process.env.AUTH_SERVICE_IDENTIFIER!,
+      subject: 'u1',
+      tv: 0,
+    });
+    const databaseFailure = new Error('database unavailable');
+
+    await expect(
+      verifyAccessToken(token, {
+        prisma: {
+          user: { findUnique: vi.fn().mockRejectedValue(databaseFailure) },
+        } as never,
+      }),
+    ).rejects.toBe(databaseFailure);
+  });
+
+  it('accepts a legacy token with no tv only while the live epoch is zero', async () => {
     const jwt = new SignJWT({
       email: 'user@example.com',
       domain: 'client.example.com',
@@ -235,7 +281,11 @@ describe('verifyAccessToken', () => {
       .setExpirationTime('30m');
     const token = await jwt.sign(secretKey(process.env.SHARED_SECRET!));
 
-    await expect(verifyAccessToken(token, depsWithTokenVersion(0))).rejects.toMatchObject({
+    await expect(verifyAccessToken(token, depsWithTokenVersion(0))).resolves.toMatchObject({
+      userId: 'u1',
+      tokenVersion: 0,
+    });
+    await expect(verifyAccessToken(token, depsWithTokenVersion(1))).rejects.toMatchObject({
       statusCode: 401,
     });
   });

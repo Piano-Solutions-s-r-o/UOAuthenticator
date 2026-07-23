@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 
 export type AuthView =
   | 'login'
@@ -6,13 +6,41 @@ export type AuthView =
   | 'reset-password'
   | 'set-password'
   | 'access-requested'
-  | 'signed-in';
+  | 'signed-in'
+  | 'signatures'
+  | 'code-entry'
+  | 'workspace-chooser';
 
 export type TwoFactorSetupState = {
   setup_token: string;
   otpauth_uri?: string;
   qr_svg?: string;
   manual_secret?: string;
+};
+
+/** Phase 3c (design §11.2): a single ACTIVE workspace membership offered by the chooser. */
+export type TeamChoice = {
+  teamId: string;
+  orgId: string;
+  name: string;
+  role: string;
+  iconUrl?: string | null;
+  /** Gap-fix B (design §11.4): lets a `team_hint` deep-link match by slug as well as by id. */
+  slug?: string;
+};
+
+/** Phase 3c (design §11.2): a pending team invite offered alongside the chooser. */
+export type InviteChoice = {
+  inviteId: string;
+  teamName: string;
+  invitedBy?: string | null;
+};
+
+/** Mirrors `buildWorkspaceChoices` (API `first-login.service.ts`) field-for-field. */
+export type WorkspaceChoices = {
+  teams: TeamChoice[];
+  pending_invites: InviteChoice[];
+  can_create_org: boolean;
 };
 
 /** True for a native deep-link target (custom scheme, not http/https). */
@@ -41,12 +69,30 @@ export type PopupQueryParams = {
   clientId: string | null;
   state: string | null;
   resource: string | null;
+  scope: string | null;
+  /** Short-lived opaque capability for an authenticated agreement-signing continuation. */
+  signingToken: string | null;
   /**
    * Native deep-link target the flow should hand off to (custom scheme). When present, the
    * auth window renders the "signed in — return to the app" handoff view instead of bouncing
    * straight to the scheme, so the browser tab isn't left blank.
    */
   handoffTarget: string | null;
+  /**
+   * Phase 3c follow-up (design §4.3 Task 7 remainder): the `login_token` bridge seeded via a
+   * redirect (currently: the social callback's workspace_chooser branch), only ever set alongside
+   * `flow=workspace_chooser`. Unlike `twofa_token`, the chooser payload itself doesn't fit in the
+   * URL — the SPA hydrates it afterwards via `POST /auth/session-choices`.
+   */
+  loginToken: string | null;
+  /**
+   * Gap-fix B Task 2 (design §11.4): a deep-link/switch preselect — "jump straight into this
+   * workspace" from a product's sidebar (`GET /auth?...&team_hint=<teamId|slug>`). Client-side
+   * ONLY: it may only cause auto-selection of a team already present in the verified user's own
+   * chooser payload (`WorkspaceChooserPage`'s hint-match), never anything wider — `select-team`'s
+   * server-side ACTIVE-membership + domain check remains the sole authority.
+   */
+  teamHint: string | null;
 };
 
 export type PopupContextValue = PopupQueryParams & {
@@ -60,6 +106,18 @@ export type PopupContextValue = PopupQueryParams & {
   startTwoFactorVerify: (token: string) => void;
   startTwoFactorSetup: (setup: TwoFactorSetupState) => void;
   twoFactorSetup: TwoFactorSetupState | null;
+  /** The email a sign-in code was sent to (email-code and code-entry flow). */
+  pendingEmail: string | null;
+  setPendingEmail: (email: string | null) => void;
+  /**
+   * Bridge token from /auth/verify-code, a chooser-producing /auth/login (design §4.3), or the
+   * `login_token`/`flow=workspace_chooser` query pair seeded by the social callback (declared on
+   * `PopupQueryParams` above so it can be parsed from the URL like `twoFaToken`).
+   */
+  setLoginToken: (token: string | null) => void;
+  /** The workspace chooser payload for the current `loginToken`. */
+  workspaceChoices: WorkspaceChoices | null;
+  setWorkspaceChoices: (choices: WorkspaceChoices | null) => void;
   /**
    * Perform the final OAuth redirect (authorization code flow).
    * This intentionally uses a normal top-level navigation, not postMessage.
@@ -90,7 +148,11 @@ export function parsePopupQueryParams(search: string): PopupQueryParams {
       clientId: null,
       state: null,
       resource: null,
+      scope: null,
+      signingToken: null,
       handoffTarget: null,
+      loginToken: null,
+      teamHint: null,
     };
   }
 
@@ -108,7 +170,19 @@ export function parsePopupQueryParams(search: string): PopupQueryParams {
   const clientId = params.get('client_id');
   const state = params.get('state');
   const resource = params.get('resource');
+  const scope = params.get('scope');
+  const signingToken =
+    params.get('flow') === 'signatures' ? params.get('signing_token') : null;
   const handoffTarget = params.get('handoff_target');
+  // Phase 3c follow-up (design §4.3 Task 7 remainder): only trust `login_token` when the redirect
+  // also carries the `flow=workspace_chooser` marker — mirrors how `twofa_token` is scoped by its
+  // own dedicated query param, so a stray `login_token` on an unrelated redirect is never picked up.
+  const loginToken =
+    params.get('flow') === 'workspace_chooser' ? params.get('login_token') : null;
+  // Gap-fix B Task 2 (design §11.4): a deep-link/switch chooser preselect. Parsed unconditionally
+  // (unlike `login_token`, it isn't scoped to another marker param) — validity/membership is
+  // re-checked against the verified user's own chooser payload before it can select anything.
+  const teamHint = params.get('team_hint');
 
   const validTypes = ['VERIFY_EMAIL_SET_PASSWORD', 'VERIFY_EMAIL', 'LOGIN_LINK', 'PASSWORD_RESET'] as const;
   const emailTokenType = rawType && (validTypes as readonly string[]).includes(rawType)
@@ -128,7 +202,11 @@ export function parsePopupQueryParams(search: string): PopupQueryParams {
     clientId: clientId && clientId.trim() ? clientId : null,
     state: state && state.trim() ? state : null,
     resource: resource && resource.trim() ? resource : null,
+    scope: scope && scope.trim() ? scope : null,
+    signingToken: signingToken && signingToken.trim() ? signingToken : null,
     handoffTarget: handoffTarget && handoffTarget.trim() ? handoffTarget : null,
+    loginToken: loginToken && loginToken.trim() ? loginToken : null,
+    teamHint: teamHint && teamHint.trim() ? teamHint : null,
   };
 }
 
@@ -138,12 +216,20 @@ function readClientSearch(): string {
 }
 
 function deriveInitialView(parsed: PopupQueryParams): AuthView {
+  if (parsed.signingToken) {
+    return 'signatures';
+  }
   if (parsed.handoffTarget) {
     // Server-rendered handoff (e.g. social callback to a native deep link).
     return 'signed-in';
   }
   if (parsed.requestAccessStatus === 'pending') {
     return 'access-requested';
+  }
+  if (parsed.loginToken) {
+    // Phase 3c follow-up (design §4.3 Task 7 remainder): the social callback seeded a login_token
+    // bridge via redirect. WorkspaceChooserPage hydrates workspaceChoices itself on mount.
+    return 'workspace-chooser';
   }
   if (parsed.emailToken && parsed.emailTokenType) {
     // Email link landing: show set-password for both registration+password and password reset.
@@ -160,6 +246,16 @@ export function PopupProvider(props: {
   configUrl: string;
   config?: unknown;
   initialSearch?: string;
+  /**
+   * Seed values for the client-held chooser state (Phase 3c). These never come from the
+   * URL — they're set by `setPendingEmail`/`setLoginToken`/`setWorkspaceChoices` as the flow
+   * progresses — but exposing them as optional props lets callers (tests, storybook-style
+   * harnesses) construct a provider already positioned at a given step.
+   */
+  initialView?: AuthView;
+  initialPendingEmail?: string | null;
+  initialLoginToken?: string | null;
+  initialWorkspaceChoices?: WorkspaceChoices | null;
   children: React.ReactNode;
 }): React.JSX.Element {
   const [search] = useState(() => {
@@ -168,7 +264,7 @@ export function PopupProvider(props: {
   });
 
   const parsed = useMemo(() => parsePopupQueryParams(search), [search]);
-  const [view, setViewState] = useState<AuthView>(() => deriveInitialView(parsed));
+  const [view, setViewState] = useState<AuthView>(() => props.initialView ?? deriveInitialView(parsed));
   const [twoFaToken, setTwoFaToken] = useState<string | null>(() => parsed.twoFaToken);
   const [twoFactorSetup, setTwoFactorSetup] = useState<TwoFactorSetupState | null>(() =>
     parsed.twoFaSetupToken ? { setup_token: parsed.twoFaSetupToken } : null,
@@ -176,8 +272,33 @@ export function PopupProvider(props: {
   // Seeded from the query for the server-rendered handoff; updated by redirectTo for the
   // client-side flows (email/password, 2FA, verify-email) when the target is a custom scheme.
   const [handoffTarget, setHandoffTarget] = useState<string | null>(() => parsed.handoffTarget);
+  // Phase 3c (design §11.2): client-held state for the code-entry + workspace-chooser steps.
+  const [pendingEmail, setPendingEmailState] = useState<string | null>(
+    () => props.initialPendingEmail ?? null,
+  );
+  const [loginToken, setLoginTokenState] = useState<string | null>(
+    () => props.initialLoginToken ?? parsed.loginToken,
+  );
+  const [workspaceChoices, setWorkspaceChoicesState] = useState<WorkspaceChoices | null>(
+    () => props.initialWorkspaceChoices ?? null,
+  );
+
+  useEffect(() => {
+    if (!parsed.signingToken || typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('signing_token') !== parsed.signingToken) return;
+    url.searchParams.delete('signing_token');
+    if (url.searchParams.get('flow') === 'signatures') url.searchParams.delete('flow');
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  }, [parsed.signingToken]);
 
   const setView = useCallback((v: AuthView) => setViewState(v), []);
+  const setPendingEmail = useCallback((email: string | null) => setPendingEmailState(email), []);
+  const setLoginToken = useCallback((token: string | null) => setLoginTokenState(token), []);
+  const setWorkspaceChoices = useCallback(
+    (choices: WorkspaceChoices | null) => setWorkspaceChoicesState(choices),
+    [],
+  );
   const startTwoFactorVerify = useCallback((token: string) => {
     setTwoFaToken(token);
     setViewState('login');
@@ -203,12 +324,21 @@ export function PopupProvider(props: {
       clientId: parsed.clientId,
       state: parsed.state,
       resource: parsed.resource,
+      scope: parsed.scope,
+      signingToken: parsed.signingToken,
       handoffTarget,
+      teamHint: parsed.teamHint,
       view,
       setView,
       startTwoFactorVerify,
       startTwoFactorSetup,
       twoFactorSetup,
+      pendingEmail,
+      setPendingEmail,
+      loginToken,
+      setLoginToken,
+      workspaceChoices,
+      setWorkspaceChoices,
       redirectTo: (url: string) => {
         if (typeof window === 'undefined') return;
         // Native deep links (custom schemes) launch the OS handler without unloading this
@@ -235,12 +365,21 @@ export function PopupProvider(props: {
     parsed.clientId,
     parsed.state,
     parsed.resource,
+    parsed.scope,
+    parsed.signingToken,
     handoffTarget,
+    parsed.teamHint,
     view,
     setView,
     startTwoFactorVerify,
     startTwoFactorSetup,
     twoFactorSetup,
+    pendingEmail,
+    setPendingEmail,
+    loginToken,
+    setLoginToken,
+    workspaceChoices,
+    setWorkspaceChoices,
     props.configUrl,
     props.config,
   ]);

@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  signTwoFaSetupToken,
-  verifyTwoFaSetupToken,
-} from '../twofactor-setup-token.service.js';
+import { signTwoFaSetupToken, verifyTwoFaSetupToken } from '../twofactor-setup-token.service.js';
 
 describe('twofactor setup token', () => {
   const sharedSecret = 'test-shared-secret-with-enough-length';
@@ -13,6 +10,7 @@ describe('twofactor setup token', () => {
   it('round-trips the encrypted setup secret and finalization context', async () => {
     const token = await signTwoFaSetupToken({
       userId: 'user_1',
+      credentialEpoch: 3,
       encryptedSecret: 'v1:iv:cipher:tag',
       configUrl: 'https://app.example.com/config.jwt',
       domain: 'app.example.com',
@@ -22,15 +20,16 @@ describe('twofactor setup token', () => {
       requestAccess: true,
       codeChallenge: 'challenge',
       codeChallengeMethod: 'S256',
+      orgId: 'org_1',
+      teamId: 'team_1',
       sharedSecret,
       audience,
       now,
     });
 
-    await expect(
-      verifyTwoFaSetupToken({ token, sharedSecret, audience, now }),
-    ).resolves.toEqual({
+    await expect(verifyTwoFaSetupToken({ token, sharedSecret, audience, now })).resolves.toEqual({
       userId: 'user_1',
+      credentialEpoch: 3,
       encryptedSecret: 'v1:iv:cipher:tag',
       configUrl: 'https://app.example.com/config.jwt',
       domain: 'app.example.com',
@@ -40,12 +39,15 @@ describe('twofactor setup token', () => {
       requestAccess: true,
       codeChallenge: 'challenge',
       codeChallengeMethod: 'S256',
+      orgId: 'org_1',
+      teamId: 'team_1',
     });
   });
 
   it('rejects expired setup tokens generically', async () => {
     const token = await signTwoFaSetupToken({
       userId: 'user_1',
+      credentialEpoch: 3,
       encryptedSecret: 'v1:iv:cipher:tag',
       configUrl: 'https://app.example.com/config.jwt',
       domain: 'app.example.com',

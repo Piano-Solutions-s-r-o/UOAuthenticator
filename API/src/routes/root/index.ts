@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 
 import {
   accessTokenDocumentation,
+  confidentialTokenExchangeDocumentation,
   configJwtDocumentation,
   configValidationEndpointDocumentation,
   configVerificationEndpointDocumentation,
@@ -45,7 +46,7 @@ export function registerRootRoute(app: FastifyInstance): void {
     return {
       name: 'UnlikeOtherAuthenticator',
       description:
-        'Centralized OAuth and authentication service used by multiple products.',
+        'Centralized OAuth and authentication service used by multiple products, including one-time first-hop assertions and audience-bound chained confidential exchange.',
       version,
       repository: 'https://github.com/UnlikeOtherAI/UnlikeOtherAuthenticator',
       home: '/',
@@ -53,6 +54,7 @@ export function registerRootRoute(app: FastifyInstance): void {
       api: '/api',
       config_jwt: configJwtDocumentation,
       access_token: accessTokenDocumentation,
+      confidential_token_exchange: confidentialTokenExchangeDocumentation,
       config_validation: configValidationEndpointDocumentation,
       config_verification: configVerificationEndpointDocumentation,
       endpoints,
