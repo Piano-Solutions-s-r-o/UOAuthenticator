@@ -54,7 +54,8 @@ describe('Organisation service: membership', () => {
 
     expect(result).toMatchObject({
       data: [{ id: 'member-new', userId: 'u-new' }],
-      next_cursor: 'member-old',
+      // Cursor is the last row of the returned page (brief §24.11 last_id).
+      next_cursor: 'member-new',
     });
   });
 
