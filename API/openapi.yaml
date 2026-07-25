@@ -8256,6 +8256,8 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 
   /internal/admin/users/{userId}/avatar:
+    parameters:
+      - $ref: '#/components/parameters/userIdPath'
     get:
       tags: [Avatars]
       summary: Get any user's avatar image (admin view)
@@ -8267,7 +8269,6 @@ paths:
       security:
         - adminBearer: []
       parameters:
-        - $ref: '#/components/parameters/userIdPath'
         - $ref: '#/components/parameters/avatarStyleQuery'
         - $ref: '#/components/parameters/avatarSizeQuery'
       responses:
@@ -8296,6 +8297,94 @@ paths:
                 format: binary
         '304':
           description: Not modified (matching `If-None-Match`).
+        '401':
+          description: Missing auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not a superuser or wrong admin domain.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Generic not found — unknown user id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags: [Avatars]
+      summary: Set any user's uploaded avatar (admin view)
+      operationId: adminPutUserAvatar
+      description: |
+        Replaces the user's uploaded avatar so operators can manage avatars from the Admin
+        panel. Audit-logged as `user.avatar_updated` against the user's domain. Rate-limited
+        per user. `users.avatar_url` is untouched, so a later social login cannot clobber the
+        upload.
+      security:
+        - adminBearer: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AvatarUploadRequest'
+      responses:
+        '200':
+          description: Stored avatar metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvatarUploadResponse'
+        '400':
+          description: Generic error — not a supported raster image.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not a superuser or wrong admin domain.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Generic not found — unknown user id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Upload exceeds the 1 MiB cap.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Avatars]
+      summary: Remove any user's uploaded avatar (admin view)
+      operationId: adminDeleteUserAvatar
+      description: |
+        Idempotent. Resolution falls back to the provider `avatar_url` or the generated image.
+        Audit-logged as `user.avatar_deleted` against the user's domain. Rate-limited per user.
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkTrue'
         '401':
           description: Missing auth.
           content:

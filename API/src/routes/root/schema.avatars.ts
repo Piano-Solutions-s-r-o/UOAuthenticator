@@ -152,6 +152,23 @@ export const avatarEndpoints: EndpointSchema[] = [
     notes: RESOLUTION_NOTE,
   },
   {
+    method: 'PUT',
+    path: '/internal/admin/users/:userId/avatar',
+    description:
+      "Set any user's uploaded avatar from a multipart upload, for the admin panel. Audit-logged as user.avatar_updated against the user's domain. Rate-limited per user (30/hour).",
+    auth: 'admin superuser bearer token',
+    body: UPLOAD_BODY,
+    response: UPLOAD_RESPONSE,
+  },
+  {
+    method: 'DELETE',
+    path: '/internal/admin/users/:userId/avatar',
+    description:
+      "Remove any user's uploaded avatar; resolution falls back to the provider URL or the generated image. Idempotent. Audit-logged as user.avatar_deleted against the user's domain. Rate-limited per user (30/hour).",
+    auth: 'admin superuser bearer token',
+    response: { ok: 'true' },
+  },
+  {
     method: 'GET',
     path: '/org/organisations/:orgId/teams/:teamId/avatar',
     description:

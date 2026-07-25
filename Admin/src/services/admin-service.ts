@@ -25,6 +25,7 @@ import type {
   Team,
   TeamAvatarUpload,
   TwoFaPolicy,
+  UserAvatarUpload,
   UserSummary,
 } from '../features/admin/types';
 import { createApiClient } from './api-client';
@@ -328,6 +329,13 @@ export const adminService = {
   // fetched as blobs through the shared client and rendered from an object URL.
   getUserAvatar: (userId: string) =>
     api.getBlob(`/internal/admin/users/${encodeURIComponent(userId)}/avatar`, undefined, 'image/*'),
+  uploadUserAvatar: (userId: string, file: File) => {
+    const form = new FormData();
+    form.set('file', file);
+    return api.putForm<UserAvatarUpload>(`/internal/admin/users/${encodeURIComponent(userId)}/avatar`, form);
+  },
+  deleteUserAvatar: (userId: string) =>
+    api.delete<{ ok: boolean }>(`/internal/admin/users/${encodeURIComponent(userId)}/avatar`),
   resetUserTwoFactor: (userId: string) =>
     api.post<UserSummary | null>(`/internal/admin/users/${encodeURIComponent(userId)}/2fa/disable`),
   getLogs: () => api.get<AdminData['logs']>('/internal/admin/logs'),
