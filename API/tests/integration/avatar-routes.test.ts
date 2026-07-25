@@ -3,8 +3,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import { createApp } from '../../src/app.js';
 import { ACCESS_TOKEN_AUDIENCE } from '../../src/config/constants.js';
-import { digestDomainClientHash } from '../../src/utils/client-hash.js';
 import { createClientId } from '../../src/utils/hash.js';
+import { cleanClientDomains, seedDomainSecret } from '../helpers/domain-secret.js';
 import { expectJsonError } from '../helpers/error-response.js';
 import { createTestDb } from '../helpers/test-db.js';
 
@@ -95,8 +95,7 @@ describe.skipIf(!hasDatabase)('avatar routes', () => {
     await handle.prisma.userAvatar.deleteMany();
     await handle.prisma.domainRole.deleteMany();
     await handle.prisma.user.deleteMany();
-    await handle.prisma.clientDomainSecret.deleteMany();
-    await handle.prisma.clientDomain.deleteMany();
+    await cleanClientDomains(handle.prisma);
 
     app = await createApp();
     await app.ready();
@@ -106,25 +105,6 @@ describe.skipIf(!hasDatabase)('avatar routes', () => {
     await app?.close();
     app = null;
   });
-
-  async function seedDomainSecret(domain: string): Promise<string> {
-    const clientHash = createClientId(domain, SHARED_SECRET);
-    await handle!.prisma.clientDomain.create({
-      data: {
-        domain,
-        label: domain,
-        status: 'active',
-        secrets: {
-          create: {
-            active: true,
-            hashPrefix: clientHash.slice(0, 12),
-            secretDigest: digestDomainClientHash(clientHash),
-          },
-        },
-      },
-    });
-    return clientHash;
-  }
 
   async function seedUser(params: {
     email: string;
@@ -153,7 +133,7 @@ describe.skipIf(!hasDatabase)('avatar routes', () => {
 
   describe('GET/PUT/DELETE /domain/users/:userId/avatar', () => {
     it('round-trips an upload and falls back to the generated image after delete', async () => {
-      const hash = await seedDomainSecret(DOMAIN);
+      const hash = await seedDomainSecret(handle!.prisma, DOMAIN);
       const userId = await seedUser({ email: 'roundtrip@example.com', domain: DOMAIN });
       const url = `/domain/users/${userId}/avatar?domain=${encodeURIComponent(DOMAIN)}`;
 
@@ -247,7 +227,7 @@ describe.skipIf(!hasDatabase)('avatar routes', () => {
     });
 
     it('honours ?style= and ?size= on the generated image', async () => {
-      const hash = await seedDomainSecret(DOMAIN);
+      const hash = await seedDomainSecret(handle!.prisma, DOMAIN);
       const userId = await seedUser({ email: 'styled@example.com', domain: DOMAIN });
 
       const mono = await app!.inject({
@@ -263,7 +243,7 @@ describe.skipIf(!hasDatabase)('avatar routes', () => {
     });
 
     it('rejects an SVG upload with a generic error', async () => {
-      const hash = await seedDomainSecret(DOMAIN);
+      const hash = await seedDomainSecret(handle!.prisma, DOMAIN);
       const userId = await seedUser({ email: 'svg@example.com', domain: DOMAIN });
       const upload = multipartFile(
         Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'),
@@ -285,7 +265,7 @@ describe.skipIf(!hasDatabase)('avatar routes', () => {
     });
 
     it('refuses an upload over the 1 MiB cap', async () => {
-      const hash = await seedDomainSecret(DOMAIN);
+      const hash = await seedDomainSecret(handle!.prisma, DOMAIN);
       const userId = await seedUser({ email: 'oversize@example.com', domain: DOMAIN });
       const upload = multipartFile(png(0x33, 2 * 1024 * 1024));
 
@@ -302,7 +282,7 @@ describe.skipIf(!hasDatabase)('avatar routes', () => {
     });
 
     it('returns 401 for a bad domain hash', async () => {
-      await seedDomainSecret(DOMAIN);
+      await seedDomainSecret(handle!.prisma, DOMAIN);
       const userId = await seedUser({ email: 'unauth@example.com', domain: DOMAIN });
 
       const res = await app!.inject({
@@ -316,8 +296,8 @@ describe.skipIf(!hasDatabase)('avatar routes', () => {
     });
 
     it('returns a generic 404 for unknown and cross-domain user ids', async () => {
-      const hash = await seedDomainSecret(DOMAIN);
-      await seedDomainSecret(OTHER_DOMAIN);
+      const hash = await seedDomainSecret(handle!.prisma, DOMAIN);
+      await seedDomainSecret(handle!.prisma, OTHER_DOMAIN);
       const foreignUserId = await seedUser({ email: 'foreign@example.com', domain: OTHER_DOMAIN });
 
       for (const userId of ['usr_does_not_exist', foreignUserId]) {
@@ -334,7 +314,7 @@ describe.skipIf(!hasDatabase)('avatar routes', () => {
 
   describe('GET/PUT/DELETE /avatar/me', () => {
     it('serves and updates the access-token subject only', async () => {
-      const hash = await seedDomainSecret(DOMAIN);
+      const hash = await seedDomainSecret(handle!.prisma, DOMAIN);
       const userId = await seedUser({ email: 'me@example.com', domain: DOMAIN });
       const token = await signAccessToken({ userId, email: 'me@example.com', domain: DOMAIN });
       const url = `/avatar/me?domain=${encodeURIComponent(DOMAIN)}`;
@@ -367,7 +347,7 @@ describe.skipIf(!hasDatabase)('avatar routes', () => {
     });
 
     it('returns 401 without an access token, and 401 with only an access token', async () => {
-      const hash = await seedDomainSecret(DOMAIN);
+      const hash = await seedDomainSecret(handle!.prisma, DOMAIN);
       const userId = await seedUser({ email: 'partial@example.com', domain: DOMAIN });
       const token = await signAccessToken({ userId, email: 'partial@example.com', domain: DOMAIN });
       const url = `/avatar/me?domain=${encodeURIComponent(DOMAIN)}`;
@@ -390,8 +370,8 @@ describe.skipIf(!hasDatabase)('avatar routes', () => {
     });
 
     it('rejects an access token minted for a different domain', async () => {
-      const hash = await seedDomainSecret(DOMAIN);
-      await seedDomainSecret(OTHER_DOMAIN);
+      const hash = await seedDomainSecret(handle!.prisma, DOMAIN);
+      await seedDomainSecret(handle!.prisma, OTHER_DOMAIN);
       const userId = await seedUser({ email: 'mismatch@example.com', domain: OTHER_DOMAIN });
       const token = await signAccessToken({
         userId,

@@ -147,8 +147,9 @@ describe.skipIf(!hasDatabase)('Password reset flow', () => {
       url: `/auth/email/reset-password?${baseQuery}&token=${encodeURIComponent(rawToken)}`,
     });
 
-    expect(landing.statusCode).toBe(200);
-    expect(landing.json()).toEqual({ ok: true });
+    // Reset links land on the Auth UI (HTML) without consuming the token.
+    expect(landing.statusCode, landing.body).toBe(200);
+    expect(landing.headers.location).toBeUndefined();
 
     const reset = await app.inject({
       method: 'POST',

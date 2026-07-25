@@ -35,14 +35,14 @@ describe.skipIf(!hasDatabase)('POST /auth/login', () => {
     handle = await createTestDb();
     if (!handle) throw new Error('DATABASE_URL is required for DB-backed tests');
     process.env.DATABASE_URL = handle.databaseUrl;
-  }, 20_000);
+  });
 
   afterAll(async () => {
     process.env.DATABASE_URL = originalDatabaseUrl;
     process.env.SHARED_SECRET = originalSharedSecret;
     process.env.AUTH_SERVICE_IDENTIFIER = originalAud;
     if (handle) await handle.cleanup();
-  }, 20_000);
+  });
 
   beforeEach(async () => {
     if (!handle) return;
@@ -215,7 +215,7 @@ describe.skipIf(!hasDatabase)('POST /auth/login', () => {
       if (app) await app.close();
       vi.useRealTimers();
     }
-  }, 20_000);
+  });
 
   it('returns generic 401 for wrong password and unknown email (no enumeration)', async () => {
     process.env.SHARED_SECRET = process.env.SHARED_SECRET ?? 'test-shared-secret-with-enough-length';
@@ -261,5 +261,5 @@ describe.skipIf(!hasDatabase)('POST /auth/login', () => {
     expectJsonError(unknownEmail.json());
 
     await app.close();
-  }, 20_000);
+  });
 });

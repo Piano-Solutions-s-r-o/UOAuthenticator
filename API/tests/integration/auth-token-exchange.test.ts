@@ -6,7 +6,9 @@ import { jwtVerify } from 'jose';
 import { ACCESS_TOKEN_AUDIENCE } from '../../src/config/constants.js';
 import { createApp } from '../../src/app.js';
 import { hashPassword } from '../../src/services/password.service.js';
+import { REFRESH_TOKEN_REPLAY_GRACE_MS } from '../../src/services/refresh-token.service.js';
 import { createClientId } from '../../src/utils/hash.js';
+import { cleanClientDomains, seedDomainSecret } from '../helpers/domain-secret.js';
 import { expectJsonError } from '../helpers/error-response.js';
 import { createTestDb } from '../helpers/test-db.js';
 import { createTestConfigFetchHandler, signTestConfigJwt } from '../helpers/test-config.js';
@@ -14,9 +16,15 @@ import { createTestConfigFetchHandler, signTestConfigJwt } from '../helpers/test
 const hasDatabase = Boolean(process.env.DATABASE_URL);
 const configUrl = 'https://client.example.com/auth-config';
 const redirectUrl = 'https://client.example.com/oauth/callback';
-const userEmail = 'user@example.com';
 const userPassword = 'Abcdef1!';
 const defaultCodeVerifier = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ';
+
+// The in-memory rate limiter persists across tests within this file and keys
+// /auth/token by IP and /auth/login by IP and email. Give every test its own
+// caller identity so no test inherits another test's window.
+let testRun = 0;
+let userEmail = 'user@example.com';
+let clientIp = '198.51.100.1';
 
 type TokenBody = {
   access_token: string;
@@ -70,12 +78,20 @@ describe.skipIf(!hasDatabase)('POST /auth/token', () => {
     process.env.ACCESS_TOKEN_TTL = '15m';
     process.env.REFRESH_TOKEN_TTL_DAYS = '30';
 
+    testRun += 1;
+    userEmail = `user-${testRun}@example.com`;
+    clientIp = `198.51.100.${testRun}`;
+
     if (!handle) return;
     await handle.prisma.refreshToken.deleteMany();
     await handle.prisma.authorizationCode.deleteMany();
     await handle.prisma.verificationToken.deleteMany();
     await handle.prisma.domainRole.deleteMany();
     await handle.prisma.user.deleteMany();
+    await cleanClientDomains(handle.prisma);
+    // Domain-hash bearer auth requires an active client_domains row; the seeded
+    // hash equals authorizationHeader()'s createClientId(domain, SHARED_SECRET).
+    await seedDomainSecret(handle.prisma, 'client.example.com');
   });
 
   afterEach(() => {
@@ -124,6 +140,7 @@ describe.skipIf(!hasDatabase)('POST /auth/token', () => {
       method: 'POST',
       url: `${url.pathname}${url.search}`,
       payload: { email: userEmail, password: userPassword },
+      remoteAddress: clientIp,
     });
     expect(loginRes.statusCode).toBe(200);
     const { code } = loginRes.json() as { code: string };
@@ -142,6 +159,7 @@ describe.skipIf(!hasDatabase)('POST /auth/token', () => {
         authorization: authorizationHeader(),
       },
       payload: { code, redirect_url: redirectUrl, code_verifier: codeVerifier },
+      remoteAddress: clientIp,
     });
   }
 
@@ -166,6 +184,7 @@ describe.skipIf(!hasDatabase)('POST /auth/token', () => {
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
       },
+      remoteAddress: clientIp,
     });
   }
 
@@ -242,6 +261,7 @@ describe.skipIf(!hasDatabase)('POST /auth/token', () => {
       payload: {
         grant_type: 'refresh_token',
       },
+      remoteAddress: clientIp,
     });
 
     expect(tokenRes.statusCode).toBe(400);
@@ -290,6 +310,14 @@ describe.skipIf(!hasDatabase)('POST /auth/token', () => {
     const rotatedRes = await exchangeRefreshToken(app, firstPair.refresh_token);
     expect(rotatedRes.statusCode).toBe(200);
     const secondPair = rotatedRes.json() as TokenBody;
+
+    // Reuse inside REFRESH_TOKEN_REPLAY_GRACE_MS is an idempotent lost-response
+    // replay, not theft. Age the rotation past the grace window so predecessor
+    // use is treated as theft and revokes the family.
+    await handle!.prisma.refreshToken.updateMany({
+      where: { revokedAt: { not: null } },
+      data: { revokedAt: new Date(Date.now() - REFRESH_TOKEN_REPLAY_GRACE_MS - 1_000) },
+    });
 
     const reusedRes = await exchangeRefreshToken(app, firstPair.refresh_token);
     expect(reusedRes.statusCode).toBe(401);
@@ -340,6 +368,7 @@ describe.skipIf(!hasDatabase)('POST /auth/token', () => {
       payload: {
         refresh_token: firstPair.refresh_token,
       },
+      remoteAddress: clientIp,
     });
     expect(revokeRes.statusCode).toBe(200);
     expect(revokeRes.json()).toEqual({ ok: true });
@@ -403,6 +432,7 @@ describe.skipIf(!hasDatabase)('POST /auth/token', () => {
       method: 'POST',
       url: `/auth/token?config_url=${encodeURIComponent(configUrl)}`,
       payload: { code, redirect_url: redirectUrl },
+      remoteAddress: clientIp,
     });
     expect(tokenRes.statusCode).toBe(401);
     expectJsonError(tokenRes.json());

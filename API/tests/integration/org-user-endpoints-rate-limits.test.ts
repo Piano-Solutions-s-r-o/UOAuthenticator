@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/app.js';
-import { createClientId } from '../../src/utils/hash.js';
+import { seedDomainSecret } from '../helpers/domain-secret.js';
 import { createTestDb } from '../helpers/test-db.js';
 import { clearOrgTestDatabase, createSignedConfigJwt, createTestUser, hasDatabase, OrgRecord, signAccessToken } from '../helpers/org-user-endpoints-helper.js';
 
@@ -48,8 +48,10 @@ describe.skipIf(!hasDatabase)('user-facing /org endpoints rate limits', () => {
   it('rate limits organisation creation at 5/hour per actor', async () => {
     const domain = 'org-rate-limit-create.example.com';
     const orgConfigUrl = 'https://org-rate-limit-create.example.com/auth-config';
-    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, {});
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, { allow_user_create_org: true }, domain);
+    // A fresh Response per call: Response bodies are single-use, and multiple
+    // requests (plus app startup) fetch the config through this stub.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const owner = await createTestUser(handle!, 'rate-create-owner@example.com');
     const ownerToken = await signAccessToken({
@@ -59,7 +61,7 @@ describe.skipIf(!hasDatabase)('user-facing /org endpoints rate limits', () => {
       issuer: process.env.AUTH_SERVICE_IDENTIFIER!,
     });
 
-    const domainHash = createClientId(domain, process.env.SHARED_SECRET!);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain);
     const app = await createApp();
     await app.ready();
 
@@ -117,8 +119,10 @@ describe.skipIf(!hasDatabase)('user-facing /org endpoints rate limits', () => {
   it('rate limits team creation at 50/hour per org', async () => {
     const domain = 'org-rate-limit-team.example.com';
     const orgConfigUrl = 'https://org-rate-limit-team.example.com/auth-config';
-    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, {});
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, { allow_user_create_org: true }, domain);
+    // A fresh Response per call: Response bodies are single-use, and multiple
+    // requests (plus app startup) fetch the config through this stub.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const owner = await createTestUser(handle!, 'rate-team-owner@example.com');
     const ownerBaseToken = await signAccessToken({
@@ -131,7 +135,7 @@ describe.skipIf(!hasDatabase)('user-facing /org endpoints rate limits', () => {
     const app = await createApp();
     await app.ready();
 
-    const domainHash = createClientId(domain, process.env.SHARED_SECRET!);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain);
     const createOrg = await app.inject({
       method: 'POST',
       url: `/org/organisations?domain=${encodeURIComponent(domain)}&config_url=${encodeURIComponent(orgConfigUrl)}`,
@@ -187,8 +191,10 @@ describe.skipIf(!hasDatabase)('user-facing /org endpoints rate limits', () => {
   it('rate limits org member addition at 100/hour per org', async () => {
     const domain = 'org-rate-limit-member.example.com';
     const orgConfigUrl = 'https://org-rate-limit-member.example.com/auth-config';
-    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, {});
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, { allow_user_create_org: true }, domain);
+    // A fresh Response per call: Response bodies are single-use, and multiple
+    // requests (plus app startup) fetch the config through this stub.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const owner = await createTestUser(handle!, 'rate-member-owner@example.com');
     const ownerBaseToken = await signAccessToken({
@@ -201,7 +207,7 @@ describe.skipIf(!hasDatabase)('user-facing /org endpoints rate limits', () => {
     const app = await createApp();
     await app.ready();
 
-    const domainHash = createClientId(domain, process.env.SHARED_SECRET!);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain);
     const createOrg = await app.inject({
       method: 'POST',
       url: `/org/organisations?domain=${encodeURIComponent(domain)}&config_url=${encodeURIComponent(orgConfigUrl)}`,

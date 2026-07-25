@@ -307,7 +307,11 @@ describe('GET /api', () => {
 describe('GET /.well-known/jwks.json', () => {
   it('serves the configured public JWKS without private key material', async () => {
     const originalJwksJson = process.env.CONFIG_JWKS_JSON;
+    const originalDatabaseUrl = process.env.DATABASE_URL;
     process.env.CONFIG_JWKS_JSON = JSON.stringify(await testConfigJwks());
+    // This file provisions no test schema; drop DATABASE_URL so the route's
+    // DB-backed key merge is skipped and only the env-configured JWKS is served.
+    Reflect.deleteProperty(process.env, 'DATABASE_URL');
 
     try {
       const res = await app.inject({ method: 'GET', url: '/.well-known/jwks.json' });
@@ -333,6 +337,11 @@ describe('GET /.well-known/jwks.json', () => {
         Reflect.deleteProperty(process.env, 'CONFIG_JWKS_JSON');
       } else {
         process.env.CONFIG_JWKS_JSON = originalJwksJson;
+      }
+      if (originalDatabaseUrl === undefined) {
+        Reflect.deleteProperty(process.env, 'DATABASE_URL');
+      } else {
+        process.env.DATABASE_URL = originalDatabaseUrl;
       }
     }
   });
