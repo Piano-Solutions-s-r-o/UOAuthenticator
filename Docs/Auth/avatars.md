@@ -195,7 +195,9 @@ bytes back so the caller still receives an image:
   exists: users list, user detail header, superusers, org/team member tables, domain
   users tab, feature-audience members, and the global `UserDetailsModal` (whose private
   Avatar fork is consolidated into the shared component).
-- Org/team/domain square avatars are unchanged (different concept).
+- Organisation and domain square avatars remain initials-only (a different concept — they have
+  no avatar endpoints). Team squares are no longer in that group: teams have real avatars, served
+  by the endpoints in §11.
 - User detail surfaces the `avatarSource` label (Uploaded / From provider / Generated).
 
 ---
@@ -281,3 +283,117 @@ These payloads deliberately carry no avatar URL:
 - `User.avatarUrl` semantics are untouched; social login keeps overwriting it.
 - The new config claim is optional; configs without it remain valid.
 - The `user_avatars` table is additive; no data migration.
+- The `team_avatars` table (§11) is additive too, and `avatarImageUrl` on team records is an
+  additive derived field: `Team.iconUrl` keeps its exact current shape and semantics.
+
+## 11. Team ("company") avatars
+
+Teams get the same system as users, with the same code paths. Everything in §2 (generated
+styles, `?style=`/`?size=`, selection order), §3's upload validation, §4's config claim, and
+§6's response contract applies unchanged — only the *subject* differs. The source-agnostic
+half lives in `services/avatar-subject.service.ts`; `avatar.service.ts` and
+`team-avatar.service.ts` supply nothing but their own lookups.
+
+### 11.1 Resolution precedence
+
+Per team, fixed:
+
+1. **Uploaded** — an image set through UOA, stored in Postgres (`team_avatars`).
+2. **Icon URL** — `Team.iconUrl` (the externally hosted workspace icon from
+   `PUT /org/organisations/:orgId/teams/:teamId`, design §11.3), **proxied server-side**
+   under exactly the same SSRF/HTTPS-only/timeout/size/sniff rules as a user's provider
+   URL. Any failure falls back to generated.
+3. **Generated** — the same deterministic SVG generator, seeded from `djb2(teamId)`.
+
+`X-UOA-Avatar-Source` keeps its three documented values; a proxied `iconUrl` reports
+`provider`. The avatar endpoints never read or write `Team.iconUrl` beyond this — setting or
+clearing the icon is still `PUT /org/organisations/:orgId/teams/:teamId`, and an upload here
+cannot be clobbered by a later icon change (the same separation `user_avatars` has from
+`User.avatarUrl`).
+
+### 11.2 Storage model
+
+```prisma
+model TeamAvatar {
+  id          String   @id @default(cuid())
+  teamId      String   @unique @map("team_id")
+  contentType String   @map("content_type")
+  data        Bytes
+  sizeBytes   Int      @map("size_bytes")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("team_avatars")
+}
+```
+
+Additive migration `20260725130000_add_team_avatars`, the exact shape of `user_avatars`: the
+same `size_bytes ≤ 1 MiB` and `content_type IN (png|jpeg|webp)` CHECK constraints, the same
+`ON DELETE CASCADE`, and the same RLS classification — `uoa_app` denied, `uoa_admin` granted,
+`ENABLE`/`FORCE ROW LEVEL SECURITY` — because avatar rows are always read and written on the
+BYPASSRLS admin client, outside any tenant transaction.
+
+Upload validation is §3's, unchanged: PNG/JPEG/WebP by magic bytes, SVG rejected, 1 MiB cap,
+multipart field `file`, generic errors.
+
+### 11.3 Endpoints
+
+| Method | Path | Auth | Who |
+| ------ | ---- | ---- | --- |
+| GET / PUT / DELETE | `/domain/teams/:teamId/avatar?domain=` | domain hash bearer only | product backends — the **primary** management path |
+| GET | `/org/organisations/:orgId/teams/:teamId/avatar` | domain hash bearer + `X-UOA-Access-Token` + verified config (`?domain=`, `?config_url=`) | any ACTIVE member of the org — the same chain and visibility as `GET .../teams/:teamId` |
+| PUT / DELETE | `/org/organisations/:orgId/teams/:teamId/avatar` | same chain | org **owner/admin** only — the same authorization as `PUT .../teams/:teamId` |
+| GET / PUT / DELETE | `/internal/admin/teams/:teamId/avatar` | admin superuser bearer | operators, any team |
+
+**Which management path to use.** Reach for `/domain/teams/:teamId/avatar` from a product
+backend, and for the `/org/*` routes only when the caller actually holds a live end-user access
+token (flows inside UOA itself). Consuming products deliberately never retain a spendable UOA
+access token — they keep the bound refresh credential — so the dual-auth `/org/*` mutations
+cannot be driven from a product backend at all.
+
+The `/domain/*` mutations therefore carry **no role check**: per brief §24.10 the domain hash
+token represents full system trust for that domain, and the product backend enforces its own
+owner/admin gating before relaying the call — the same machine-to-machine posture as
+`PUT /domain/users/:userId/avatar`. The team's organisation must still belong to the
+authenticated domain; unknown and cross-domain team ids are both the standard generic 404, the
+same non-signal `/domain/users/:userId/avatar` gives.
+
+The `/org/*` routes run the sibling team routes' middleware chain verbatim
+(`requireDomainHashAuthForDomainQuery` → `configVerifier` → `parseDomainContextHook` →
+`requireOrgFeatures` → `requireOrgRole()`), then verify the full ownership chain
+domain → organisation → team exactly as `getTeam`/`updateTeam` do.
+
+Mutations are rate-limited 30/hour, keyed per domain + team on `/domain/*`, per org + team on
+`/org/*`, and per team on the admin routes; all of them carry the same multipart body-limit
+override. The admin `PUT`/`DELETE` write `team.avatar_updated` / `team.avatar_deleted` audit
+entries against the owning domain, like the other `/internal/admin/*` mutations.
+
+`GET` responses are image bytes with the full §6 contract (source header, `ETag`/`304`,
+`Cache-Control`, `nosniff`, SVG CSP). `PUT` returns the §5 upload envelope
+(`{ ok, avatar: { source, content_type, size_bytes, updated_at } }`) and `DELETE` returns
+`{ ok: true }` idempotently.
+
+### 11.4 Team avatar URLs in payloads
+
+§9's rule extends to teams: **every team record carries an `avatarImageUrl`** — an absolute
+URL that always resolves to an image, fetchable with the same credential class the caller used.
+
+- **Domain-hash / dual-auth contexts** (`/org/*`, `/internal/org/*`) →
+  `<PUBLIC_BASE_URL>/domain/teams/<teamId>/avatar?domain=<domain>`
+- **Admin-bearer contexts** (`/internal/admin/*`) →
+  `<PUBLIC_BASE_URL>/internal/admin/teams/<teamId>/avatar`
+
+| Payload | Field |
+| ------- | ----- |
+| Team records (`GET`/`POST`/`PUT` on `/org/organisations/:orgId/teams[/:teamId]`) | `avatarImageUrl` |
+| Group detail `teams[]` and the `/internal/org` team↔group assignment response | `avatarImageUrl` |
+| Admin org-block `teams[]` and `GET /internal/admin/teams` | `avatarImageUrl` (admin URL form) |
+
+The field is derived, never null, and `PUBLIC_BASE_URL`-relative exactly like the user forms.
+`iconUrl` is untouched and keeps its own meaning: the external URL an owner set, or `null`.
+
+The §9 exclusions hold unchanged — the auth-popup chooser payloads (`/auth/session-choices`,
+`/auth/verify-code`, `/auth/select-team`, the `/auth/login` chooser, `/org/me`) and the frozen
+billing-statement protocol packages carry no team avatar URL either.

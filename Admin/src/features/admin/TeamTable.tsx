@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { Badge } from '../../components/ui/Badge';
 import { DataTable, Td } from '../../components/ui/Table';
+import { TeamAvatar } from './TeamAvatar';
 import type { Team } from './types';
 
 export type TeamTableRow = Team & {
@@ -34,8 +35,11 @@ export function TeamTable({ emptyMessage = 'No teams found.', showDescription = 
           }}
         >
           <Td>
-            <span className="font-semibold text-indigo-600">{team.name}</span>
-            {team.isDefault ? <Badge className="ml-2" variant="blue">Default</Badge> : null}
+            <div className="flex items-center gap-2">
+              <TeamAvatar label={team.name} teamId={team.id} />
+              <span className="font-semibold text-indigo-600">{team.name}</span>
+              {team.isDefault ? <Badge variant="blue">Default</Badge> : null}
+            </div>
           </Td>
           {showOrganisation ? <Td className="text-gray-700">{team.orgName ?? team.orgId}</Td> : null}
           {showDescription ? <Td className="text-xs text-gray-400">{team.description || '-'}</Td> : null}

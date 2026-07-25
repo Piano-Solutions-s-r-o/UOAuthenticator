@@ -23,6 +23,7 @@ import type {
   SearchResult,
   AgreementSignatureSearchResult,
   Team,
+  TeamAvatarUpload,
   TwoFaPolicy,
   UserSummary,
 } from '../features/admin/types';
@@ -311,6 +312,16 @@ export const adminService = {
         ...(input.allowedEmails !== undefined ? { allowed_emails: input.allowedEmails } : {}),
       },
     ),
+  // Image bytes like the user avatar below; always resolves to some image for a known team.
+  getTeamAvatar: (teamId: string) =>
+    api.getBlob(`/internal/admin/teams/${encodeURIComponent(teamId)}/avatar`, undefined, 'image/*'),
+  uploadTeamAvatar: (teamId: string, file: File) => {
+    const form = new FormData();
+    form.set('file', file);
+    return api.putForm<TeamAvatarUpload>(`/internal/admin/teams/${encodeURIComponent(teamId)}/avatar`, form);
+  },
+  deleteTeamAvatar: (teamId: string) =>
+    api.delete<{ ok: boolean }>(`/internal/admin/teams/${encodeURIComponent(teamId)}/avatar`),
   getUsers: () => api.get<UserSummary[]>('/internal/admin/users'),
   getUser: (userId: string) => api.get<UserSummary | null>(`/internal/admin/users/${encodeURIComponent(userId)}`),
   // Image bytes, not JSON: <img src> cannot carry the admin bearer, so avatars are

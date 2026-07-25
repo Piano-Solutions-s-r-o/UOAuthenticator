@@ -2,7 +2,11 @@ import type { Prisma } from '@prisma/client';
 
 import { getEnv } from '../config/env.js';
 import { getAdminPrisma } from '../db/prisma.js';
-import { adminAvatarImageUrl, avatarImageBaseUrl } from '../utils/avatar-url.js';
+import {
+  adminAvatarImageUrl,
+  adminTeamAvatarImageUrl,
+  avatarImageBaseUrl,
+} from '../utils/avatar-url.js';
 import { normalizeDomain } from '../utils/domain.js';
 import type { AvatarSource } from './avatar.service.js';
 import { toPublicTwoFaPolicy } from './twofactor-policy.service.js';
@@ -94,6 +98,9 @@ export function formatAdminOrganisation(
   org: AdminOrganisationRow,
   latestByUser: Map<string, AdminLoginLogRow>,
 ) {
+  // Docs/Auth/avatars.md §9/§11 — admin-bearer URL form, resolved once for the whole org block.
+  const baseUrl = avatarImageBaseUrl();
+
   const teams = org.teams.map((team) => ({
     id: team.id,
     orgId: org.id,
@@ -104,10 +111,8 @@ export function formatAdminOrganisation(
     orgName: org.name,
     allowedEmailDomains: team.allowedEmailDomains,
     allowedEmails: team.allowedEmails,
+    avatarImageUrl: adminTeamAvatarImageUrl({ baseUrl, teamId: team.id }),
   }));
-
-  // Docs/Auth/avatars.md §9 — admin-bearer URL form, resolved once for the whole org block.
-  const baseUrl = avatarImageBaseUrl();
 
   const members = org.members.map((member) => {
     const latestLog = latestByUser.get(member.userId);

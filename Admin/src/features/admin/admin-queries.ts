@@ -78,6 +78,44 @@ export function useTeamQuery(orgId: string | undefined, teamId: string | undefin
   });
 }
 
+function teamAvatarQueryKey(teamId: string | null | undefined) {
+  return ['admin', 'team-avatar', teamId];
+}
+
+export function useTeamAvatarQuery(teamId: string | null | undefined) {
+  return useQuery({
+    queryKey: teamAvatarQueryKey(teamId),
+    queryFn: () => adminService.getTeamAvatar(teamId ?? ''),
+    enabled: Boolean(teamId),
+    // Same rationale as user avatars: rarely changing and cosmetic on failure, so cache
+    // generously and never retry behind a table.
+    staleTime: 300_000,
+    retry: false,
+  });
+}
+
+export function useUploadTeamAvatarMutation(teamId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (file: File) => adminService.uploadTeamAvatar(teamId, file),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: teamAvatarQueryKey(teamId) });
+    },
+  });
+}
+
+export function useDeleteTeamAvatarMutation(teamId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => adminService.deleteTeamAvatar(teamId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: teamAvatarQueryKey(teamId) });
+    },
+  });
+}
+
 export function useUsersQuery() {
   return useQuery({ queryKey: ['admin', 'users'], queryFn: adminService.getUsers });
 }

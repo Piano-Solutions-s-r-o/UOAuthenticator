@@ -46,13 +46,33 @@ export const IDENTITY_AVATAR_URL_NOTE =
   'contexts, <PUBLIC_BASE_URL>/internal/admin/users/<userId>/avatar in admin-bearer contexts. ' +
   'Both need a bearer credential, so fetch the URL with the credential you already hold and render ' +
   'the blob — a plain <img src> cannot call them. Bare actor-attribution emails with no user ' +
-  'object, and invite rows for invitees who have no account yet, carry no avatar URL.';
+  'object, and invite rows for invitees who have no account yet, carry no avatar URL. ' +
+  'Team records carry the same thing for the team itself: avatarImageUrl, ' +
+  '<PUBLIC_BASE_URL>/domain/teams/<teamId>/avatar?domain=<domain> in domain-hash and dual-auth ' +
+  'contexts, <PUBLIC_BASE_URL>/internal/admin/teams/<teamId>/avatar in admin-bearer contexts ' +
+  '(Docs/Auth/avatars.md §11). It is derived and never null — unlike iconUrl, which keeps its ' +
+  'existing "externally hosted icon, may be null" meaning.';
 
 const RESOLUTION_NOTE =
   'Resolution precedence is fixed: uploaded image → server-side proxy of the provider avatar URL ' +
   '(User.avatarUrl) → deterministic generated SVG. The provider fetch is HTTPS-only, SSRF-guarded, ' +
   '~5s/5 MiB capped, and any failure silently falls back to the generated image, so a known user ' +
   'always yields 200 with an image. Provider bytes are never stored.';
+
+const TEAM_MANAGEMENT_PATH_NOTE =
+  'Two management paths, pick by the credential you hold: use /domain/teams/:teamId/avatar from a ' +
+  'product backend (domain hash bearer only — consuming products keep a bound refresh credential ' +
+  'rather than a spendable end-user access token, so the dual-auth /org routes cannot be driven ' +
+  'from a backend at all), and the /org/organisations/:orgId/teams/:teamId/avatar routes only when ' +
+  'the caller actually holds a live user access token, in which case org owner/admin is enforced.';
+
+const TEAM_RESOLUTION_NOTE =
+  'Team ("company") avatars mirror user avatars exactly (Docs/Auth/avatars.md §11). Precedence: ' +
+  'uploaded team image → server-side proxy of the team icon_url → deterministic generated SVG ' +
+  'seeded from the team id. The icon_url fetch is HTTPS-only, SSRF-guarded, ~5s/5 MiB capped, and ' +
+  'any failure silently falls back to the generated image, so a known team always yields 200 with ' +
+  'an image; X-UOA-Avatar-Source reports "provider" for a proxied icon_url. The team icon_url ' +
+  'column itself is untouched by these endpoints.';
 
 export const avatarEndpoints: EndpointSchema[] = [
   {
@@ -130,5 +150,102 @@ export const avatarEndpoints: EndpointSchema[] = [
     query: IMAGE_QUERY,
     response: IMAGE_RESPONSE,
     notes: RESOLUTION_NOTE,
+  },
+  {
+    method: 'GET',
+    path: '/org/organisations/:orgId/teams/:teamId/avatar',
+    description:
+      "Image bytes for a team's (company) avatar. Readable by any ACTIVE member of the organisation, the same visibility as GET /org/organisations/:orgId/teams/:teamId.",
+    auth: 'domain hash bearer token + access token (X-UOA-Access-Token header) + signed config',
+    query: {
+      domain: 'string (required)',
+      config_url: 'string (required) — same verified config as every other /org/* route',
+      ...IMAGE_QUERY,
+    },
+    response: IMAGE_RESPONSE,
+    notes: TEAM_RESOLUTION_NOTE,
+  },
+  {
+    method: 'PUT',
+    path: '/org/organisations/:orgId/teams/:teamId/avatar',
+    description:
+      "Set a team's uploaded avatar from a multipart upload. Organisation owner/admin only — the same authorization as PUT /org/organisations/:orgId/teams/:teamId. Rate-limited per org+team (30/hour).",
+    auth: 'domain hash bearer token + access token (X-UOA-Access-Token header) + signed config',
+    query: { domain: 'string (required)', config_url: 'string (required)' },
+    body: UPLOAD_BODY,
+    response: UPLOAD_RESPONSE,
+    notes: TEAM_MANAGEMENT_PATH_NOTE,
+  },
+  {
+    method: 'DELETE',
+    path: '/org/organisations/:orgId/teams/:teamId/avatar',
+    description:
+      "Remove a team's uploaded avatar; resolution falls back to the team icon_url or the generated image. Idempotent. Organisation owner/admin only. Rate-limited per org+team (30/hour).",
+    auth: 'domain hash bearer token + access token (X-UOA-Access-Token header) + signed config',
+    query: { domain: 'string (required)', config_url: 'string (required)' },
+    response: { ok: 'true' },
+    notes: TEAM_MANAGEMENT_PATH_NOTE,
+  },
+  {
+    method: 'GET',
+    path: '/domain/teams/:teamId/avatar',
+    description:
+      "Image bytes for a team's (company) avatar with no end-user context — for backend rendering. The team's organisation must belong to the authenticated domain; anything else is the standard generic 404.",
+    auth: 'domain hash bearer token',
+    query: {
+      domain: 'string (required)',
+      'config_url?':
+        'string — optional; when supplied the signed config is fetched and verified and its avatars.default_style is applied. Its domain claim must match ?domain=.',
+      ...IMAGE_QUERY,
+    },
+    response: IMAGE_RESPONSE,
+    notes: `${TEAM_RESOLUTION_NOTE} ${TEAM_MANAGEMENT_PATH_NOTE}`,
+  },
+  {
+    method: 'PUT',
+    path: '/domain/teams/:teamId/avatar',
+    description:
+      "Set a team's uploaded avatar from a multipart upload, with no end-user context — the management path for product backends. No role check: per brief §24.10 the domain hash token is full system trust for that domain, and your backend enforces its own owner/admin gating before relaying. Rate-limited per domain+team (30/hour).",
+    auth: 'domain hash bearer token',
+    query: { domain: 'string (required)' },
+    body: UPLOAD_BODY,
+    response: UPLOAD_RESPONSE,
+    notes: TEAM_MANAGEMENT_PATH_NOTE,
+  },
+  {
+    method: 'DELETE',
+    path: '/domain/teams/:teamId/avatar',
+    description:
+      "Remove a team's uploaded avatar; resolution falls back to the team icon_url or the generated image. Idempotent. Same full-trust domain-hash semantics as the PUT. Rate-limited per domain+team (30/hour).",
+    auth: 'domain hash bearer token',
+    query: { domain: 'string (required)' },
+    response: { ok: 'true' },
+    notes: TEAM_MANAGEMENT_PATH_NOTE,
+  },
+  {
+    method: 'GET',
+    path: '/internal/admin/teams/:teamId/avatar',
+    description: 'Image bytes for any team, for the admin panel. Same resolution pipeline.',
+    auth: 'admin superuser bearer token',
+    query: IMAGE_QUERY,
+    response: IMAGE_RESPONSE,
+    notes: TEAM_RESOLUTION_NOTE,
+  },
+  {
+    method: 'PUT',
+    path: '/internal/admin/teams/:teamId/avatar',
+    description:
+      "Set any team's uploaded avatar from a multipart upload, for the admin panel. Audit-logged as team.avatar_updated against the owning domain. Rate-limited per team (30/hour).",
+    auth: 'admin superuser bearer token',
+    body: UPLOAD_BODY,
+    response: UPLOAD_RESPONSE,
+  },
+  {
+    method: 'DELETE',
+    path: '/internal/admin/teams/:teamId/avatar',
+    description:
+      "Remove any team's uploaded avatar. Idempotent. Audit-logged as team.avatar_deleted against the owning domain. Rate-limited per team (30/hour).",
+    auth: 'admin superuser bearer token',
+    response: { ok: 'true' },
   },
 ];

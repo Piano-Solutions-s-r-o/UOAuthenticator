@@ -46,3 +46,28 @@ export function adminAvatarImageUrl(params: { baseUrl?: string | null; userId: s
   const base = normalizeBaseUrl(params.baseUrl);
   return `${base}/internal/admin/users/${encodeURIComponent(params.userId)}/avatar`;
 }
+
+/**
+ * `<base>/domain/teams/<teamId>/avatar?domain=<domain>` — the team ("company") avatar counterpart
+ * of `domainAvatarImageUrl` (Docs/Auth/avatars.md §11). Same credential class: the per-domain hash
+ * bearer, so a team record returned to a `/domain/*` or `/org/*` caller carries a URL that caller
+ * can already fetch.
+ */
+export function domainTeamAvatarImageUrl(params: {
+  baseUrl?: string | null;
+  domain: string;
+  teamId: string;
+}): string {
+  const base = normalizeBaseUrl(params.baseUrl);
+  const path = `/domain/teams/${encodeURIComponent(params.teamId)}/avatar`;
+  return `${base}${path}?domain=${encodeURIComponent(params.domain)}`;
+}
+
+/** `<base>/internal/admin/teams/<teamId>/avatar` — fetchable with the admin superuser bearer. */
+export function adminTeamAvatarImageUrl(params: {
+  baseUrl?: string | null;
+  teamId: string;
+}): string {
+  const base = normalizeBaseUrl(params.baseUrl);
+  return `${base}/internal/admin/teams/${encodeURIComponent(params.teamId)}/avatar`;
+}

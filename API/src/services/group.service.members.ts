@@ -255,5 +255,5 @@ export async function assignTeamToGroup(
     },
   });
 
-  return toTeamRecord(updated);
+  return toTeamRecord(updated, org.domain);
 }

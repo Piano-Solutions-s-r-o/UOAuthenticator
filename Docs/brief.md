@@ -2160,3 +2160,17 @@ Summary of what changes and what does not:
   falls back to the generated image.
 - The Admin panel displays user avatars through
   `GET /internal/admin/users/:userId/avatar` regardless of source.
+- **Teams (companies) now have avatars too**, on the same terms: an uploaded image in the
+  Postgres `team_avatars` table wins, otherwise the team's existing `iconUrl` is proxied
+  server-side under the same SSRF/size/time rules, otherwise the deterministic generated
+  SVG seeded from the team id. Managed through `GET`/`PUT`/`DELETE
+  /domain/teams/:teamId/avatar` — domain hash bearer only, the machine-to-machine path a
+  product backend uses, since products retain the bound refresh credential rather than a
+  spendable end-user access token; per §24.10 that token is full system trust for the domain,
+  so the backend applies its own owner/admin gating before relaying. The dual-auth
+  `PUT`/`DELETE /org/organisations/:orgId/teams/:teamId/avatar` (organisation owner/admin
+  only, the same authorization as updating the team) and the audited
+  `/internal/admin/teams/:teamId/avatar` routes remain available for callers that do hold a
+  user token, and for operators. Team records now also carry an `avatarImageUrl`.
+  `Team.iconUrl` keeps its current meaning and is never written by the avatar endpoints,
+  exactly as `User.avatarUrl` is not.
