@@ -23,6 +23,7 @@ import { adminService } from '../services/admin-service';
 import { useOrganisationQuery } from '../features/admin/admin-queries';
 import type { OrganisationMember, OrganisationTwoFaPolicy, PreapprovedMember } from '../features/admin/types';
 import { TeamTable } from '../features/admin/TeamTable';
+import { UserAvatar } from '../features/admin/UserAvatar';
 import {
   ORGANISATION_TWOFA_POLICY_OPTIONS,
   TwoFactorPolicySelect,
@@ -143,7 +144,7 @@ export function OrganisationDetailPage() {
               >
                 <Td>
                   <div className="flex items-center gap-2">
-                    <Avatar label={member.name ?? member.email} />
+                    <UserAvatar userId={member.id} label={member.name ?? member.email} />
                     <div>
                       <span className="font-medium text-gray-700">{member.name ?? member.email}</span>
                       <p className="text-xs text-gray-400">{member.email}</p>

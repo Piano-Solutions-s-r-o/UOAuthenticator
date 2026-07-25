@@ -37,4 +37,13 @@ describe('adminService', () => {
       allowed_email_domains: ['example.com'],
     });
   });
+
+  it('fetches the admin user avatar as image bytes from the encoded user path', async () => {
+    const bytes = new Blob(['<svg />'], { type: 'image/svg+xml' });
+    api.getBlob.mockResolvedValue(bytes);
+
+    await expect(adminService.getUserAvatar('user/1')).resolves.toBe(bytes);
+
+    expect(api.getBlob).toHaveBeenCalledWith('/internal/admin/users/user%2F1/avatar', undefined, 'image/*');
+  });
 });

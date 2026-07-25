@@ -36,6 +36,12 @@ export const domainEndpoints: EndpointSchema[] = [
       domain: 'string (required)',
       limit: 'number (optional)',
     },
+    response: {
+      'users[].avatar_url':
+        'string | null — the external provider avatar URL, overwritten on every social login (unchanged)',
+      'users[].avatar_source':
+        '"uploaded" | "provider" | "generated" — which source GET /domain/users/:userId/avatar would serve from',
+    },
   },
   {
     method: 'GET',

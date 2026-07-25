@@ -4,7 +4,7 @@ import { readAdminAccessToken } from '../features/auth/admin-session-storage';
 export type ApiClient = {
   delete<T>(path: string, init?: RequestInit): Promise<T>;
   get<T>(path: string, init?: RequestInit): Promise<T>;
-  getBlob(path: string, init?: RequestInit): Promise<Blob>;
+  getBlob(path: string, init?: RequestInit, accept?: string): Promise<Blob>;
   post<T>(path: string, body?: unknown, init?: RequestInit): Promise<T>;
   postForm<T>(path: string, body: FormData, init?: RequestInit): Promise<T>;
   patch<T>(path: string, body?: unknown, init?: RequestInit): Promise<T>;
@@ -81,8 +81,8 @@ export function createApiClient(baseUrl = adminEnv.apiBaseUrl): ApiClient {
     async get<T>(path: string, init?: RequestInit) {
       return request<T>('GET', path, undefined, init);
     },
-    async getBlob(path: string, init?: RequestInit) {
-      const response = await send('GET', path, undefined, init, 'application/pdf');
+    async getBlob(path: string, init?: RequestInit, accept = 'application/pdf') {
+      const response = await send('GET', path, undefined, init, accept);
       return response.blob();
     },
     async post<T>(path: string, body?: unknown, init?: RequestInit) {

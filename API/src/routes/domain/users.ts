@@ -29,6 +29,7 @@ export function registerDomainUsersRoute(app: FastifyInstance): void {
           email: u.email,
           name: u.name,
           avatar_url: u.avatarUrl,
+          avatar_source: u.avatarSource,
           twofa_enabled: u.twoFaEnabled,
           role: u.role,
           created_at: u.createdAt.toISOString(),

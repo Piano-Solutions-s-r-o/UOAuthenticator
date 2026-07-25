@@ -6,6 +6,7 @@ import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { MethodBadge, StatusBadge } from '../ui/Status';
 import { useLogsQuery, useOrganisationsQuery, useUserQuery } from '../../features/admin/admin-queries';
+import { UserAvatar } from '../../features/admin/UserAvatar';
 import type { UserSummary } from '../../features/admin/types';
 import { useAdminUi } from '../../features/shell/admin-ui';
 import { AddUserToTeamDialog } from './AddUserToTeamDialog';
@@ -52,7 +53,7 @@ export function UserDetailsModal() {
       {user ? (
         <div className="space-y-5">
           <div className="flex items-start gap-3">
-            <Avatar label={user.name ?? user.email} />
+            <UserAvatar userId={user.id} label={user.name ?? user.email} size="md" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-base font-semibold text-gray-900">{user.name ?? user.email}</p>
               <p className="truncate text-sm text-gray-500">{user.email}</p>
@@ -139,10 +140,6 @@ export function UserDetailsModal() {
   );
 }
 
-function Avatar({ label }: { label: string }) {
-  return <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700">{initials(label)}</span>;
-}
-
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg bg-gray-50 px-3 py-2">
@@ -150,13 +147,4 @@ function Metric({ label, value }: { label: string; value: string }) {
       <p className="truncate text-sm font-medium text-gray-900">{value}</p>
     </div>
   );
-}
-
-function initials(value: string) {
-  return value
-    .split(' ')
-    .map((word) => word[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
 }

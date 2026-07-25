@@ -1,4 +1,5 @@
 import { authEndpoints } from './schema.auth.js';
+import { avatarEndpoints } from './schema.avatars.js';
 import { billingEndpoints } from './schema.billing.js';
 import { configDebugEndpoints } from './schema.config-debug.js';
 import { integrationsEndpoints } from './schema.integrations.js';
@@ -408,6 +409,7 @@ export const endpoints: EndpointSchema[] = [
   ...appEndpoints,
   ...emailEndpoints,
   ...domainEndpoints,
+  ...avatarEndpoints,
   ...withOrgContract(orgEndpoints),
   ...integrationsEndpoints,
   ...internalAdminEndpoints,

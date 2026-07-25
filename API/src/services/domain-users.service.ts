@@ -4,9 +4,11 @@ import { getEnv } from '../config/env.js';
 import { getPrisma } from '../db/prisma.js';
 import { normalizeDomain } from '../utils/domain.js';
 import { AppError } from '../utils/errors.js';
+import type { AvatarSource } from './avatar.service.js';
 
 type DomainUsersPrisma = {
   domainRole: Pick<PrismaClient['domainRole'], 'findMany'>;
+  userAvatar?: Pick<PrismaClient['userAvatar'], 'findMany'>;
 };
 
 type DomainUsersDeps = {
@@ -19,6 +21,7 @@ export type DomainUserRecord = {
   email: string;
   name: string | null;
   avatarUrl: string | null;
+  avatarSource: AvatarSource;
   twoFaEnabled: boolean;
   role: 'superuser' | 'user';
   createdAt: Date;
@@ -65,14 +68,41 @@ export async function listUsersForDomain(
     },
   });
 
+  // Additive per Docs/Auth/avatars.md §5: which source a user's avatar resolves from today.
+  // One extra query for the whole page — `avatarUrl` is already in the rows above, so only the
+  // presence of an uploaded row still needs looking up.
+  const uploadedUserIds = await findUploadedAvatarUserIds(
+    prisma,
+    rows.map((r) => r.user.id),
+  );
+
   return rows.map((r) => ({
     id: r.user.id,
     email: r.user.email,
     name: r.user.name,
     avatarUrl: r.user.avatarUrl,
+    avatarSource: uploadedUserIds.has(r.user.id)
+      ? 'uploaded'
+      : r.user.avatarUrl
+        ? 'provider'
+        : 'generated',
     twoFaEnabled: r.user.twoFaEnabled,
     role: roleToPublic(r.role),
     createdAt: r.user.createdAt,
   }));
+}
+
+async function findUploadedAvatarUserIds(
+  prisma: DomainUsersPrisma,
+  userIds: string[],
+): Promise<Set<string>> {
+  if (userIds.length === 0 || !prisma.userAvatar) return new Set();
+
+  const uploads = await prisma.userAvatar.findMany({
+    where: { userId: { in: userIds } },
+    select: { userId: true },
+  });
+
+  return new Set(uploads.map((row) => row.userId));
 }
 

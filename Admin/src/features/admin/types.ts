@@ -84,6 +84,9 @@ export type Team = {
   allowedEmails: string[];
 };
 
+/** Where a user's avatar image came from (see Docs/Auth/avatars.md §1). */
+export type AvatarSource = 'uploaded' | 'provider' | 'generated';
+
 export type UserSummary = {
   id: string;
   name: string | null;
@@ -94,6 +97,8 @@ export type UserSummary = {
   status: EntityStatus;
   method: AuthMethod;
   created: string;
+  // Additive field: optional while the API ships it.
+  avatarSource?: AvatarSource;
 };
 
 export type OrganisationMember = Omit<UserSummary, 'domains' | 'created'> & {

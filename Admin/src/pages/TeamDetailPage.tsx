@@ -16,6 +16,7 @@ import { TeamDialog } from '../components/dialogs/TeamDialog';
 import { LoginRestrictionSection } from '../components/sections/LoginRestrictionSection';
 import { adminService } from '../services/admin-service';
 import { useTeamQuery } from '../features/admin/admin-queries';
+import { UserAvatar } from '../features/admin/UserAvatar';
 import type { OrganisationMember } from '../features/admin/types';
 import { useAdminUi } from '../features/shell/admin-ui';
 
@@ -100,7 +101,7 @@ export function TeamDetailPage() {
             >
               <Td>
                 <div className="flex items-center gap-2">
-                  <Avatar label={member.name ?? member.email} />
+                  <UserAvatar userId={member.id} label={member.name ?? member.email} />
                   <div>
                     <span className="font-medium text-gray-700">{member.name ?? member.email}</span>
                     <p className="text-xs text-gray-400">{member.email}</p>
