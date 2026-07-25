@@ -87,6 +87,18 @@ export type Team = {
 /** Where a user's avatar image came from (see Docs/Auth/avatars.md §1). */
 export type AvatarSource = 'uploaded' | 'provider' | 'generated';
 
+/** Result of storing a team ("company") avatar through the admin avatar endpoint. */
+export type TeamAvatarUpload = {
+  ok: boolean;
+  avatar: {
+    // Kept open: team fallbacks (external icon URL, generated image) are not the user AvatarSource set.
+    source: string;
+    content_type: string;
+    size_bytes: number;
+    updated_at: string;
+  };
+};
+
 export type UserSummary = {
   id: string;
   name: string | null;

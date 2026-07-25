@@ -91,7 +91,7 @@ export async function listTeams(
     select: TEAM_SELECT,
   });
 
-  const data = rows.slice(0, limit).map(toTeamRecord);
+  const data = rows.slice(0, limit).map((row) => toTeamRecord(row, org.domain));
   // Brief §24.11: `cursor=<last_id>` — the cursor is the last row of the
   // returned page (the follow-up query skips it), not the first of the next.
   const hasMore = rows.length > limit;
@@ -161,7 +161,7 @@ export async function createTeam(
         select: TEAM_SELECT,
       });
 
-      return toTeamRecord(created);
+      return toTeamRecord(created, org.domain);
     } catch (err) {
       if (isP2002Error(err)) {
         throw new AppError('BAD_REQUEST', 400);
@@ -225,7 +225,7 @@ export async function getTeam(
   }
 
   const result: TeamWithMembersRecord & { invited?: TeamInvitedEntry[] } = {
-    ...toTeamRecord(row),
+    ...toTeamRecord(row, org.domain),
     members: row.members.map((member) => toTeamMemberRecord(member, org.domain)),
   };
 
@@ -329,7 +329,7 @@ export async function updateTeam(
       select: TEAM_SELECT,
     });
 
-    return toTeamRecord(updated);
+    return toTeamRecord(updated, org.domain);
   } catch (err) {
     if (isP2002Error(err)) {
       throw new AppError('BAD_REQUEST', 400);

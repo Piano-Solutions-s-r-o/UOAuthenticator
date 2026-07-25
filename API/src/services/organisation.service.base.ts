@@ -3,7 +3,11 @@ import { Prisma, PrismaClient, type MembershipStatus } from '@prisma/client';
 
 import type { ClientConfig } from './config.service.js';
 import { getEnv } from '../config/env.js';
-import { avatarImageBaseUrl, domainAvatarImageUrl } from '../utils/avatar-url.js';
+import {
+  avatarImageBaseUrl,
+  domainAvatarImageUrl,
+  domainTeamAvatarImageUrl,
+} from '../utils/avatar-url.js';
 import { normalizeDomain } from '../utils/domain.js';
 import { AppError } from '../utils/errors.js';
 import { parseIconUrl } from '../utils/http-url.js';
@@ -96,6 +100,15 @@ export type OrganisationMemberRecord = {
  */
 export function memberAvatarImageUrl(domain: string, userId: string): string {
   return domainAvatarImageUrl({ baseUrl: avatarImageBaseUrl(), domain, userId });
+}
+
+/**
+ * Avatar image URL for a team ("company") named in an `/org/*` or `/internal/org/*` payload
+ * (Docs/Auth/avatars.md §11). Same credential class as `memberAvatarImageUrl`: the domain-hash
+ * bearer the caller already used.
+ */
+export function teamAvatarImageUrl(domain: string, teamId: string): string {
+  return domainTeamAvatarImageUrl({ baseUrl: avatarImageBaseUrl(), domain, teamId });
 }
 
 const RESERVED_ORG_SLUGS = new Set([

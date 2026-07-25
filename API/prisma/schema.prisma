@@ -1211,12 +1211,30 @@ model Team {
   recurringAddonSubscriptions              BillingRecurringAddonSubscription[]
   recurringAddonCancellationScopeIntents   BillingRecurringAddonCancellationIntent[] @relation("RecurringAddonCancellationScopeTeam")
   recurringAddonCancellationRequestIntents BillingRecurringAddonCancellationIntent[] @relation("RecurringAddonCancellationRequestTeam")
+  avatar                                   TeamAvatar?
 
   @@unique([orgId, name])
   @@unique([orgId, slug])
   @@index([orgId])
   @@index([groupId])
   @@map("teams")
+}
+
+/// Uploaded team ("company") avatar — the team mirror of `UserAvatar`
+/// (Docs/Auth/avatars.md §11). Kept in its own table so `teams.icon_url` (the externally
+/// hosted workspace icon) keeps its current meaning and cannot clobber an upload.
+model TeamAvatar {
+  id          String   @id @default(cuid())
+  teamId      String   @unique @map("team_id")
+  contentType String   @map("content_type")
+  data        Bytes
+  sizeBytes   Int      @map("size_bytes")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("team_avatars")
 }
 
 /// Admin-managed deny list. Scope is derived from which id is set: neither orgId nor

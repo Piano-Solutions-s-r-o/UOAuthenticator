@@ -357,7 +357,10 @@ export const internalAdminEndpoints: EndpointSchema[] = [
     description: 'List all teams with organisation context',
     auth: adminAuth,
     query: listLimit,
-    response: { 200: 'Admin team summary array', '401/403': authFailures },
+    response: {
+      200: 'Admin team summary array; each entry carries avatarImageUrl (/internal/admin/teams/:teamId/avatar), fetchable with the same admin bearer — Docs/Auth/avatars.md §11',
+      '401/403': authFailures,
+    },
   },
   {
     method: 'GET',

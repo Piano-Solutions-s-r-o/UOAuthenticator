@@ -1,43 +1,23 @@
-import { createHash } from 'node:crypto';
-
 import type { PrismaClient } from '@prisma/client';
 
-import {
-  AVATAR_DYNAMIC_CACHE_CONTROL,
-  AVATAR_GENERATED_CACHE_CONTROL,
-  AVATAR_MAX_BYTES,
-} from '../config/constants.js';
 import { getEnv } from '../config/env.js';
 import { getAdminPrisma } from '../db/prisma.js';
-import {
-  clampAvatarSize,
-  generateAvatarSvg,
-  resolveAvatarStyle,
-  type AvatarStyle,
-} from '../utils/avatar-svg.js';
+import type { AvatarStyle } from '../utils/avatar-svg.js';
 import { normalizeDomain } from '../utils/domain.js';
 import { AppError } from '../utils/errors.js';
-import { rasterImageExtension, sniffRasterImageType } from '../utils/image-sniff.js';
-import { fetchProviderAvatar, type ProviderAvatarImage } from './avatar-provider.service.js';
+import type { ProviderAvatarImage } from './avatar-provider.service.js';
+import {
+  avatarSourceFor,
+  resolveSubjectAvatar,
+  sniffAvatarUpload,
+  toAvatarBytes,
+  type AvatarProviderDeps,
+  type AvatarSource,
+  type AvatarUploadResult,
+  type ResolvedAvatar,
+} from './avatar-subject.service.js';
 
-export type AvatarSource = 'uploaded' | 'provider' | 'generated';
-
-export type ResolvedAvatar = {
-  source: AvatarSource;
-  contentType: string;
-  body: Buffer;
-  etag: string;
-  cacheControl: string;
-  filename: string;
-  isSvg: boolean;
-};
-
-export type AvatarUploadResult = {
-  source: 'uploaded';
-  contentType: string;
-  sizeBytes: number;
-  updatedAt: Date;
-};
+export type { AvatarSource, AvatarUploadResult, ResolvedAvatar };
 
 type AvatarPrisma = {
   user: Pick<PrismaClient['user'], 'findUnique' | 'findMany'>;
@@ -48,28 +28,14 @@ type AvatarPrisma = {
   domainRole: Pick<PrismaClient['domainRole'], 'findUnique'>;
 };
 
-export type AvatarDeps = {
+export type AvatarDeps = AvatarProviderDeps & {
   prisma?: AvatarPrisma;
-  fetchProvider?: (avatarUrl: string | null | undefined) => Promise<ProviderAvatarImage | null>;
 };
 
 function prismaFor(deps?: AvatarDeps): AvatarPrisma {
   if (deps?.prisma) return deps.prisma;
   if (!getEnv().DATABASE_URL) throw new AppError('NOT_FOUND', 404, 'AVATAR_DB_DISABLED');
   return getAdminPrisma() as unknown as AvatarPrisma;
-}
-
-function etagFor(body: Buffer): string {
-  return `"sha256-${createHash('sha256').update(body).digest('hex')}"`;
-}
-
-// Prisma's `Bytes` column typing requires `Uint8Array<ArrayBuffer>`; Node `Buffer` is structurally
-// compatible but TS sees `Buffer<ArrayBufferLike>`. Copy at the persistence boundary, same as
-// `integration-claim.service.ts`.
-function toBytes(buf: Uint8Array): Uint8Array<ArrayBuffer> {
-  const out = new Uint8Array(new ArrayBuffer(buf.byteLength));
-  out.set(buf);
-  return out;
 }
 
 /**
@@ -123,67 +89,11 @@ export async function resolveAvatar(
 
   if (!user) throw new AppError('NOT_FOUND', 404, 'USER_NOT_FOUND');
 
-  if (uploaded) {
-    const body = Buffer.from(uploaded.data);
-    return {
-      source: 'uploaded',
-      contentType: uploaded.contentType,
-      body,
-      etag: etagFor(body),
-      cacheControl: AVATAR_DYNAMIC_CACHE_CONTROL,
-      filename: `avatar.${rasterImageExtension(uploaded.contentType)}`,
-      isSvg: false,
-    };
-  }
-
-  if (user.avatarUrl) {
-    const fetchProvider = deps?.fetchProvider ?? fetchProviderAvatar;
-    // Never throws — a failed provider fetch is indistinguishable from "no provider image".
-    const proxied = await fetchProvider(user.avatarUrl);
-    if (proxied) {
-      return {
-        source: 'provider',
-        contentType: proxied.contentType,
-        body: proxied.body,
-        etag: etagFor(proxied.body),
-        cacheControl: AVATAR_DYNAMIC_CACHE_CONTROL,
-        filename: `avatar.${rasterImageExtension(proxied.contentType)}`,
-        isSvg: false,
-      };
-    }
-  }
-
-  return generatedAvatar(params);
-}
-
-/** The always-available fallback. Pure — no database or network access. */
-export function generatedAvatar(params: {
-  userId: string;
-  style?: AvatarStyle | null;
-  configDefaultStyle?: AvatarStyle | null;
-  size?: number | null;
-}): ResolvedAvatar {
-  const style = resolveAvatarStyle({
-    userId: params.userId,
-    requested: params.style,
-    configDefault: params.configDefaultStyle,
-  });
-  const svg = generateAvatarSvg({
-    userId: params.userId,
-    style,
-    size: clampAvatarSize(params.size),
-  });
-  const body = Buffer.from(svg, 'utf8');
-
-  return {
-    source: 'generated',
-    contentType: 'image/svg+xml; charset=utf-8',
-    body,
-    etag: etagFor(body),
-    cacheControl: AVATAR_GENERATED_CACHE_CONTROL,
-    filename: 'avatar.svg',
-    isSvg: true,
-  };
+  return await resolveSubjectAvatar(
+    { id: params.userId, uploaded, externalUrl: user.avatarUrl },
+    { style: params.style, configDefaultStyle: params.configDefaultStyle, size: params.size },
+    deps,
+  );
 }
 
 /**
@@ -212,7 +122,7 @@ export async function getAvatarSources(
 
   const uploaded = new Set(uploads.map((row) => row.userId));
   for (const user of users) {
-    sources.set(user.id, uploaded.has(user.id) ? 'uploaded' : user.avatarUrl ? 'provider' : 'generated');
+    sources.set(user.id, avatarSourceFor(uploaded.has(user.id), user.avatarUrl));
   }
 
   return sources;
@@ -233,16 +143,7 @@ export async function uploadAvatar(
   deps?: AvatarDeps,
 ): Promise<AvatarUploadResult> {
   const prisma = prismaFor(deps);
-
-  if (!Buffer.isBuffer(params.data) || params.data.byteLength === 0) {
-    throw new AppError('BAD_REQUEST', 400, 'INVALID_AVATAR_UPLOAD');
-  }
-  if (params.data.byteLength > AVATAR_MAX_BYTES) {
-    throw new AppError('BAD_REQUEST', 413, 'AVATAR_TOO_LARGE');
-  }
-
-  const contentType = sniffRasterImageType(params.data);
-  if (!contentType) throw new AppError('BAD_REQUEST', 400, 'INVALID_AVATAR_UPLOAD');
+  const contentType = sniffAvatarUpload(params.data);
 
   const user = await prisma.user.findUnique({
     where: { id: params.userId },
@@ -251,7 +152,7 @@ export async function uploadAvatar(
   if (!user) throw new AppError('NOT_FOUND', 404, 'USER_NOT_FOUND');
 
   const sizeBytes = params.data.byteLength;
-  const data = toBytes(params.data);
+  const data = toAvatarBytes(params.data);
   const row = await prisma.userAvatar.upsert({
     where: { userId: params.userId },
     create: { userId: params.userId, contentType, data, sizeBytes },
@@ -278,3 +179,5 @@ export async function deleteAvatar(
   const prisma = prismaFor(deps);
   await prisma.userAvatar.deleteMany({ where: { userId: params.userId } });
 }
+
+export type { ProviderAvatarImage };

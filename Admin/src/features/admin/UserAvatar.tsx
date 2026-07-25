@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
-
 import { Avatar } from '../../components/ui/Avatar';
+import { useObjectUrl } from '../../utils/use-object-url';
 import { useUserAvatarQuery } from './admin-queries';
 
 type UserAvatarProps = {
@@ -19,23 +18,4 @@ export function UserAvatar({ label, size = 'sm', userId }: UserAvatarProps) {
   const src = useObjectUrl(avatarQuery.data);
 
   return <Avatar label={label} size={size} src={src} />;
-}
-
-function useObjectUrl(blob: Blob | undefined) {
-  const [url, setUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!blob) {
-      setUrl(null);
-      return undefined;
-    }
-
-    const objectUrl = URL.createObjectURL(blob);
-    setUrl(objectUrl);
-    return () => {
-      URL.revokeObjectURL(objectUrl);
-    };
-  }, [blob]);
-
-  return url;
 }

@@ -160,7 +160,7 @@ const orgEndpoints: EndpointSchema[] = [
       'cursor?': 'string — id of the last row of the previous page (from next_cursor)',
     },
     response: {
-      data: 'array — team records including id, name, slug, description, groupId, isDefault',
+      data: 'array — team records including id, name, slug, description, groupId, isDefault, iconUrl and avatarImageUrl (the always-resolving team avatar image URL, fetchable with the same domain hash bearer — Docs/Auth/avatars.md §11)',
       next_cursor: 'string | null',
     },
   },
@@ -190,6 +190,8 @@ const orgEndpoints: EndpointSchema[] = [
     response: {
       slug: 'string — unique team slug within the organisation',
       iconUrl: 'string | null — echoed on every team read/write',
+      avatarImageUrl:
+        'string — always-resolving team avatar image URL (Docs/Auth/avatars.md §11), fetchable with the same domain hash bearer; never null, unlike iconUrl',
       members:
         'array — current team members; each carries avatarImageUrl, fetchable with the same domain hash bearer',
       'invited?':
@@ -213,6 +215,8 @@ const orgEndpoints: EndpointSchema[] = [
     response: {
       slug: 'string — unique team slug within the organisation',
       iconUrl: 'string | null — echoed on every team read/write',
+      avatarImageUrl:
+        'string — always-resolving team avatar image URL (Docs/Auth/avatars.md §11)',
     },
   },
   {

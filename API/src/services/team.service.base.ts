@@ -9,6 +9,7 @@ import {
   memberAvatarImageUrl,
   normalizeIconUrl,
   resolveOrganisationByDomain,
+  teamAvatarImageUrl,
   toListLimit,
   type CursorList,
   type OrgServiceDeps,
@@ -49,6 +50,11 @@ export type TeamRecord = {
   isDefault: boolean;
   joinPolicy: TeamJoinPolicyValue;
   iconUrl: string | null;
+  /**
+   * Always-resolving team avatar image URL (Docs/Auth/avatars.md §11). `iconUrl` stays what it was
+   * — the externally hosted icon, possibly null; this one is derived and never null.
+   */
+  avatarImageUrl: string;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -209,19 +215,22 @@ export function parseMaxTeamMembershipsPerUser(config: ClientConfig): number {
   return config.org_features?.max_team_memberships_per_user ?? 50;
 }
 
-export function toTeamRecord(row: {
-  id: string;
-  orgId: string;
-  groupId: string | null;
-  name: string;
-  slug: string;
-  description: string | null;
-  isDefault: boolean;
-  joinPolicy?: string;
-  iconUrl?: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}): TeamRecord {
+export function toTeamRecord(
+  row: {
+    id: string;
+    orgId: string;
+    groupId: string | null;
+    name: string;
+    slug: string;
+    description: string | null;
+    isDefault: boolean;
+    joinPolicy?: string;
+    iconUrl?: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  domain: string,
+): TeamRecord {
   return {
     id: row.id,
     orgId: row.orgId,
@@ -232,6 +241,7 @@ export function toTeamRecord(row: {
     isDefault: row.isDefault,
     joinPolicy: (row.joinPolicy ?? 'INVITE_ONLY') as TeamJoinPolicyValue,
     iconUrl: row.iconUrl ?? null,
+    avatarImageUrl: teamAvatarImageUrl(domain, row.id),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -335,6 +345,7 @@ export {
   isP2002Error,
   memberAvatarImageUrl,
   normalizeIconUrl,
+  teamAvatarImageUrl,
   toListLimit,
   type CursorList,
   type OrgServiceDeps,

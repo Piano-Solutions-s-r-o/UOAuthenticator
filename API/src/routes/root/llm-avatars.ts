@@ -50,6 +50,27 @@ You never have to build an avatar URL yourself. **Wherever a JSON response carri
 
 So a domain-hash caller listing \`/domain/users\`, org/team/group members, invites or access requests can fetch every returned URL with the bearer it already holds, and an admin-panel caller can do the same with the admin bearer. As with the avatar endpoints themselves, the URL needs that credential — fetch it and render the blob rather than dropping it into \`<img src>\`. Invite records expose \`invitedByAvatarImageUrl\` and \`acceptedAvatarImageUrl\`, both \`null\` until the matching user id exists.
 
+### Team ("company") avatars
+
+Teams have avatars too, and they work **exactly** like user avatars — same four generated styles, same \`?style=\`/\`?size=\`, same upload rules, same response headers, same ETag/\`304\` behaviour. Only the precedence middle step differs:
+
+1. **Uploaded** — an image set through UOA (\`PUT\` on any team avatar endpoint). Stored in Postgres, one row per team.
+2. **Icon URL** — the team's \`iconUrl\` (the externally hosted workspace icon from \`PUT /org/organisations/:orgId/teams/:teamId\`). UOA proxies it server-side under the same HTTPS-only, SSRF-guarded, ~5s/5 MiB rules and reports \`X-UOA-Avatar-Source: provider\`. Nothing is persisted, and \`iconUrl\` itself is never modified by the avatar endpoints.
+3. **Generated** — the same deterministic SVG generator, seeded from the **team id**.
+
+| Method | Path | Auth |
+| ------ | ---- | ---- |
+| GET / PUT / DELETE | \`/domain/teams/:teamId/avatar?domain=…\` | domain hash bearer only — **the path your backend wants** |
+| GET | \`/org/organisations/:orgId/teams/:teamId/avatar?domain=…&config_url=…\` | the standard \`/org/*\` chain — domain hash bearer + \`X-UOA-Access-Token\` + verified config; any ACTIVE org member may read |
+| PUT / DELETE | \`/org/organisations/:orgId/teams/:teamId/avatar?domain=…&config_url=…\` | same chain, **organisation owner/admin only** — the same authorization as updating the team |
+| GET / PUT / DELETE | \`/internal/admin/teams/:teamId/avatar\` | admin superuser bearer; the mutations are audit-logged |
+
+**Which one to call.** Use \`/domain/teams/:teamId/avatar\` from a product backend, and the \`/org/*\` routes only when you actually hold a live end-user access token (flows inside UOA itself). Products keep the bound refresh credential rather than a spendable access token, so the dual-auth \`/org/*\` mutations cannot be driven from a backend at all. The \`/domain/*\` mutations consequently apply **no role check** — per brief §24.10 the domain hash token is full system trust for that domain, exactly as with \`PUT /domain/users/:userId/avatar\`, so enforce your own owner/admin gating before relaying the call.
+
+On every \`/domain/teams/:teamId/avatar\` call the team's organisation must belong to the authenticated domain — a team on another domain is the standard generic 404, exactly like a cross-domain user id. Team mutations are rate-limited 30/hour, keyed per domain + team on \`/domain/*\` and per organisation + team on \`/org/*\`.
+
+Team records in JSON follow the same identity rule as users: **every team record carries \`avatarImageUrl\`**, an absolute URL that always resolves to an image and is fetchable with the credential class you already used — \`<PUBLIC_BASE_URL>/domain/teams/<teamId>/avatar?domain=<domain>\` on \`/org/*\` and \`/internal/org/*\`, \`<PUBLIC_BASE_URL>/internal/admin/teams/<teamId>/avatar\` on \`/internal/admin/*\`. It is never null. \`iconUrl\` is unchanged and keeps its own meaning: the external URL you set, or \`null\` if you set none.
+
 A few payloads deliberately carry **no** avatar URL: bare actor-attribution emails with no user object (\`created_by_email\`, \`published_by_email\`, \`actor_email\`, the signature revocation actor), the frozen billing-statement protocol packages (their schemas reject unknown properties — adding one is a protocol version bump), the admin login-log rows (whose shape drops \`userId\`), the auth-popup chooser payloads (\`/auth/session-choices\`, \`/auth/verify-code\`, \`/auth/select-team\`, the \`/auth/login\` chooser, and \`/org/me\` \`pending_invites.invitedBy\` — browser-popup context with no credentialed fetch), and invite rows for invitees who have no user account yet.
 
 See [the JSON endpoint contract](/api) and \`Docs/Auth/avatars.md\` for the full specification.

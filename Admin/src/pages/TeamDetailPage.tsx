@@ -3,7 +3,6 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { ActionButton, ActionDivider } from '../components/ui/ActionButton';
-import { Avatar } from '../components/ui/Avatar';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card, CardHeader } from '../components/ui/Card';
@@ -16,6 +15,8 @@ import { TeamDialog } from '../components/dialogs/TeamDialog';
 import { LoginRestrictionSection } from '../components/sections/LoginRestrictionSection';
 import { adminService } from '../services/admin-service';
 import { useTeamQuery } from '../features/admin/admin-queries';
+import { TeamAvatar } from '../features/admin/TeamAvatar';
+import { TeamAvatarSection } from '../features/admin/TeamAvatarSection';
 import { UserAvatar } from '../features/admin/UserAvatar';
 import type { OrganisationMember } from '../features/admin/types';
 import { useAdminUi } from '../features/shell/admin-ui';
@@ -62,7 +63,7 @@ export function TeamDetailPage() {
       <PageHeader
         title={team.name}
         description={`${org.name} · ${members.length} members`}
-        leading={<Avatar label={team.name} shape="square" size="md" />}
+        leading={<TeamAvatar label={team.name} size="md" teamId={team.id} />}
         badges={team.isDefault ? <Badge variant="blue">Default</Badge> : null}
         onBack={() => navigate(`/organisations/${org.id}`)}
         actions={
@@ -72,6 +73,9 @@ export function TeamDetailPage() {
           </>
         }
       />
+      <div className="mb-5">
+        <TeamAvatarSection teamId={team.id} teamName={team.name} />
+      </div>
       <div className="mb-5">
         <LoginRestrictionSection
           title="Login access whitelist"
