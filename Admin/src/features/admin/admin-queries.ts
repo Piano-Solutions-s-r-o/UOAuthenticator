@@ -90,6 +90,18 @@ export function useUserQuery(userId: string | null) {
   });
 }
 
+export function useUserAvatarQuery(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['admin', 'user-avatar', userId],
+    queryFn: () => adminService.getUserAvatar(userId ?? ''),
+    enabled: Boolean(userId),
+    // Avatars change rarely and a failure is cosmetic: cache generously and do not
+    // retry, so a broken avatar never turns into repeated requests behind a table.
+    staleTime: 300_000,
+    retry: false,
+  });
+}
+
 export function useLogsQuery() {
   return useQuery({ queryKey: ['admin', 'logs'], queryFn: adminService.getLogs });
 }

@@ -63,6 +63,7 @@ const safeConfigJwtPayloadKeys = new Set([
   'language',
   'session',
   'org_features',
+  'avatars',
 ]);
 const emptyAllowedKeys = new Set<string>();
 const safeConfigJwtNestedKeys = new Map<string, ReadonlySet<string>>([
@@ -91,6 +92,7 @@ const safeConfigJwtNestedKeys = new Map<string, ReadonlySet<string>>([
       'admin_review_url',
     ]),
   ],
+  ['payload.avatars', new Set(['default_style'])],
   [
     'payload.session',
     new Set([

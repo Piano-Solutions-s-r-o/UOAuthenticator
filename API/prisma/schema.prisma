@@ -323,10 +323,30 @@ model User {
   signingContinuations   SigningContinuation[]
   signatureClaimIntents  SignatureClaimIntent[]
   agreementSignatures    AgreementSignature[]
+  avatar                 UserAvatar?
 
   @@index([email])
   @@index([domain])
   @@map("users")
+}
+
+// Docs/Auth/avatars.md §3: uploaded avatars live in their own table so a later social login —
+// which unconditionally overwrites `User.avatarUrl` with the provider URL — can never clobber
+// an image the user or their product backend deliberately set. Bytes are stored in Postgres
+// (`bytea`) so Cloud Run needs no filesystem or object-storage dependency for avatars.
+// One row per user; an upload replaces the existing row's content.
+model UserAvatar {
+  id          String   @id @default(cuid())
+  userId      String   @unique @map("user_id")
+  contentType String   @map("content_type")
+  data        Bytes
+  sizeBytes   Int      @map("size_bytes")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_avatars")
 }
 
 // TODO(VM5/M8/VL11): Add OrgEmailDomainRule.teamId index, the partial unique

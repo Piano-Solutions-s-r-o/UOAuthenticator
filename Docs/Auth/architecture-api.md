@@ -51,6 +51,7 @@ The tree below reflects the current `API/src` layout. It is a snapshot — when 
       rate-limiter.ts               — Rate limiting
       same-origin-browser.ts        — Rejects cross-site browser mutations on capability signing actions
       superuser-access-token.ts     — Validates user access tokens for superuser-only domain endpoints
+      user-access-token.ts          — Validates a user access token (no role requirement) for /avatar/me dual auth
     /routes
       index.ts              — Top-level route registration and global 404 handler
       admin-ui.ts           — Serves the static admin SPA bundle
@@ -74,8 +75,10 @@ The tree below reflects the current `API/src` layout. It is a snapshot — when 
         schema.platform.ts  — /api schema slice: root, health, app, email, and domain endpoints
         schema.signatures.ts       — /api schema slice: signing session, signer, domain-status, and public verification endpoints
         schema.internal-admin.ts — /api schema slice: internal admin endpoints
+        schema.avatars.ts     — /api schema slice: avatar image, upload, and delete endpoints
         llm-billing.ts        — /llm content: product billing integration and raw-usage rules
         llm-signatures.ts     — /llm content: optional signature operator workflow and security constraints
+        llm-avatars.ts        — /llm content: avatar precedence, endpoints, styles, and caching
       /apps
         startup.ts          — GET /apps/startup (combined startup payload; config JWT auth)
         index.ts            — Route registration for /apps
@@ -97,6 +100,10 @@ The tree below reflects the current `API/src` layout. It is a snapshot — when 
         email-team-invite.ts       — GET /auth/email-team-invite
         email-team-invite-open.ts  — GET /auth/email-team-invite-open
         index.ts            — Route registration for /auth
+      /avatar
+        me.ts               — GET/PUT/DELETE /avatar/me (domain hash + user access token)
+        shared.ts           — Shared avatar image response contract, multipart read, config-style resolution
+        index.ts            — Route registration for /avatar
       /billing
         credits.ts          — POST /billing/v1/credits and strict BillingCreditsV1 validation
         customer-statement.ts — Exact v1/v2 display model and public protocol artifacts
@@ -110,6 +117,7 @@ The tree below reflects the current `API/src` layout. It is a snapshot — when 
         index.ts            — Route registration for /billing/v1
       /domain
         users.ts            — GET  /domain/users
+        user-avatar.ts      — GET/PUT/DELETE /domain/users/:userId/avatar
         logs.ts             — GET  /domain/logs
         debug.ts            — GET  /domain/debug
         signatures.ts       — POST /domain/signatures/status (verified config + domain hash)
@@ -190,6 +198,8 @@ The tree below reflects the current `API/src` layout. It is a snapshot — when 
       auth-reset-password.service.ts        — Password reset logic
       auth-ui.service.ts                    — Auth window HTML/asset rendering
       auth-verify-email.service.ts          — Email verification logic
+      avatar.service.ts                     — Avatar resolution precedence, upload validation/storage, deletion
+      avatar-provider.service.ts            — SSRF-guarded, size/time-capped provider avatar proxy (fails soft)
       verification-token-epoch.service.ts  — Issue-time user/credential-epoch proof and lock enforcement
       auto-onboarding.service.ts            — Auto-onboarding flow
       authorization-code.service.ts         — Scoped code issuance and one-transaction consumption
@@ -356,6 +366,8 @@ The tree below reflects the current `API/src` layout. It is a snapshot — when 
         index.ts                            — Social provider registry
     /utils
       app-logger.ts                  — Structured logger (internal details only)
+      avatar-svg.ts                  — Deterministic generated-avatar API (djb2 seed, style/size selection)
+      avatar-svg.styles.ts           — The four generated-avatar style renderers (tiles/waves/rings/mono)
       billing-app-key.ts             — Product app-key generation, digest, and display prefix
       claim-secret-crypto.ts         — Claim-secret cryptographic helpers
       client-hash.ts                 — Client-hash helpers
@@ -367,6 +379,7 @@ The tree below reflects the current `API/src` layout. It is a snapshot — when 
       errors.ts                      — Generic error factory (never leaks specifics)
       hash.ts                        — Hashing helpers (domain + secret, tokens)
       http-url.ts                    — HTTP URL validation
+      image-sniff.ts                 — Magic-byte PNG/JPEG/WebP sniffing (upload and proxy validation)
       pkce.ts                        — PKCE helpers
       rs256-jwk.ts                   — Shared private/public RSA JWK structural validation
       ssrf.ts                        — SSRF safeguards
@@ -411,6 +424,7 @@ Request → Route → Middleware → Service → Database (Prisma)
 - **config-jwt-header-verifier** — verifies a signed config JWT supplied via header for endpoints that accept the config out-of-band rather than via a `config_url` query parameter.
 - **domain-hash-auth** — runs on domain-scoped API routes. Verifies the domain hash token.
 - **superuser-access-token** — validates user access tokens for superuser-only domain endpoints.
+- **user-access-token** — the same access-token check without any role requirement, for `/avatar/me`. Pairs with the domain-hash guard: the bearer authenticates the product backend, the token establishes which user it is acting for, and its `domain` claim must equal `?domain=`. The acting identity is always the token subject.
 - **admin-superuser** — runs on `/internal/admin/*`. Validates the admin access token issued by `POST /internal/admin/token` and requires `role: "superuser"` for the configured `ADMIN_AUTH_DOMAIN`. See `Docs/Requirements/roles-and-acl.md`.
 - **billing-app-auth** — runs on the product billing endpoints. Accepts only the calling product's individual `uoa_app_…` credential, resolves its exact product, purpose, and actor-verification binding through the admin database connection, and rejects duplicate or ambiguous credential headers. `entitlement` keys can call only effective-tariff; `customer_lifecycle` keys can call only direct-session confirmation, customer statement, Checkout, summary, portal, and cancellation. The route separately requires `X-UOA-Actor`; the app key never stands in for a user identity. The signed result includes the non-secret app-key record ID, exact product ID/identifier, and user/organisation/team subject so consumers can reject cross-product or cross-actor replay even when products share an actor-signing key.
 - **org-features** — rejects org endpoints when `org_features.enabled` is false.
@@ -646,6 +660,15 @@ subscription-cycle `invoice.created` post-period pass before webhook commit and
 the structured `invoice.finalization_failed` handling. Free/manual/none plans
 and the alignment stub are excluded, while unexpected period drift fails
 visibly.
+
+Avatars follow the same layering. `avatar.service.ts` owns the fixed uploaded → provider →
+generated precedence; `avatar-provider.service.ts` owns the SSRF-guarded, HTTPS-only, time- and
+size-capped provider proxy and deliberately fails soft so a hostile or dead provider URL can only
+ever degrade to the generated image; `utils/avatar-svg*.ts` are pure deterministic renderers with
+no I/O. Uploads are magic-byte sniffed by `utils/image-sniff.ts` and the sniffed verdict — not the
+client mimetype — is what gets stored and served. Avatar reads and writes run on the BYPASSRLS
+admin client because every avatar route authenticates before a tenant context exists, and
+`user_avatars` denies `uoa_app` outright. See `Docs/Auth/avatars.md`.
 
 > SCIM is deferred. When implementation lands, add a `scim-auth` middleware (SCIM bearer token validation and org-scope verification for `/scim/v2/*`, returning 401 on invalid token and 403 on org scope mismatch) and update both this list and the directory tree.
 

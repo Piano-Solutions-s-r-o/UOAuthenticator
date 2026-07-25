@@ -8,7 +8,17 @@ import {
   method,
 } from './internal-admin.service.base.js';
 import { writeAuditLog, type AuditLogPrisma } from './audit-log.service.js';
+import type { AvatarSource } from './avatar.service.js';
 import { resetTwoFactorForUser } from './twofactor-disable.service.js';
+
+/**
+ * Additive `avatarSource` for the admin panel (Docs/Auth/avatars.md §5/§7) so the UI can label
+ * where a user's image came from. Mirrors the resolution precedence without fetching any bytes.
+ */
+function avatarSource(hasUpload: boolean, avatarUrl: string | null): AvatarSource {
+  if (hasUpload) return 'uploaded';
+  return avatarUrl ? 'provider' : 'generated';
+}
 
 export async function getAdminLogs(limit = 100) {
   if (!isDatabaseEnabled()) return [];
@@ -46,14 +56,16 @@ export async function getAdminUsers(limit?: number) {
   const prisma = getAdminPrisma();
   const users = await prisma.user.findMany({ orderBy: { createdAt: 'desc' }, take: listLimit(limit) });
   const userIds = users.map((user) => user.id);
-  const [roles, logs] = await Promise.all([
+  const [roles, logs, uploadedAvatars] = await Promise.all([
     prisma.domainRole.findMany({ where: { userId: { in: userIds } }, select: { userId: true, domain: true } }),
     prisma.loginLog.findMany({
       where: { userId: { in: userIds } },
       orderBy: { createdAt: 'desc' },
       take: Math.max(userIds.length * 5, DEFAULT_LIST_LIMIT),
     }),
+    prisma.userAvatar.findMany({ where: { userId: { in: userIds } }, select: { userId: true } }),
   ]);
+  const uploadedAvatarUserIds = new Set(uploadedAvatars.map((row) => row.userId));
   const domainsByUser = new Map<string, Set<string>>();
   const latestLogByUser = new Map<string, (typeof logs)[number]>();
   roles.forEach((role) => {
@@ -74,6 +86,7 @@ export async function getAdminUsers(limit?: number) {
       email: user.email,
       domains: Array.from(domainsByUser.get(user.id) ?? []),
       twofa: user.twoFaEnabled,
+      avatarSource: avatarSource(uploadedAvatarUserIds.has(user.id), user.avatarUrl),
       lastLogin: latestLog ? displayTimestamp(latestLog.createdAt) : 'Never',
       status: 'active',
       method: method(latestLog?.authMethod),
@@ -89,9 +102,10 @@ export async function getAdminUser(userId: string) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return null;
 
-  const [roles, latestLog] = await Promise.all([
+  const [roles, latestLog, uploadedAvatar] = await Promise.all([
     prisma.domainRole.findMany({ where: { userId }, select: { domain: true } }),
     prisma.loginLog.findFirst({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+    prisma.userAvatar.findUnique({ where: { userId }, select: { userId: true } }),
   ]);
 
   return {
@@ -100,6 +114,7 @@ export async function getAdminUser(userId: string) {
     email: user.email,
     domains: roles.map((role) => role.domain),
     twofa: user.twoFaEnabled,
+    avatarSource: avatarSource(Boolean(uploadedAvatar), user.avatarUrl),
     lastLogin: latestLog ? displayTimestamp(latestLog.createdAt) : 'Never',
     status: 'active',
     method: method(latestLog?.authMethod),

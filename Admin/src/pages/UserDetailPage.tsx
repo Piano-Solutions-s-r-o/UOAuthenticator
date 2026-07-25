@@ -3,7 +3,6 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { ActionButton, ActionDivider } from '../components/ui/ActionButton';
-import { Avatar } from '../components/ui/Avatar';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card, CardHeader } from '../components/ui/Card';
@@ -14,7 +13,8 @@ import { AddUserToTeamDialog } from '../components/dialogs/AddUserToTeamDialog';
 import { ChangeTeamRoleDialog } from '../components/dialogs/ChangeTeamRoleDialog';
 import { EditUserDialog } from '../components/dialogs/EditUserDialog';
 import { useLogsQuery, useOrganisationsQuery, useUserQuery } from '../features/admin/admin-queries';
-import type { Organisation, OrganisationMember, Team, UserSummary } from '../features/admin/types';
+import { UserAvatar } from '../features/admin/UserAvatar';
+import type { AvatarSource, Organisation, OrganisationMember, Team, UserSummary } from '../features/admin/types';
 import { adminService } from '../services/admin-service';
 import { useAdminUi } from '../features/shell/admin-ui';
 
@@ -22,6 +22,12 @@ type DialogState =
   | { kind: 'edit-user'; user: UserSummary }
   | { kind: 'add-to-team'; user: UserSummary }
   | { kind: 'change-team-role'; member: OrganisationMember; team: Team };
+
+const avatarSourceLabels: Record<AvatarSource, string> = {
+  uploaded: 'Uploaded',
+  provider: 'From provider',
+  generated: 'Generated',
+};
 
 type TeamMembership = {
   organisation: Organisation;
@@ -62,12 +68,13 @@ export function UserDetailPage() {
       <PageHeader
         title={user.name ?? user.email}
         description={`${user.email} · Registered ${user.created}`}
-        leading={<Avatar label={user.name ?? user.email} size="md" />}
+        leading={<UserAvatar userId={user.id} label={user.name ?? user.email} size="md" />}
         badges={
           <>
             <StatusBadge status={user.status} />
             <StatusBadge status={user.twofa ? 'On' : 'Off'} />
             <MethodBadge method={user.method} />
+            {user.avatarSource ? <Badge variant="slate">{`Avatar: ${avatarSourceLabels[user.avatarSource]}`}</Badge> : null}
           </>
         }
         onBack={() => navigate('/users')}

@@ -313,6 +313,10 @@ export const adminService = {
     ),
   getUsers: () => api.get<UserSummary[]>('/internal/admin/users'),
   getUser: (userId: string) => api.get<UserSummary | null>(`/internal/admin/users/${encodeURIComponent(userId)}`),
+  // Image bytes, not JSON: <img src> cannot carry the admin bearer, so avatars are
+  // fetched as blobs through the shared client and rendered from an object URL.
+  getUserAvatar: (userId: string) =>
+    api.getBlob(`/internal/admin/users/${encodeURIComponent(userId)}/avatar`, undefined, 'image/*'),
   resetUserTwoFactor: (userId: string) =>
     api.post<UserSummary | null>(`/internal/admin/users/${encodeURIComponent(userId)}/2fa/disable`),
   getLogs: () => api.get<AdminData['logs']>('/internal/admin/logs'),
