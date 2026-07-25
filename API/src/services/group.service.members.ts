@@ -87,7 +87,7 @@ export async function addGroupMember(
         },
       });
 
-      return toGroupMemberRecord(created);
+      return toGroupMemberRecord(created, org.domain);
     } catch (err) {
       if (isP2002Error(err)) {
         throw new AppError('BAD_REQUEST', 400);
@@ -196,7 +196,7 @@ export async function updateGroupMemberAdmin(
     },
   });
 
-  return toGroupMemberRecord(updated);
+  return toGroupMemberRecord(updated, org.domain);
 }
 
 export async function assignTeamToGroup(

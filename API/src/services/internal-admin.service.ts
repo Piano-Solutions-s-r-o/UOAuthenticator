@@ -1,3 +1,4 @@
+import { adminAvatarImageUrl, avatarImageBaseUrl } from '../utils/avatar-url.js';
 import { listHandshakeErrorLogs } from './handshake-error-log.service.js';
 import { emptyData, getAdminStats } from './internal-admin.service.base.js';
 import { listAdminBans } from './internal-admin-bans.service.js';
@@ -41,6 +42,11 @@ export async function getAdminSession(claims: { userId: string; email: string; d
       email: claims.email,
       domain: claims.domain,
       role: 'superuser',
+      // Docs/Auth/avatars.md §9 — the caller's own avatar, admin-bearer URL form.
+      avatarImageUrl: adminAvatarImageUrl({
+        baseUrl: avatarImageBaseUrl(),
+        userId: claims.userId,
+      }),
     },
   };
 }

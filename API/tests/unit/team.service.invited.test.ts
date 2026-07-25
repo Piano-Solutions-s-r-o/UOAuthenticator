@@ -111,6 +111,9 @@ describe('Team service: getTeam include=invited', () => {
         teamRole: 'member',
         invitedByName: 'Alice Admin',
         invitedByEmail: 'alice@acme.com',
+        // Docs/Auth/avatars.md §9: no inviter user id on this row, so no avatar URL — the
+        // invitee's own email never gets one (they have no UOA user yet).
+        invitedByAvatarImageUrl: null,
         lastSentAt: now,
         expiresAt: new Date('2026-03-01T00:00:00.000Z'),
         approvalStatus: 'not_required',
@@ -123,6 +126,7 @@ describe('Team service: getTeam include=invited', () => {
         teamRole: 'member',
         invitedByName: null,
         invitedByEmail: 'bob@acme.com',
+        invitedByAvatarImageUrl: null,
         lastSentAt: now,
         expiresAt: new Date('2026-03-01T00:00:00.000Z'),
         approvalStatus: 'pending',

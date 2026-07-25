@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { requireDomainHashAuthForDomainQuery } from '../../middleware/domain-hash-auth.js';
 import { requireSuperuserAccessTokenForDomainQuery } from '../../middleware/superuser-access-token.js';
+import { avatarImageBaseUrl, domainAvatarImageUrl } from '../../utils/avatar-url.js';
 import { normalizeDomain } from '../../utils/domain.js';
 
 const QuerySchema = z
@@ -39,6 +40,12 @@ export function registerDomainDebugRoute(app: FastifyInstance): void {
         superuser: {
           user_id: claims.userId,
           email: claims.email,
+          // Docs/Auth/avatars.md §9 — same domain-hash credential fetches it.
+          avatar_image_url: domainAvatarImageUrl({
+            baseUrl: avatarImageBaseUrl(),
+            domain: normalizedDomain,
+            userId: claims.userId,
+          }),
         },
       });
     },

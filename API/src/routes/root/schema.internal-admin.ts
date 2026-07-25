@@ -1,7 +1,9 @@
+import { IDENTITY_AVATAR_URL_NOTE } from './schema.avatars.js';
 import type { EndpointSchema } from './schema.js';
 import { buildInternalAdminAppEndpoints } from './schema.internal-admin-apps.js';
 import { buildInternalAdminConfidentialDelegationEndpoints } from './schema.internal-admin-delegations.js';
 import { buildInternalAdminSignatureEndpoints } from './schema.internal-admin-signatures.js';
+import { buildInternalAdminSuperuserEndpoints } from './schema.internal-admin-superusers.js';
 
 const adminAuth =
   'Authorization: Bearer <access_token>; admin tokens must be signed with ADMIN_ACCESS_TOKEN_SECRET, token role must be superuser, domain must match ADMIN_AUTH_DOMAIN, and DB-backed deployments require a SUPERUSER domain_roles row';
@@ -37,7 +39,11 @@ export const internalAdminEndpoints: EndpointSchema[] = [
     path: '/internal/admin/session',
     description: 'Validate the current admin session access token',
     auth: adminAuth,
-    response: { 200: '{ ok: true, adminUser }', '401/403': authFailures },
+    response: {
+      200: '{ ok: true, adminUser: { id, email, domain, role, avatarImageUrl } }',
+      '401/403': authFailures,
+    },
+    notes: IDENTITY_AVATAR_URL_NOTE,
   },
   {
     method: 'GET',
@@ -104,7 +110,11 @@ export const internalAdminEndpoints: EndpointSchema[] = [
     path: '/internal/admin/domains/:domain',
     description: 'Get one domain with its organisations, teams, and users for directory browsing',
     auth: adminAuth,
-    response: { 200: '{ domain, organisations, teams, users } or null', '401/403': authFailures },
+    response: {
+      200: '{ domain, organisations, teams, users } or null — each users[] entry carries avatarSource and avatarImageUrl',
+      '401/403': authFailures,
+    },
+    notes: IDENTITY_AVATAR_URL_NOTE,
   },
   {
     method: 'POST',
@@ -206,36 +216,7 @@ export const internalAdminEndpoints: EndpointSchema[] = [
   },
   ...buildInternalAdminConfidentialDelegationEndpoints({ adminAuth, authFailures }),
   ...buildInternalAdminSignatureEndpoints({ adminAuth, authFailures }),
-  {
-    method: 'GET',
-    path: '/internal/admin/superusers',
-    description: 'List users with SUPERUSER on ADMIN_AUTH_DOMAIN',
-    auth: adminAuth,
-    response: { 200: 'Array of { userId, email, name, createdAt }', '401/403': authFailures },
-  },
-  {
-    method: 'GET',
-    path: '/internal/admin/superusers/search',
-    description: 'Search non-superuser UOA users by email or name',
-    auth: adminAuth,
-    query: { q: 'string (optional)' },
-    response: { 200: 'Array of { userId, email, name }', '401/403': authFailures },
-  },
-  {
-    method: 'POST',
-    path: '/internal/admin/superusers',
-    description: 'Grant SUPERUSER on ADMIN_AUTH_DOMAIN to an existing user',
-    auth: adminAuth,
-    body: { userId: 'string (required)' },
-    response: { 201: '{ userId, email, name, createdAt }', '401/403': authFailures },
-  },
-  {
-    method: 'DELETE',
-    path: '/internal/admin/superusers/:userId',
-    description: 'Revoke SUPERUSER on ADMIN_AUTH_DOMAIN; refuses self-removal and last-superuser removal',
-    auth: adminAuth,
-    response: { 204: 'No content', 409: 'generic conflict for safety rails', '401/403': authFailures },
-  },
+  ...buildInternalAdminSuperuserEndpoints({ adminAuth, authFailures }),
   {
     method: 'GET',
     path: '/internal/admin/integration-requests',
@@ -307,7 +288,11 @@ export const internalAdminEndpoints: EndpointSchema[] = [
     description: 'List organisations with teams, members, and pre-approval rows',
     auth: adminAuth,
     query: listLimit,
-    response: { 200: 'Admin organisation summary array', '401/403': authFailures },
+    response: {
+      200: 'Admin organisation summary array — owner and each members[] entry carry avatarImageUrl',
+      '401/403': authFailures,
+    },
+    notes: IDENTITY_AVATAR_URL_NOTE,
   },
   {
     method: 'POST',
@@ -328,7 +313,11 @@ export const internalAdminEndpoints: EndpointSchema[] = [
     path: '/internal/admin/organisations/:orgId',
     description: 'Get one organisation with teams, members, and pre-approval rows',
     auth: adminAuth,
-    response: { 200: 'Admin organisation object or null', '401/403': authFailures },
+    response: {
+      200: 'Admin organisation object or null — owner and each members[] entry carry avatarImageUrl',
+      '401/403': authFailures,
+    },
+    notes: IDENTITY_AVATAR_URL_NOTE,
   },
   {
     method: 'PATCH',
@@ -376,14 +365,22 @@ export const internalAdminEndpoints: EndpointSchema[] = [
     description: 'List users with domains and latest login metadata',
     auth: adminAuth,
     query: listLimit,
-    response: { 200: 'Admin user summary array', '401/403': authFailures },
+    response: {
+      200: 'Admin user summary array — each entry carries avatarSource and avatarImageUrl',
+      '401/403': authFailures,
+    },
+    notes: IDENTITY_AVATAR_URL_NOTE,
   },
   {
     method: 'GET',
     path: '/internal/admin/users/:userId',
     description: 'Get one user summary',
     auth: adminAuth,
-    response: { 200: 'Admin user summary object or null', '401/403': authFailures },
+    response: {
+      200: 'Admin user summary object or null — carries avatarSource and avatarImageUrl',
+      '401/403': authFailures,
+    },
+    notes: IDENTITY_AVATAR_URL_NOTE,
   },
   {
     method: 'POST',

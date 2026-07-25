@@ -39,5 +39,18 @@ Since these endpoints need a bearer credential, a plain \`<img src>\` cannot cal
 
 \`GET /domain/users\` additionally returns \`avatar_source\` per user so you can label or prioritise without a request per avatar. \`avatar_url\` is unchanged: it remains the provider URL and is still overwritten on every social login, which is exactly why uploads live in their own table and cannot be clobbered by a later sign-in.
 
+### Avatar URLs in identity payloads
+
+You never have to build an avatar URL yourself. **Wherever a JSON response carries a UOA user's identity — a \`userId\` and/or the name/email of a UOA user — it also carries an absolute avatar image URL** that always resolves to an image, and that is fetchable with the *same credential class* you used for that request. Two forms, picked by the context you are already in:
+
+| Context | Field | URL |
+| ------- | ----- | --- |
+| Domain-hash and dual-auth (\`/domain/*\`, \`/org/*\`) | \`avatar_image_url\` / \`avatarImageUrl\` (each payload keeps its own casing) | \`<PUBLIC_BASE_URL>/domain/users/<userId>/avatar?domain=<domain>\` |
+| Admin bearer (\`/internal/admin/*\`) | \`avatarImageUrl\` (\`user_avatar_image_url\` on the snake_case signature rows) | \`<PUBLIC_BASE_URL>/internal/admin/users/<userId>/avatar\` |
+
+So a domain-hash caller listing \`/domain/users\`, org/team/group members, invites or access requests can fetch every returned URL with the bearer it already holds, and an admin-panel caller can do the same with the admin bearer. As with the avatar endpoints themselves, the URL needs that credential — fetch it and render the blob rather than dropping it into \`<img src>\`. Invite records expose \`invitedByAvatarImageUrl\` and \`acceptedAvatarImageUrl\`, both \`null\` until the matching user id exists.
+
+A few payloads deliberately carry **no** avatar URL: bare actor-attribution emails with no user object (\`created_by_email\`, \`published_by_email\`, \`actor_email\`, the signature revocation actor), the frozen billing-statement protocol packages (their schemas reject unknown properties — adding one is a protocol version bump), the admin login-log rows (whose shape drops \`userId\`), the auth-popup chooser payloads (\`/auth/session-choices\`, \`/auth/verify-code\`, \`/auth/select-team\`, the \`/auth/login\` chooser, and \`/org/me\` \`pending_invites.invitedBy\` — browser-popup context with no credentialed fetch), and invite rows for invitees who have no user account yet.
+
 See [the JSON endpoint contract](/api) and \`Docs/Auth/avatars.md\` for the full specification.
 `;

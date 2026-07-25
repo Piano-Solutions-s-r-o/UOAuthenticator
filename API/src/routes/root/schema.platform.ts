@@ -1,3 +1,4 @@
+import { IDENTITY_AVATAR_URL_NOTE } from './schema.avatars.js';
 import type { EndpointSchema } from './schema.js';
 
 export const baseEndpoints: EndpointSchema[] = [
@@ -41,7 +42,10 @@ export const domainEndpoints: EndpointSchema[] = [
         'string | null — the external provider avatar URL, overwritten on every social login (unchanged)',
       'users[].avatar_source':
         '"uploaded" | "provider" | "generated" — which source GET /domain/users/:userId/avatar would serve from',
+      'users[].avatar_image_url':
+        'string — absolute URL that always resolves to this user\'s avatar image, fetchable with the same domain hash bearer',
     },
+    notes: IDENTITY_AVATAR_URL_NOTE,
   },
   {
     method: 'GET',
@@ -52,6 +56,11 @@ export const domainEndpoints: EndpointSchema[] = [
       domain: 'string (required)',
       limit: 'number (optional)',
     },
+    response: {
+      'logs[].avatar_image_url':
+        "string | null — the logged-in user's avatar image URL, fetchable with the same domain hash bearer; null on rows with no user_id",
+    },
+    notes: IDENTITY_AVATAR_URL_NOTE,
   },
   {
     method: 'GET',
@@ -59,6 +68,11 @@ export const domainEndpoints: EndpointSchema[] = [
     description: 'Debug info (requires debug_enabled in config)',
     auth: 'domain hash bearer token',
     query: { domain: 'string (required)' },
+    response: {
+      'superuser.avatar_image_url':
+        "string — the calling superuser's avatar image URL, fetchable with the same domain hash bearer",
+    },
+    notes: IDENTITY_AVATAR_URL_NOTE,
   },
 ];
 

@@ -5,7 +5,11 @@ import { EMAIL_TOKEN_TTL_MS } from '../config/constants.js';
 import { getEnv, requireEnv } from '../config/env.js';
 import { AppError } from '../utils/errors.js';
 import { generateEmailToken, hashEmailToken } from '../utils/verification-token.js';
-import { normalizeDomain, resolveOrganisationByDomain } from './organisation.service.base.js';
+import {
+  memberAvatarImageUrl,
+  normalizeDomain,
+  resolveOrganisationByDomain,
+} from './organisation.service.base.js';
 
 export type InvitePrisma = PrismaClient;
 
@@ -86,6 +90,10 @@ export type InviteApprovalStatusValue = 'not_required' | 'pending' | 'approved' 
 export type TeamInviteRecord = Omit<PendingInviteRow, 'approvalStatus'> & {
   status: TeamInviteStatus;
   approvalStatus: InviteApprovalStatusValue;
+  // Docs/Auth/avatars.md §9. Null until the corresponding user id exists — the invitee's own
+  // `email` deliberately gets no avatar URL: an unaccepted invite has no UOA user behind it.
+  invitedByAvatarImageUrl: string | null;
+  acceptedAvatarImageUrl: string | null;
 };
 
 export type TeamInviteCreateResult =
@@ -131,11 +139,16 @@ function toApprovalStatusValue(value: string | null | undefined): InviteApproval
 }
 
 /**
- * Derives the invite's read-only status (Task 3, design §4.7). `now` defaults to the real clock but
- * every call site threads its own `now` through so status derivation is consistent with whatever
- * timestamp the surrounding operation already used.
+ * Derives the invite's read-only status (Task 3, design §4.7). Every call site threads its own `now`
+ * through so status derivation is consistent with whatever timestamp the surrounding operation
+ * already used, and its resolved org `domain` so the avatar URLs (Docs/Auth/avatars.md §9) are
+ * fetchable with the same credential the caller used.
  */
-export function toInviteRecord(row: PendingInviteRow, now: Date = new Date()): TeamInviteRecord {
+export function toInviteRecord(
+  row: PendingInviteRow,
+  now: Date,
+  domain: string,
+): TeamInviteRecord {
   const { approvalStatus, ...rest } = row;
   const isExpired =
     !row.acceptedAt && !row.declinedAt && !row.revokedAt
@@ -145,6 +158,12 @@ export function toInviteRecord(row: PendingInviteRow, now: Date = new Date()): T
   return {
     ...rest,
     approvalStatus: toApprovalStatusValue(approvalStatus),
+    invitedByAvatarImageUrl: row.invitedByUserId
+      ? memberAvatarImageUrl(domain, row.invitedByUserId)
+      : null,
+    acceptedAvatarImageUrl: row.acceptedUserId
+      ? memberAvatarImageUrl(domain, row.acceptedUserId)
+      : null,
     status: row.acceptedAt
       ? 'accepted'
       : row.declinedAt

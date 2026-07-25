@@ -1,7 +1,9 @@
 import { getAdminPrisma } from '../db/prisma.js';
+import { adminAvatarImageUrl, avatarImageBaseUrl } from '../utils/avatar-url.js';
 import {
   DEFAULT_LIST_LIMIT,
   SECRET_OLD_MS,
+  adminAvatarSource,
   adminOrganisationArgs,
   displayDate,
   displayTimestamp,
@@ -107,7 +109,7 @@ export async function getAdminDomain(domain: string) {
   if (!orgRoleDomainPresent) return null;
 
   const userIds = userIdsRaw.map((row) => row.userId);
-  const [users, logs] = await Promise.all([
+  const [users, logs, uploadedAvatars] = await Promise.all([
     userIds.length ? prisma.user.findMany({ where: { id: { in: userIds } } }) : Promise.resolve([]),
     userIds.length
       ? prisma.loginLog.findMany({
@@ -116,7 +118,14 @@ export async function getAdminDomain(domain: string) {
           take: Math.max(userIds.length * 5, DEFAULT_LIST_LIMIT),
         })
       : Promise.resolve([]),
+    // One batched lookup for the whole page (never per user) — same derivation as the
+    // users list in internal-admin.service.users.ts.
+    userIds.length
+      ? prisma.userAvatar.findMany({ where: { userId: { in: userIds } }, select: { userId: true } })
+      : Promise.resolve([]),
   ]);
+  const uploadedAvatarUserIds = new Set(uploadedAvatars.map((row) => row.userId));
+  const avatarBaseUrl = avatarImageBaseUrl();
   const latestByUser = latestLogsByUser(logs);
   const rolesByUser = new Map<string, string[]>();
   roles.forEach((role) => {
@@ -135,6 +144,8 @@ export async function getAdminDomain(domain: string) {
       email: user.email,
       domains: [normalized],
       twofa: user.twoFaEnabled,
+      avatarSource: adminAvatarSource(uploadedAvatarUserIds.has(user.id), user.avatarUrl),
+      avatarImageUrl: adminAvatarImageUrl({ baseUrl: avatarBaseUrl, userId: user.id }),
       lastLogin: latestLog ? displayTimestamp(latestLog.createdAt) : 'Never',
       status: 'active',
       method: method(latestLog?.authMethod),

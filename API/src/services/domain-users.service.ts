@@ -2,6 +2,7 @@ import type { PrismaClient, UserRole } from '@prisma/client';
 
 import { getEnv } from '../config/env.js';
 import { getPrisma } from '../db/prisma.js';
+import { avatarImageBaseUrl, domainAvatarImageUrl } from '../utils/avatar-url.js';
 import { normalizeDomain } from '../utils/domain.js';
 import { AppError } from '../utils/errors.js';
 import type { AvatarSource } from './avatar.service.js';
@@ -22,6 +23,7 @@ export type DomainUserRecord = {
   name: string | null;
   avatarUrl: string | null;
   avatarSource: AvatarSource;
+  avatarImageUrl: string;
   twoFaEnabled: boolean;
   role: 'superuser' | 'user';
   createdAt: Date;
@@ -76,6 +78,10 @@ export async function listUsersForDomain(
     rows.map((r) => r.user.id),
   );
 
+  // Docs/Auth/avatars.md §9: identity payloads carry a URL that always resolves to an image,
+  // fetchable with the same domain-hash credential that authorized this listing.
+  const baseUrl = avatarImageBaseUrl(env);
+
   return rows.map((r) => ({
     id: r.user.id,
     email: r.user.email,
@@ -86,6 +92,7 @@ export async function listUsersForDomain(
       : r.user.avatarUrl
         ? 'provider'
         : 'generated',
+    avatarImageUrl: domainAvatarImageUrl({ baseUrl, domain, userId: r.user.id }),
     twoFaEnabled: r.user.twoFaEnabled,
     role: roleToPublic(r.role),
     createdAt: r.user.createdAt,

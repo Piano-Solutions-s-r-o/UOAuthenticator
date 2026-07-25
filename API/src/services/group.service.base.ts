@@ -3,6 +3,7 @@ import { AppError } from '../utils/errors.js';
 import {
   assertDatabaseEnabled,
   getOrganisationMember,
+  memberAvatarImageUrl,
   resolveOrganisationByDomain,
   toListLimit,
   type CursorList,
@@ -27,6 +28,7 @@ export type GroupMemberRecord = {
   id: string;
   groupId: string;
   userId: string;
+  avatarImageUrl: string;
   isAdmin: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -100,18 +102,22 @@ export function toGroupRecord(row: {
   };
 }
 
-export function toGroupMemberRecord(row: {
-  id: string;
-  groupId: string;
-  userId: string;
-  isAdmin: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-}): GroupMemberRecord {
+export function toGroupMemberRecord(
+  row: {
+    id: string;
+    groupId: string;
+    userId: string;
+    isAdmin: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  domain: string,
+): GroupMemberRecord {
   return {
     id: row.id,
     groupId: row.groupId,
     userId: row.userId,
+    avatarImageUrl: memberAvatarImageUrl(domain, row.userId),
     isAdmin: row.isAdmin,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

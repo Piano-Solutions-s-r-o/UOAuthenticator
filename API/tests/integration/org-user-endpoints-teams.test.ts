@@ -9,6 +9,7 @@ import {
   createTestUser,
   hasDatabase,
   TeamMemberRecord,
+  expectedMemberAvatarImageUrl,
   TeamInviteRecord,
   TeamRecord,
   TeamWithMembersRecord,
@@ -245,6 +246,9 @@ describe.skipIf(!hasDatabase)('user-facing /org team CRUD and membership', () =>
       },
     });
     expect(addTeamMember.statusCode).toBe(200);
+    expect((addTeamMember.json() as TeamMemberRecord).avatarImageUrl).toBe(
+      expectedMemberAvatarImageUrl(teamMember.id, domain),
+    );
 
     const teamAfterAdd = await app.inject({
       method: 'GET',
@@ -259,6 +263,9 @@ describe.skipIf(!hasDatabase)('user-facing /org team CRUD and membership', () =>
     const teamRoles = teamWithMember.members.map((member: TeamMemberRecord) => member.teamRole);
     expect(teamRoles).toContain('admin');
     expect(teamWithMember.members.some((member: TeamMemberRecord) => member.userId === teamMember.id)).toBe(true);
+    for (const member of teamWithMember.members) {
+      expect(member.avatarImageUrl).toBe(expectedMemberAvatarImageUrl(member.userId, domain));
+    }
 
     const changeTeamRole = await app.inject({
       method: 'PUT',

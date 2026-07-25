@@ -112,7 +112,12 @@ describe.skipIf(!hasDatabase)('GET /domain/debug', () => {
       ok: true,
       domain,
       client_id: domainHash,
-      superuser: { user_id: userId, email: 'admin@example.com' },
+      superuser: {
+        user_id: userId,
+        email: 'admin@example.com',
+        // Docs/Auth/avatars.md §9 — relative form, PUBLIC_BASE_URL is unset in tests.
+        avatar_image_url: `/domain/users/${encodeURIComponent(userId)}/avatar?domain=${encodeURIComponent(domain)}`,
+      },
     });
 
     await app.close();

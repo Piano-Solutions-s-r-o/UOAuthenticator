@@ -96,6 +96,8 @@ describe.skipIf(!hasDatabase)('GET /domain/users', () => {
         email: string;
         name: string | null;
         avatar_url: string | null;
+        avatar_source: 'uploaded' | 'provider' | 'generated';
+        avatar_image_url: string;
         twofa_enabled: boolean;
         role: 'superuser' | 'user';
         created_at: string;
@@ -109,6 +111,16 @@ describe.skipIf(!hasDatabase)('GET /domain/users', () => {
     expect(body.users[0].role).toBe('superuser');
     expect(body.users[1].email).toBe('older@example.com');
     expect(body.users[1].role).toBe('user');
+
+    // Docs/Auth/avatars.md §9: every user in the payload carries an avatar image URL fetchable
+    // with the same domain-hash bearer this request used. PUBLIC_BASE_URL is unset in tests, so
+    // the builder emits the root-relative form.
+    expect(body.users[0].avatar_image_url).toBe(
+      `/domain/users/${user2.id}/avatar?domain=client.example.com`,
+    );
+    expect(body.users[1].avatar_image_url).toBe(
+      `/domain/users/${user1.id}/avatar?domain=client.example.com`,
+    );
 
     // Non-sensitive fields only: ensure sensitive fields are not present.
     expect(body.users[0]).not.toHaveProperty('password_hash');

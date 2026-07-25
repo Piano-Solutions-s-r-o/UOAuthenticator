@@ -1462,6 +1462,14 @@ components:
     MemberObject:
       type: object
       additionalProperties: true
+      properties:
+        avatarImageUrl:
+          type: string
+          description: |
+            Absolute URL that always resolves to this member's avatar image
+            (`<PUBLIC_BASE_URL>/domain/users/{userId}/avatar?domain=...`; root-relative when
+            `PUBLIC_BASE_URL` is unset). Fetchable with the same domain hash bearer used for
+            this request — see Docs/Auth/avatars.md §9.
 
     GroupObject:
       type: object
@@ -1601,6 +1609,13 @@ components:
                 enum: [uploaded, provider, generated]
                 description: |
                   Which source `GET /domain/users/{userId}/avatar` would serve from.
+              avatar_image_url:
+                type: string
+                description: |
+                  Absolute URL that always resolves to this user's avatar image
+                  (`<PUBLIC_BASE_URL>/domain/users/{userId}/avatar?domain=...`; root-relative
+                  when `PUBLIC_BASE_URL` is unset). Fetchable with the same domain hash bearer
+                  used for this request — see Docs/Auth/avatars.md §9.
               twofa_enabled:
                 type: boolean
               role:
@@ -1666,6 +1681,12 @@ components:
               email:
                 type: string
                 nullable: true
+              avatar_image_url:
+                type: string
+                nullable: true
+                description: |
+                  Avatar image URL for `user_id`, fetchable with the same domain hash bearer
+                  (Docs/Auth/avatars.md §9). Null on rows with no `user_id`.
               domain:
                 type: string
               timestamp:
@@ -1699,6 +1720,11 @@ components:
               type: string
             email:
               type: string
+            avatar_image_url:
+              type: string
+              description: |
+                Avatar image URL for the calling superuser, fetchable with the same domain hash
+                bearer (Docs/Auth/avatars.md §9).
 
     AdminSessionResponse:
       type: object
@@ -1710,6 +1736,13 @@ components:
         adminUser:
           type: object
           additionalProperties: true
+          properties:
+            avatarImageUrl:
+              type: string
+              description: |
+                Avatar image URL for the calling admin
+                (`<PUBLIC_BASE_URL>/internal/admin/users/{userId}/avatar`), fetchable with the
+                same admin bearer — see Docs/Auth/avatars.md §9.
 
     AdminDashboardResponse:
       type: object
@@ -5567,7 +5600,9 @@ paths:
         - $ref: '#/components/parameters/cursorQuery'
       responses:
         '200':
-          description: Paginated member list.
+          description: |
+            Paginated member list. Each entry carries `avatarImageUrl` — see
+            Docs/Auth/avatars.md §9.
           content:
             application/json:
               schema:
@@ -7151,6 +7186,10 @@ paths:
       tags: [Internal Admin]
       summary: List superusers
       operationId: adminListSuperusers
+      description: |
+        Each entry carries `avatarImageUrl`
+        (`<PUBLIC_BASE_URL>/internal/admin/users/{userId}/avatar`), fetchable with the same
+        admin bearer — see Docs/Auth/avatars.md §9.
       security:
         - adminBearer: []
       responses:
@@ -7815,6 +7854,10 @@ paths:
       tags: [Internal Admin]
       summary: List all users (admin view)
       operationId: adminListUsers
+      description: |
+        Each entry carries `avatarSource` and `avatarImageUrl`
+        (`<PUBLIC_BASE_URL>/internal/admin/users/{userId}/avatar`), fetchable with the same
+        admin bearer — see Docs/Auth/avatars.md §9.
       security:
         - adminBearer: []
       parameters:
@@ -7847,6 +7890,10 @@ paths:
       tags: [Internal Admin]
       summary: Get user (admin view)
       operationId: adminGetUser
+      description: |
+        Carries `avatarSource` and `avatarImageUrl`
+        (`<PUBLIC_BASE_URL>/internal/admin/users/{userId}/avatar`), fetchable with the same
+        admin bearer — see Docs/Auth/avatars.md §9.
       security:
         - adminBearer: []
       parameters:
