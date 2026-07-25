@@ -68,7 +68,7 @@ export async function listOrganisationMembers(
     select: MEMBER_SELECT,
   });
 
-  const data = rows.slice(0, limit).map(toMemberRecord);
+  const data = rows.slice(0, limit).map((row) => toMemberRecord(row, org.domain));
   const nextCursorRow = rows[limit];
   return { data, next_cursor: nextCursorRow ? nextCursorRow.id : null };
 }
@@ -204,7 +204,7 @@ export async function addOrganisationMember(
     metadata: reactivated ? { userId, role, reactivated: true } : { userId, role },
   });
 
-  return toMemberRecord(createdMember);
+  return toMemberRecord(createdMember, org.domain);
 }
 
 export async function changeOrganisationMemberRole(
@@ -260,7 +260,7 @@ export async function changeOrganisationMemberRole(
     metadata: { userId, role, previousRole },
   });
 
-  return toMemberRecord(updated);
+  return toMemberRecord(updated, org.domain);
 }
 
 export async function removeOrganisationMember(

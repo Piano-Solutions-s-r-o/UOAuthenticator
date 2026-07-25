@@ -224,7 +224,7 @@ export async function getTeam(
 
   const result: TeamWithMembersRecord & { invited?: TeamInvitedEntry[] } = {
     ...toTeamRecord(row),
-    members: row.members.map(toTeamMemberRecord),
+    members: row.members.map((member) => toTeamMemberRecord(member, org.domain)),
   };
 
   if (params.includeInvited) {
@@ -232,7 +232,7 @@ export async function getTeam(
     // plain member gets `invited: []` rather than the whole read failing with 403 (design gapfix-a
     // Task 2).
     result.invited = await getTeamInvitedEntries(
-      { orgId: org.id, teamId: row.id, actorUserId },
+      { orgId: org.id, teamId: row.id, domain: org.domain, actorUserId },
       { prisma },
     );
   }

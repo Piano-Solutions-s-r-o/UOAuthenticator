@@ -210,7 +210,7 @@ export async function createTeamInvites(
     results.push({
       email,
       status: hadExistingUnresolvedInvite ? 'resent_existing' : 'invited',
-      invite: toInviteRecord(invite, now),
+      invite: toInviteRecord(invite, now, org.domain),
     });
   }
 
@@ -246,7 +246,7 @@ export async function listTeamInvites(
   });
 
   const now = deps?.now ? deps.now() : new Date();
-  return { data: rows.map((row) => toInviteRecord(row, now)) };
+  return { data: rows.map((row) => toInviteRecord(row, now, org.domain)) };
 }
 
 export async function trackTeamInviteOpen(

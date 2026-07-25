@@ -1,6 +1,8 @@
 import { getAdminPrisma } from '../db/prisma.js';
+import { adminAvatarImageUrl, avatarImageBaseUrl } from '../utils/avatar-url.js';
 import {
   DEFAULT_LIST_LIMIT,
+  adminAvatarSource,
   displayDate,
   displayTimestamp,
   isDatabaseEnabled,
@@ -8,17 +10,7 @@ import {
   method,
 } from './internal-admin.service.base.js';
 import { writeAuditLog, type AuditLogPrisma } from './audit-log.service.js';
-import type { AvatarSource } from './avatar.service.js';
 import { resetTwoFactorForUser } from './twofactor-disable.service.js';
-
-/**
- * Additive `avatarSource` for the admin panel (Docs/Auth/avatars.md §5/§7) so the UI can label
- * where a user's image came from. Mirrors the resolution precedence without fetching any bytes.
- */
-function avatarSource(hasUpload: boolean, avatarUrl: string | null): AvatarSource {
-  if (hasUpload) return 'uploaded';
-  return avatarUrl ? 'provider' : 'generated';
-}
 
 export async function getAdminLogs(limit = 100) {
   if (!isDatabaseEnabled()) return [];
@@ -78,6 +70,10 @@ export async function getAdminUsers(limit?: number) {
     if (key && !latestLogByUser.has(key)) latestLogByUser.set(key, log);
   });
 
+  // Docs/Auth/avatars.md §9: every admin identity payload carries an image URL fetchable with
+  // the same admin bearer the caller already used.
+  const baseUrl = avatarImageBaseUrl();
+
   return users.map((user) => {
     const latestLog = latestLogByUser.get(user.id);
     return {
@@ -86,7 +82,8 @@ export async function getAdminUsers(limit?: number) {
       email: user.email,
       domains: Array.from(domainsByUser.get(user.id) ?? []),
       twofa: user.twoFaEnabled,
-      avatarSource: avatarSource(uploadedAvatarUserIds.has(user.id), user.avatarUrl),
+      avatarSource: adminAvatarSource(uploadedAvatarUserIds.has(user.id), user.avatarUrl),
+      avatarImageUrl: adminAvatarImageUrl({ baseUrl, userId: user.id }),
       lastLogin: latestLog ? displayTimestamp(latestLog.createdAt) : 'Never',
       status: 'active',
       method: method(latestLog?.authMethod),
@@ -114,7 +111,8 @@ export async function getAdminUser(userId: string) {
     email: user.email,
     domains: roles.map((role) => role.domain),
     twofa: user.twoFaEnabled,
-    avatarSource: avatarSource(Boolean(uploadedAvatar), user.avatarUrl),
+    avatarSource: adminAvatarSource(Boolean(uploadedAvatar), user.avatarUrl),
+    avatarImageUrl: adminAvatarImageUrl({ baseUrl: avatarImageBaseUrl(), userId: user.id }),
     lastLogin: latestLog ? displayTimestamp(latestLog.createdAt) : 'Never',
     status: 'active',
     method: method(latestLog?.authMethod),

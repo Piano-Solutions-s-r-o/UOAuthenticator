@@ -34,6 +34,20 @@ const UPLOAD_RESPONSE: Record<string, string> = {
   'avatar.updated_at': 'string — ISO timestamp',
 };
 
+/**
+ * Shared note for every endpoint whose payload names a UOA user (Docs/Auth/avatars.md §9).
+ * Imported by the platform, org and internal-admin schema slices so the rule is stated once.
+ */
+export const IDENTITY_AVATAR_URL_NOTE =
+  'Avatar URLs in identity payloads (Docs/Auth/avatars.md §9): wherever a JSON response carries a ' +
+  "UOA user's identity it also carries an absolute avatar image URL that always resolves to an " +
+  'image and is fetchable with the same credential class used for that request — ' +
+  '<PUBLIC_BASE_URL>/domain/users/<userId>/avatar?domain=<domain> in domain-hash and dual-auth ' +
+  'contexts, <PUBLIC_BASE_URL>/internal/admin/users/<userId>/avatar in admin-bearer contexts. ' +
+  'Both need a bearer credential, so fetch the URL with the credential you already hold and render ' +
+  'the blob — a plain <img src> cannot call them. Bare actor-attribution emails with no user ' +
+  'object, and invite rows for invitees who have no account yet, carry no avatar URL.';
+
 const RESOLUTION_NOTE =
   'Resolution precedence is fixed: uploaded image → server-side proxy of the provider avatar URL ' +
   '(User.avatarUrl) → deterministic generated SVG. The provider fetch is HTTPS-only, SSRF-guarded, ' +

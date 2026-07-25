@@ -72,6 +72,7 @@ The tree below reflects the current `API/src` layout. It is a snapshot — when 
         schema.integrations.ts — /api schema slice: integration endpoints
         schema.internal-admin-apps.ts — /api schema slice: internal admin app/settings/search endpoints
         schema.internal-admin-signatures.ts — /api schema slice: signature settings and agreement lifecycle endpoints
+        schema.internal-admin-superusers.ts — /api schema slice: ADMIN_AUTH_DOMAIN superuser management endpoints
         schema.platform.ts  — /api schema slice: root, health, app, email, and domain endpoints
         schema.signatures.ts       — /api schema slice: signing session, signer, domain-status, and public verification endpoints
         schema.internal-admin.ts — /api schema slice: internal admin endpoints
@@ -367,6 +368,7 @@ The tree below reflects the current `API/src` layout. It is a snapshot — when 
     /utils
       app-logger.ts                  — Structured logger (internal details only)
       avatar-svg.ts                  — Deterministic generated-avatar API (djb2 seed, style/size selection)
+      avatar-url.ts                  — Avatar image URLs carried in identity payloads (domain-hash and admin forms)
       avatar-svg.styles.ts           — The four generated-avatar style renderers (tiles/waves/rings/mono)
       billing-app-key.ts             — Product app-key generation, digest, and display prefix
       claim-secret-crypto.ts         — Claim-secret cryptographic helpers

@@ -227,6 +227,6 @@ export async function handlePostAuthenticationAccessRequest(params: {
 
   return {
     status: 'requested',
-    request: toAccessRequestRecord(request),
+    request: toAccessRequestRecord(request, org.domain),
   };
 }

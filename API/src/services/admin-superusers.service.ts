@@ -1,6 +1,7 @@
 import { getAdminAuthDomain, getEnv } from '../config/env.js';
 import { getAdminPrisma } from '../db/prisma.js';
 import { runInTransaction } from '../db/tenant-context.js';
+import { adminAvatarImageUrl, avatarImageBaseUrl } from '../utils/avatar-url.js';
 import { normalizeDomain } from '../utils/domain.js';
 import { AppError } from '../utils/errors.js';
 
@@ -8,6 +9,8 @@ type AdminSuperuserRow = {
   userId: string;
   email: string;
   name: string | null;
+  // Docs/Auth/avatars.md §9 — fetchable with the admin bearer this route already requires.
+  avatarImageUrl: string;
   createdAt: string;
 };
 
@@ -26,6 +29,7 @@ function serialize(row: {
     userId: row.userId,
     email: row.user.email,
     name: row.user.name,
+    avatarImageUrl: adminAvatarImageUrl({ baseUrl: avatarImageBaseUrl(), userId: row.userId }),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -59,7 +63,13 @@ export async function searchNonSuperusers(query: string): Promise<AdminSuperuser
     select: { id: true, email: true, name: true },
   });
 
-  return rows.map((row) => ({ userId: row.id, email: row.email, name: row.name }));
+  const baseUrl = avatarImageBaseUrl();
+  return rows.map((row) => ({
+    userId: row.id,
+    email: row.email,
+    name: row.name,
+    avatarImageUrl: adminAvatarImageUrl({ baseUrl, userId: row.id }),
+  }));
 }
 
 export async function grantAdminSuperuser(userId: string): Promise<AdminSuperuserRow> {

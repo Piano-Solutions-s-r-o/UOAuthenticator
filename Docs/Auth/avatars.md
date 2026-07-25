@@ -213,10 +213,71 @@ bytes back so the caller still receives an image:
 - The per-domain hash bearer, access tokens, and admin bearers follow the existing
   middleware; no new credential types.
 
-## 9. Backwards compatibility
+## 9. Avatar URLs in identity payloads
+
+**The rule.** Wherever an API JSON response contains a user's identity (a `userId` and/or the
+name/email of a UOA user), it also carries an **absolute avatar image URL that always resolves to
+an image**, fetchable with the **same credential class the caller used for that request**:
+
+- **Domain-hash / dual-auth contexts** →
+  `<PUBLIC_BASE_URL>/domain/users/<userId>/avatar?domain=<domain>`
+  (the normalized request domain, URL-encoded)
+- **Admin-bearer contexts** → `<PUBLIC_BASE_URL>/internal/admin/users/<userId>/avatar`
+
+The URL is derived, not stored: no extra query, no join, no per-user round trip. Both forms need a
+bearer credential, exactly like the avatar endpoints in §5 — fetch and render the blob; a plain
+`<img src>` cannot carry the credential.
+
+`PUBLIC_BASE_URL` supplies the origin. When it is unset (dev/test) the builder emits a
+**root-relative path** instead — it never throws and never invents an origin from `HOST:PORT`.
+Every interpolated segment and query parameter is `encodeURIComponent`-escaped.
+
+Field naming follows each payload's existing convention rather than introducing a new one:
+snake_case payloads get `avatar_image_url`, camelCase payloads get `avatarImageUrl`. Where the id
+is nullable (a login-log row with no `user_id`, an invite with no inviter id, an access request with
+no user yet) the field is present and `null`.
+
+| Payload | Field(s) |
+| ------- | -------- |
+| `GET /domain/users` | `avatar_image_url` per user (alongside `avatar_url`/`avatar_source`) |
+| `GET /domain/logs` | `avatar_image_url` per log row (`null` when `user_id` is null) |
+| `GET /domain/debug` | `superuser.avatar_image_url` |
+| Org / team / group member records (`/org/*`, `/internal/org/*`) | `avatarImageUrl` |
+| Team invitation records | `invitedByAvatarImageUrl`, `acceptedAvatarImageUrl` (each `null` until that id exists) |
+| Team "invited" entries (`?include=invited`) | `invitedByAvatarImageUrl` |
+| Access-request records | `avatarImageUrl` for the requesting `userId` |
+| Admin user summaries (`/internal/admin/users`, `/users/:userId`, `/search`) | `avatarImageUrl` (alongside `avatarSource`) |
+| Admin org/team blocks | `avatarImageUrl` on `owner` and each `members[]` entry |
+| Admin domain detail `users[]` | `avatarImageUrl` **and** `avatarSource` |
+| Admin superusers (list + search) | `avatarImageUrl` |
+| `GET /internal/admin/session` | `adminUser.avatarImageUrl` |
+| Admin signature records | `user_avatar_image_url` (admin URL form) |
+
+`reviewedByUserId` on access requests surfaces no name or email, so it deliberately gets no URL.
+
+### Exclusions
+
+These payloads deliberately carry no avatar URL:
+
+- **Bare actor-attribution emails with no user object** — `created_by_email`,
+  `published_by_email`, `actor_email`, and the signature revocation actor. They are audit strings,
+  not user identities.
+- **The frozen billing-statement protocol package payloads.** Their schemas reject unknown
+  properties; a change there is a protocol version bump, not an additive field.
+- **Admin login-logs**, whose shape drops `userId` entirely.
+- **Auth-popup chooser payloads** — `/auth/session-choices`, `/auth/verify-code`,
+  `/auth/select-team`, the `/auth/login` chooser, and `/org/me` `pending_invites.invitedBy`. These
+  render in the browser popup: there is no credentialed fetch available there, and the inviter
+  entry carries no user id.
+- **Invite rows for invitees who have no user account yet.** There is no user to render, and
+  minting a URL for a non-existent id would be a lie.
+
+## 10. Backwards compatibility
 
 - No existing endpoint changes shape except additive fields (`avatar_source`,
-  `avatarSource`).
+  `avatarSource`, and the §9 avatar image URL fields).
+- The §9 URLs are derived from ids already present in each payload — no new queries, no schema
+  change, and the excluded payloads in §9 keep their exact current shape.
 - `User.avatarUrl` semantics are untouched; social login keeps overwriting it.
 - The new config claim is optional; configs without it remain valid.
 - The `user_avatars` table is additive; no data migration.

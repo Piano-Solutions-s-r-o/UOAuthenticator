@@ -182,7 +182,7 @@ export async function getGroup(
   return {
     ...toGroupRecord(row),
     teams: row.teams.map(toTeamRecord),
-    members: row.members.map(toGroupMemberRecord),
+    members: row.members.map((member) => toGroupMemberRecord(member, org.domain)),
   };
 }
 

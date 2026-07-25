@@ -140,7 +140,7 @@ export async function addTeamMember(
             },
           });
 
-      return toTeamMemberRecord(record);
+      return toTeamMemberRecord(record, org.domain);
     } catch (err) {
       if (isP2002Error(err)) {
         throw new AppError('BAD_REQUEST', 400);
@@ -217,7 +217,7 @@ export async function changeTeamMemberRole(
     },
   });
 
-  return toTeamMemberRecord(updated);
+  return toTeamMemberRecord(updated, org.domain);
 }
 
 export async function removeTeamMember(
@@ -426,5 +426,5 @@ export async function selfJoinTeam(
     metadata: { teamId: team.id, via: 'self_join' },
   });
 
-  return toTeamMemberRecord(record);
+  return toTeamMemberRecord(record, org.domain);
 }

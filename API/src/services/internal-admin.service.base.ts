@@ -2,7 +2,9 @@ import type { Prisma } from '@prisma/client';
 
 import { getEnv } from '../config/env.js';
 import { getAdminPrisma } from '../db/prisma.js';
+import { adminAvatarImageUrl, avatarImageBaseUrl } from '../utils/avatar-url.js';
 import { normalizeDomain } from '../utils/domain.js';
+import type { AvatarSource } from './avatar.service.js';
 import { toPublicTwoFaPolicy } from './twofactor-policy.service.js';
 
 export { normalizeDomain };
@@ -39,6 +41,16 @@ export const emptyBans = {
   ips: [],
   users: [],
 };
+
+/**
+ * Additive `avatarSource` for the admin panel (Docs/Auth/avatars.md §5/§7) so the UI can label
+ * where a user's image came from. Mirrors the resolution precedence without fetching any bytes.
+ * Shared by the users list/detail and the domain-detail users block.
+ */
+export function adminAvatarSource(hasUpload: boolean, avatarUrl: string | null): AvatarSource {
+  if (hasUpload) return 'uploaded';
+  return avatarUrl ? 'provider' : 'generated';
+}
 
 export function isDatabaseEnabled(): boolean {
   return Boolean(getEnv().DATABASE_URL);
@@ -94,6 +106,9 @@ export function formatAdminOrganisation(
     allowedEmails: team.allowedEmails,
   }));
 
+  // Docs/Auth/avatars.md §9 — admin-bearer URL form, resolved once for the whole org block.
+  const baseUrl = avatarImageBaseUrl();
+
   const members = org.members.map((member) => {
     const latestLog = latestByUser.get(member.userId);
     const teamRows = org.teams.filter((team) => team.members.some((item) => item.userId === member.userId));
@@ -101,6 +116,7 @@ export function formatAdminOrganisation(
       id: member.user.id,
       name: member.user.name ?? member.user.email,
       email: member.user.email,
+      avatarImageUrl: adminAvatarImageUrl({ baseUrl, userId: member.user.id }),
       role: member.role,
       teams: teamRows.map((team) => team.name),
       teamRoles: Object.fromEntries(
@@ -125,7 +141,12 @@ export function formatAdminOrganisation(
     allowedEmailDomains: org.allowedEmailDomains,
     allowedEmails: org.allowedEmails,
     created: displayDate(org.createdAt),
-    owner: { id: org.owner.id, name: org.owner.name, email: org.owner.email },
+    owner: {
+      id: org.owner.id,
+      name: org.owner.name,
+      email: org.owner.email,
+      avatarImageUrl: adminAvatarImageUrl({ baseUrl, userId: org.owner.id }),
+    },
     teams,
     members,
     preapprovedMembers: org.invites.map((invite) => ({

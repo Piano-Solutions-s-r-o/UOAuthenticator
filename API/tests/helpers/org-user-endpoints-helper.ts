@@ -72,8 +72,14 @@ export type TeamMemberRecord = {
   id: string;
   teamId: string;
   userId: string;
+  avatarImageUrl: string;
   teamRole: string;
 };
+
+/** Docs/Auth/avatars.md §9: the URL a domain-hash caller can fetch this member's avatar with. */
+export function expectedMemberAvatarImageUrl(userId: string, domain: string): string {
+  return `/domain/users/${userId}/avatar?domain=${encodeURIComponent(domain)}`;
+}
 
 export type TeamInviteRecord = {
   id: string;
@@ -99,6 +105,7 @@ export type OrgMemberRecord = {
   id: string;
   orgId: string;
   userId: string;
+  avatarImageUrl: string;
   role: string;
 };
 

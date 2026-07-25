@@ -1,5 +1,5 @@
 import { authEndpoints } from './schema.auth.js';
-import { avatarEndpoints } from './schema.avatars.js';
+import { avatarEndpoints, IDENTITY_AVATAR_URL_NOTE } from './schema.avatars.js';
 import { billingEndpoints } from './schema.billing.js';
 import { configDebugEndpoints } from './schema.config-debug.js';
 import { integrationsEndpoints } from './schema.integrations.js';
@@ -84,6 +84,10 @@ const orgEndpoints: EndpointSchema[] = [
     query: {
       'status?': 'string — ACTIVE (default) | DEACTIVATED | REMOVED | all',
     },
+    response: {
+      'data[].avatarImageUrl':
+        "string — the member's avatar image URL, fetchable with the same domain hash bearer",
+    },
   },
   {
     method: 'POST',
@@ -91,6 +95,10 @@ const orgEndpoints: EndpointSchema[] = [
     description: 'Add organisation member',
     auth: 'domain hash bearer token',
     body: { user_id: 'string (required)', role: 'string (optional)' },
+    response: {
+      avatarImageUrl:
+        "string — the member's avatar image URL, fetchable with the same domain hash bearer",
+    },
   },
   {
     method: 'PUT',
@@ -98,6 +106,10 @@ const orgEndpoints: EndpointSchema[] = [
     description: 'Change member role',
     auth: 'domain hash bearer token',
     body: { role: 'string (required)' },
+    response: {
+      avatarImageUrl:
+        "string — the member's avatar image URL, fetchable with the same domain hash bearer",
+    },
   },
   {
     method: 'DELETE',
@@ -164,9 +176,10 @@ const orgEndpoints: EndpointSchema[] = [
     response: {
       slug: 'string — unique team slug within the organisation',
       iconUrl: 'string | null — echoed on every team read/write',
-      members: 'array — current team members',
+      members:
+        'array — current team members; each carries avatarImageUrl, fetchable with the same domain hash bearer',
       'invited?':
-        'array — present only when include=invited: pending invites for this team, { inviteId, email, inviteName, teamRole, invitedByName, invitedByEmail, lastSentAt, expiresAt, approvalStatus, openCount }; gated to org/team owner/admin (invite emails are PII) — a plain member gets [] here, never a 403; absent entirely when ?include=invited is not passed',
+        'array — present only when include=invited: pending invites for this team, { inviteId, email, inviteName, teamRole, invitedByName, invitedByEmail, invitedByAvatarImageUrl, lastSentAt, expiresAt, approvalStatus, openCount }; gated to org/team owner/admin (invite emails are PII) — a plain member gets [] here, never a 403; absent entirely when ?include=invited is not passed',
     },
   },
   {
@@ -234,7 +247,7 @@ const orgEndpoints: EndpointSchema[] = [
     description: 'List invitation history for a team',
     auth: 'domain hash bearer token',
     response: {
-      data: 'array — invite records with status (pending|accepted|declined|replaced|expired), approval_status (not_required|pending|approved|denied), expiresAt, inviter, send/open, accepted/declined state',
+      data: 'array — invite records with status (pending|accepted|declined|replaced|expired), approval_status (not_required|pending|approved|denied), expiresAt, inviter, send/open, accepted/declined state, plus invitedByAvatarImageUrl and acceptedAvatarImageUrl (null until the matching user id exists; the invitee email never gets one)',
     },
   },
   {
@@ -251,7 +264,9 @@ const orgEndpoints: EndpointSchema[] = [
       'List invites awaiting member-invite approval for the organisation (requires ?approval=pending)',
     auth: 'domain hash bearer token + access token (X-UOA-Access-Token header), owner/admin only',
     query: { approval: 'string (required) — must be "pending"' },
-    response: { data: 'array — invite records with approval_status: pending' },
+    response: {
+      data: 'array — invite records with approval_status: pending, each carrying invitedByAvatarImageUrl and acceptedAvatarImageUrl (null until the matching user id exists)',
+    },
   },
   {
     method: 'POST',
@@ -311,7 +326,7 @@ const orgEndpoints: EndpointSchema[] = [
       status: 'string (optional) — pending | approved | rejected',
     },
     response: {
-      data: 'array — access requests with requester, status, timestamps, reviewer metadata',
+      data: 'array — access requests with requester, status, timestamps, reviewer metadata, plus avatarImageUrl for the requesting userId (null when the request has no user yet)',
     },
   },
   {
@@ -348,6 +363,10 @@ const orgEndpoints: EndpointSchema[] = [
     description: 'Add team member',
     auth: 'domain hash bearer token',
     body: { user_id: 'string (required)', team_role: 'string (optional)' },
+    response: {
+      avatarImageUrl:
+        "string — the member's avatar image URL, fetchable with the same domain hash bearer",
+    },
   },
   {
     method: 'PUT',
@@ -355,6 +374,10 @@ const orgEndpoints: EndpointSchema[] = [
     description: 'Change team member role',
     auth: 'domain hash bearer token',
     body: { team_role: 'string (required)' },
+    response: {
+      avatarImageUrl:
+        "string — the member's avatar image URL, fetchable with the same domain hash bearer",
+    },
   },
   {
     method: 'DELETE',
@@ -374,6 +397,10 @@ const orgEndpoints: EndpointSchema[] = [
     path: '/org/organisations/:orgId/groups/:groupId',
     description: 'Get group details',
     auth: 'domain hash bearer token',
+    response: {
+      members:
+        'array — group members; each carries avatarImageUrl, fetchable with the same domain hash bearer',
+    },
   },
 ];
 
@@ -391,7 +418,8 @@ const ORG_CONTRACT_NOTE =
   'also require the X-UOA-Access-Token header — the acting user is its `userId` claim, and a ' +
   'new organisation is owned by that user (the body never carries owner_id). Non-superusers can ' +
   'only create an organisation when org_features.allow_user_create_org=true, else 403 ' +
-  'ORG_CREATION_NOT_ALLOWED.';
+  'ORG_CREATION_NOT_ALLOWED. ' +
+  IDENTITY_AVATAR_URL_NOTE;
 
 function withOrgContract(list: EndpointSchema[]): EndpointSchema[] {
   return list.map((endpoint) => ({

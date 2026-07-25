@@ -6,6 +6,7 @@ import { AppError } from '../utils/errors.js';
 import {
   assertDatabaseEnabled,
   getOrganisationMember,
+  memberAvatarImageUrl,
   normalizeIconUrl,
   resolveOrganisationByDomain,
   toListLimit,
@@ -56,6 +57,7 @@ export type TeamMemberRecord = {
   id: string;
   teamId: string;
   userId: string;
+  avatarImageUrl: string;
   teamRole: string;
   createdAt: Date;
   updatedAt: Date;
@@ -235,18 +237,22 @@ export function toTeamRecord(row: {
   };
 }
 
-export function toTeamMemberRecord(row: {
-  id: string;
-  teamId: string;
-  userId: string;
-  teamRole: string;
-  createdAt: Date;
-  updatedAt: Date;
-}): TeamMemberRecord {
+export function toTeamMemberRecord(
+  row: {
+    id: string;
+    teamId: string;
+    userId: string;
+    teamRole: string;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  domain: string,
+): TeamMemberRecord {
   return {
     id: row.id,
     teamId: row.teamId,
     userId: row.userId,
+    avatarImageUrl: memberAvatarImageUrl(domain, row.userId),
     teamRole: row.teamRole,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -327,6 +333,7 @@ export {
   getOrganisationMember,
   getPrisma,
   isP2002Error,
+  memberAvatarImageUrl,
   normalizeIconUrl,
   toListLimit,
   type CursorList,

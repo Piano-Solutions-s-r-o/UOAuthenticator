@@ -90,6 +90,7 @@ describe.skipIf(!hasDatabase)('GET /domain/logs', () => {
         id: string;
         user_id: string;
         email: string;
+        avatar_image_url: string | null;
         domain: string;
         timestamp: string;
         auth_method: string;
@@ -105,6 +106,12 @@ describe.skipIf(!hasDatabase)('GET /domain/logs', () => {
     expect(body.logs[0].ip).toBe('203.0.113.2');
     expect(body.logs[1].auth_method).toBe('google');
     expect(body.logs[1].ip).toBe('203.0.113.1');
+    // Docs/Auth/avatars.md §9: a log row names a user, so it carries the domain-hash avatar URL.
+    for (const log of body.logs) {
+      expect(log.avatar_image_url).toBe(
+        `/domain/users/${log.user_id}/avatar?domain=${encodeURIComponent(domain)}`,
+      );
+    }
 
     await app.close();
   });
