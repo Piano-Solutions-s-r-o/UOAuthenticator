@@ -160,6 +160,7 @@ describe.skipIf(!hasDatabase)('login continuation transaction races', () => {
   }): Promise<string> {
     return signLoginSession({
       userId: params.userId,
+      credentialEpoch: 0,
       authMethod: 'email_password',
       config: params.config,
       configUrl,

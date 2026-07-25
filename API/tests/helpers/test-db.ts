@@ -40,6 +40,27 @@ function runPrisma(args: string[], env: NodeJS.ProcessEnv): void {
   });
 }
 
+/**
+ * `prisma migrate deploy` serializes on a database-wide advisory lock and each
+ * invocation opens fresh connections. When Vitest starts many DB-backed files
+ * at once, provisioning can time out on the lock or exhaust connection slots,
+ * so retry with backoff instead of failing the whole file on startup
+ * contention.
+ */
+async function withStartupRetry(run: () => void): Promise<void> {
+  const maxAttempts = 6;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      run();
+      return;
+    } catch (error) {
+      if (attempt >= maxAttempts) throw error;
+      const backoffMs = 1000 * 2 ** (attempt - 1) + Math.floor(Math.random() * 500);
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
+  }
+}
+
 export async function createTestDb(): Promise<TestDbHandle | null> {
   const baseUrl = process.env.DATABASE_URL;
   if (!baseUrl) return null;
@@ -52,26 +73,30 @@ export async function createTestDb(): Promise<TestDbHandle | null> {
   // installed in public, so expose a schema-local domain backed by public.citext before applying
   // migrations. The advisory lock makes first-time extension setup safe when Vitest starts many
   // DB-backed files concurrently.
-  execFileSync(
-    process.platform === 'win32' ? 'cmd' : 'bash',
-    process.platform === 'win32'
-      ? [
-          '/c',
-          `echo SELECT pg_advisory_lock(847291); CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public; CREATE SCHEMA IF NOT EXISTS "${schema}"; CREATE DOMAIN "${schema}".citext AS public.citext; SELECT pg_advisory_unlock(847291); | "${prismaBinPath()}" db execute --stdin --schema prisma/schema.prisma`,
-        ]
-      : [
-          '-lc',
-          `echo 'SELECT pg_advisory_lock(847291); CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public; CREATE SCHEMA IF NOT EXISTS "${schema}"; CREATE DOMAIN "${schema}".citext AS public.citext; SELECT pg_advisory_unlock(847291);' | "${prismaBinPath()}" db execute --stdin --schema prisma/schema.prisma`,
-        ],
-    {
-      cwd: apiRootDir(),
-      env: { ...process.env, DATABASE_URL: adminUrl },
-      stdio: 'ignore',
-    },
+  await withStartupRetry(() =>
+    execFileSync(
+      process.platform === 'win32' ? 'cmd' : 'bash',
+      process.platform === 'win32'
+        ? [
+            '/c',
+            `echo SELECT pg_advisory_lock(847291); CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public; CREATE SCHEMA IF NOT EXISTS "${schema}"; DROP DOMAIN IF EXISTS "${schema}".citext; CREATE DOMAIN "${schema}".citext AS public.citext; SELECT pg_advisory_unlock(847291); | "${prismaBinPath()}" db execute --stdin --schema prisma/schema.prisma`,
+          ]
+        : [
+            '-lc',
+            `echo 'SELECT pg_advisory_lock(847291); CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public; CREATE SCHEMA IF NOT EXISTS "${schema}"; DROP DOMAIN IF EXISTS "${schema}".citext; CREATE DOMAIN "${schema}".citext AS public.citext; SELECT pg_advisory_unlock(847291);' | "${prismaBinPath()}" db execute --stdin --schema prisma/schema.prisma`,
+          ],
+      {
+        cwd: apiRootDir(),
+        env: { ...process.env, DATABASE_URL: adminUrl },
+        stdio: 'ignore',
+      },
+    ),
   );
 
   // Apply migrations into the isolated schema.
-  runPrisma(['migrate', 'deploy'], { ...process.env, DATABASE_URL: testUrl });
+  await withStartupRetry(() =>
+    runPrisma(['migrate', 'deploy'], { ...process.env, DATABASE_URL: testUrl }),
+  );
 
   const prisma = new PrismaClient({
     datasources: { db: { url: testUrl } },

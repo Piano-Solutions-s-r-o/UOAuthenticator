@@ -38,7 +38,12 @@ const orgEndpoints: EndpointSchema[] = [
     path: '/org/organisations',
     description: 'List organisations for domain',
     auth: 'domain hash bearer token',
-    query: { config_url: 'string (required)' },
+    query: {
+      config_url: 'string (required)',
+      'limit?': 'number — page size, max 200',
+      'cursor?': 'string — id of the last row of the previous page (from next_cursor)',
+    },
+    response: { data: 'array — organisation records', next_cursor: 'string | null' },
   },
   {
     method: 'POST',
@@ -83,7 +88,10 @@ const orgEndpoints: EndpointSchema[] = [
     auth: 'domain hash bearer token',
     query: {
       'status?': 'string — ACTIVE (default) | DEACTIVATED | REMOVED | all',
+      'limit?': 'number — page size, max 200',
+      'cursor?': 'string — id of the last row of the previous page (from next_cursor)',
     },
+    response: { data: 'array — member records', next_cursor: 'string | null' },
   },
   {
     method: 'POST',
@@ -134,8 +142,13 @@ const orgEndpoints: EndpointSchema[] = [
     path: '/org/organisations/:orgId/teams',
     description: 'List teams',
     auth: 'domain hash bearer token',
+    query: {
+      'limit?': 'number — page size, max 200',
+      'cursor?': 'string — id of the last row of the previous page (from next_cursor)',
+    },
     response: {
       data: 'array — team records including id, name, slug, description, groupId, isDefault',
+      next_cursor: 'string | null',
     },
   },
   {
@@ -368,6 +381,11 @@ const orgEndpoints: EndpointSchema[] = [
     path: '/org/organisations/:orgId/groups',
     description: 'List groups',
     auth: 'domain hash bearer token',
+    query: {
+      'limit?': 'number — page size, max 200',
+      'cursor?': 'string — id of the last row of the previous page (from next_cursor)',
+    },
+    response: { data: 'array — group records', next_cursor: 'string | null' },
   },
   {
     method: 'GET',

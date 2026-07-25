@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { runWithTenantContext } from '../../src/db/tenant-context.js';
+import {
+  asPrismaClient,
+  runInTransaction,
+  runWithTenantContext,
+} from '../../src/db/tenant-context.js';
 import { createTestDb } from '../helpers/test-db.js';
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
@@ -14,7 +18,8 @@ const hasDatabase = Boolean(process.env.DATABASE_URL);
  *   1. The helper opens an interactive transaction.
  *   2. `set_config('app.domain' | 'app.org_id' | 'app.user_id', value, true)` is
  *      applied correctly — both the values and the transaction-scoped lifetime.
- *   3. Nested `$transaction` calls become savepoints and inherit the GUCs.
+ *   3. Nested transactional work (`runInTransaction` on the tenant tx client)
+ *      stays inside the outer transaction and inherits the GUCs.
  *
  * Full cross-tenant isolation tests (assert `uoa_app` with domain=A cannot see
  * domain=B rows) belong in the M1/M2 soak checklist (see row-level-security.md §11).
@@ -88,7 +93,7 @@ describe.skipIf(!hasDatabase)('runWithTenantContext — real Postgres', () => {
     expect(afterRows[0]?.value ?? '').toBe('');
   });
 
-  it('inherits GUCs through a nested $transaction savepoint', async () => {
+  it('inherits GUCs through nested runInTransaction work', async () => {
     if (!handle) throw new Error('db handle missing');
 
     const innerValue = await runWithTenantContext(
@@ -97,7 +102,10 @@ describe.skipIf(!hasDatabase)('runWithTenantContext — real Postgres', () => {
         context: { domain: 'outer.example.com', orgId: 'outer-org' },
       },
       async (tx) => {
-        return tx.$transaction(async (inner) => {
+        // Services nested under the tenant transaction go through
+        // runInTransaction, which runs directly on the tx client
+        // (Prisma has no nested interactive transactions).
+        return runInTransaction(asPrismaClient(tx), async (inner) => {
           const rows = await inner.$queryRaw<Array<{ value: string }>>`
             SELECT current_setting('app.domain', true) AS value
           `;

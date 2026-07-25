@@ -1,7 +1,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/app.js';
-import { createClientId } from '../../src/utils/hash.js';
+import { seedDomainSecret } from '../helpers/domain-secret.js';
+import { createTestConfigFetchHandler } from '../helpers/test-config.js';
 import { createTestDb } from '../helpers/test-db.js';
 import { clearOrgTestDatabase, createSignedConfigJwt, createTestUser, hasDatabase, OrgRecord, signAccessToken } from '../helpers/org-user-endpoints-helper.js';
 
@@ -48,10 +49,17 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations IDOR prevention', 
   it('rejects access to orgs from another domain when domain context is current domain', async () => {
     const domainA = 'idor-cross-domain-a.example.com';
     const domainB = 'idor-cross-domain-b.example.com';
-    const orgConfigUrl = 'https://idor-cross-domain.example.com/auth-config';
+    // The verified config's domain claim must match both the config_url host and
+    // the ?domain= query, so each domain needs its own config document.
+    const configUrlA = 'https://idor-cross-domain-a.example.com/auth-config';
+    const configUrlB = 'https://idor-cross-domain-b.example.com/auth-config';
 
-    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, {});
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    const configJwtA = await createSignedConfigJwt(process.env.SHARED_SECRET!, { allow_user_create_org: true }, domainA);
+    const configJwtB = await createSignedConfigJwt(process.env.SHARED_SECRET!, { allow_user_create_org: true }, domainB);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(await createTestConfigFetchHandler({ [configUrlA]: configJwtA, [configUrlB]: configJwtB })),
+    );
 
     const actorA = await createTestUser(handle!, 'cross-domain-actor-a@example.com');
     const ownerB = await createTestUser(handle!, 'cross-domain-owner-b@example.com');
@@ -72,12 +80,12 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations IDOR prevention', 
     const app = await createApp();
     await app.ready();
 
-    const domainAHash = createClientId(domainA, process.env.SHARED_SECRET!);
-    const domainBHash = createClientId(domainB, process.env.SHARED_SECRET!);
+    const domainAHash = await seedDomainSecret(handle!.prisma, domainA);
+    const domainBHash = await seedDomainSecret(handle!.prisma, domainB);
 
     const createOrgB = await app.inject({
       method: 'POST',
-      url: `/org/organisations?domain=${encodeURIComponent(domainB)}&config_url=${encodeURIComponent(orgConfigUrl)}`,
+      url: `/org/organisations?domain=${encodeURIComponent(domainB)}&config_url=${encodeURIComponent(configUrlB)}`,
       headers: {
         authorization: `Bearer ${domainBHash}`,
         'x-uoa-access-token': `Bearer ${ownerTokenB}`,
@@ -89,14 +97,17 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations IDOR prevention', 
 
     const crossDomainRes = await app.inject({
       method: 'GET',
-      url: `/org/organisations/${orgB.id}?domain=${encodeURIComponent(domainA)}&config_url=${encodeURIComponent(orgConfigUrl)}`,
+      url: `/org/organisations/${orgB.id}?domain=${encodeURIComponent(domainA)}&config_url=${encodeURIComponent(configUrlA)}`,
       headers: {
         authorization: `Bearer ${domainAHash}`,
         'x-uoa-access-token': `Bearer ${actorTokenA}`,
       },
     });
 
-    expect(crossDomainRes.statusCode).toBe(404);
+    // The org-role guard rejects any actor whose access token carries no org
+    // claim for the target org (403, uniformly for existing and non-existing
+    // orgs) before the domain-scoped lookup can 404.
+    expect(crossDomainRes.statusCode).toBe(403);
 
     await app.close();
   });
@@ -105,8 +116,10 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations IDOR prevention', 
     const domain = 'idor-cross-org.example.com';
     const orgConfigUrl = 'https://idor-cross-org.example.com/auth-config';
 
-    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, {});
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, { allow_user_create_org: true }, domain);
+    // A fresh Response per call: Response bodies are single-use, and multiple
+    // requests (plus app startup) fetch the config through this stub.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const orgAOwner = await createTestUser(handle!, 'cross-org-owner-a@example.com');
     const orgBOwner = await createTestUser(handle!, 'cross-org-owner-b@example.com');
@@ -127,7 +140,7 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations IDOR prevention', 
     const app = await createApp();
     await app.ready();
 
-    const domainHash = createClientId(domain, process.env.SHARED_SECRET!);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain);
 
     const createOrgAResponse = await app.inject({
       method: 'POST',
@@ -170,10 +183,12 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations IDOR prevention', 
   it('rejects access when access-token domain claim does not match requested domain', async () => {
     const domainA = 'idor-claim-a.example.com';
     const domainB = 'idor-claim-b.example.com';
-    const orgConfigUrl = 'https://idor-claim.example.com/auth-config';
+    // All requests target domainB, so the config document must live on domainB's
+    // host and carry its domain claim.
+    const orgConfigUrl = 'https://idor-claim-b.example.com/auth-config';
 
-    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, {});
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, { allow_user_create_org: true }, domainB);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const actorA = await createTestUser(handle!, 'domain-claim-a@example.com');
     const ownerB = await createTestUser(handle!, 'domain-claim-b@example.com');
@@ -194,7 +209,7 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations IDOR prevention', 
     const app = await createApp();
     await app.ready();
 
-    const domainBHash = createClientId(domainB, process.env.SHARED_SECRET!);
+    const domainBHash = await seedDomainSecret(handle!.prisma, domainB);
 
     const createOrgB = await app.inject({
       method: 'POST',

@@ -108,8 +108,9 @@ describe.skipIf(!hasDatabase)('Email verification flow', () => {
       url: `/auth/email/link?${baseQuery}&token=${encodeURIComponent(rawToken)}`,
     });
 
-    expect(landing.statusCode).toBe(200);
-    expect(landing.json()).toEqual({ ok: true });
+    // Set-password links land on the Auth UI (HTML) without consuming the token.
+    expect(landing.statusCode, landing.body).toBe(200);
+    expect(landing.headers.location).toBeUndefined();
 
     const verify = await app.inject({
       method: 'POST',
@@ -233,24 +234,18 @@ describe.skipIf(!hasDatabase)('Email verification flow', () => {
     await app.ready();
 
     const baseQuery = `config_url=${encodeURIComponent(configUrl)}${pkceQuery}`;
+    // VERIFY_EMAIL links auto-consume the token on landing and redirect with a code.
     const landing = await app.inject({
       method: 'GET',
       url: `/auth/email/link?${baseQuery}&token=${encodeURIComponent(rawToken)}`,
     });
-    expect(landing.statusCode).toBe(200);
-    expect(landing.json()).toEqual({ ok: true });
+    expect(landing.statusCode, landing.body).toBe(302);
 
-    const verify = await app.inject({
-      method: 'POST',
-      url: `/auth/verify-email?${baseQuery}`,
-      payload: { token: rawToken },
-    });
-
-    expect(verify.statusCode).toBe(200);
-    const body = verify.json() as { ok: boolean; code: string; redirect_to: string };
-    expect(body.ok).toBe(true);
-    expect(typeof body.code).toBe('string');
-    expect(body.code.length).toBeGreaterThan(10);
+    const redirect = new URL(landing.headers.location as string);
+    expect(`${redirect.origin}${redirect.pathname}`).toBe('https://client.example.com/oauth/callback');
+    const code = redirect.searchParams.get('code');
+    expect(code).toBeTruthy();
+    expect(code!.length).toBeGreaterThan(10);
 
     const user = await handle!.prisma.user.findUnique({
       where: { userKey: 'passwordless@example.com' },
@@ -307,6 +302,7 @@ describe.skipIf(!hasDatabase)('Email verification flow', () => {
       data: {
         orgId: org.id,
         name: 'General',
+        slug: 'general',
         isDefault: true,
       },
       select: { id: true },
@@ -315,6 +311,7 @@ describe.skipIf(!hasDatabase)('Email verification flow', () => {
       data: {
         orgId: org.id,
         name: 'Engineering',
+        slug: 'engineering',
         isDefault: false,
       },
       select: { id: true },

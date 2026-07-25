@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/app.js';
-import { createClientId } from '../../src/utils/hash.js';
+import { cleanClientDomains, seedDomainSecret } from '../helpers/domain-secret.js';
 import { expectJsonError } from '../helpers/error-response.js';
 import { createTestDb } from '../helpers/test-db.js';
 
@@ -32,6 +32,7 @@ describe.skipIf(!hasDatabase)('GET /domain/users', () => {
     await handle.prisma.verificationToken.deleteMany();
     await handle.prisma.domainRole.deleteMany();
     await handle.prisma.user.deleteMany();
+    await cleanClientDomains(handle.prisma);
   });
 
   it('returns users for a domain when authorized', async () => {
@@ -74,7 +75,7 @@ describe.skipIf(!hasDatabase)('GET /domain/users', () => {
       ],
     });
 
-    const token = createClientId('client.example.com', process.env.SHARED_SECRET);
+    const token = await seedDomainSecret(handle!.prisma, 'client.example.com');
 
     const app = await createApp();
     await app.ready();

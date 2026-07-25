@@ -15,7 +15,7 @@ import { jwtVerify } from 'jose';
 import { ACCESS_TOKEN_AUDIENCE } from '../../src/config/constants.js';
 import { createApp } from '../../src/app.js';
 import { hashPassword } from '../../src/services/password.service.js';
-import { createClientId } from '../../src/utils/hash.js';
+import { cleanClientDomains, seedDomainSecret } from '../helpers/domain-secret.js';
 import { createTestDb } from '../helpers/test-db.js';
 import {
   clearOrgTestDatabase,
@@ -76,6 +76,7 @@ describe.skipIf(!hasDatabase)('POST /auth/token with org context from org flow',
     await handle.prisma.domainRole.deleteMany();
     await handle.prisma.loginLog.deleteMany();
     await handle.prisma.verificationToken.deleteMany();
+    await cleanClientDomains(handle.prisma);
   });
 
   afterEach(() => {
@@ -106,8 +107,13 @@ describe.skipIf(!hasDatabase)('POST /auth/token with org context from org flow',
       select: { id: true },
     });
 
-    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, {});
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    // Org creation by a non-superuser access token requires the config to opt in.
+    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, {
+      allow_user_create_org: true,
+    });
+    // A Response body is single-use; build a fresh one per fetch so every
+    // request in this flow can re-fetch the config.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const app = await createApp();
     await app.ready();
@@ -119,7 +125,7 @@ describe.skipIf(!hasDatabase)('POST /auth/token with org context from org flow',
       issuer: process.env.AUTH_SERVICE_IDENTIFIER!,
     });
 
-    const domainHash = createClientId(domain, process.env.SHARED_SECRET!);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain);
     const createOrgResponse = await app.inject({
       method: 'POST',
       url: `/org/organisations?domain=${encodeURIComponent(domain)}&config_url=${encodeURIComponent(configUrl)}`,
@@ -191,7 +197,9 @@ describe.skipIf(!hasDatabase)('POST /auth/token with org context from org flow',
       },
       payload: {
         userId: member.id,
-        teamRole: 'lead',
+        // Canonical team roles are owner/admin/member; the pre-ReBAC 'lead'
+        // value was removed and migrated to 'admin'.
+        teamRole: 'admin',
       },
     });
     expect(addTeamMemberResponse.statusCode).toBe(200);
@@ -241,7 +249,7 @@ describe.skipIf(!hasDatabase)('POST /auth/token with org context from org flow',
     expect(orgClaim.org_role).toBe('member');
     expect(orgClaim.teams.slice().sort()).toEqual([defaultTeam!.id, team.id].sort());
     expect(orgClaim.team_roles[defaultTeam!.id]).toBe('member');
-    expect(orgClaim.team_roles[team.id]).toBe('lead');
+    expect(orgClaim.team_roles[team.id]).toBe('admin');
     expect(orgClaim.groups).toBeUndefined();
 
     await app.close();
