@@ -14,6 +14,7 @@ import { ChangeTeamRoleDialog } from '../components/dialogs/ChangeTeamRoleDialog
 import { EditUserDialog } from '../components/dialogs/EditUserDialog';
 import { useLogsQuery, useOrganisationsQuery, useUserQuery } from '../features/admin/admin-queries';
 import { UserAvatar } from '../features/admin/UserAvatar';
+import { UserAvatarSection } from '../features/admin/UserAvatarSection';
 import type { AvatarSource, Organisation, OrganisationMember, Team, UserSummary } from '../features/admin/types';
 import { adminService } from '../services/admin-service';
 import { useAdminUi } from '../features/shell/admin-ui';
@@ -107,6 +108,9 @@ export function UserDetailPage() {
         <Metric label="Organisations" value={String(new Set(memberships.map((membership) => membership.organisation.id)).size)} />
         <Metric label="Teams" value={String(memberships.length)} />
         <Metric label="Last Login" value={user.lastLogin} />
+      </div>
+      <div className="mb-5">
+        <UserAvatarSection userId={user.id} userName={user.name ?? user.email} />
       </div>
       <Card>
         <CardHeader>

@@ -4,6 +4,7 @@ import {
   deleteAvatar,
   getAvatarSources,
   requireDomainUserId,
+  requireUserContext,
   resolveAvatar,
   uploadAvatar,
   type AvatarDeps,
@@ -11,7 +12,12 @@ import {
 import { AVATAR_MAX_BYTES } from '../../src/config/constants.js';
 import { pickAvatarStyle } from '../../src/utils/avatar-svg.js';
 
-type StoredUser = { id: string; avatarUrl: string | null };
+type StoredUser = {
+  id: string;
+  avatarUrl: string | null;
+  email?: string;
+  domain?: string | null;
+};
 type StoredAvatar = {
   userId: string;
   contentType: string;
@@ -335,5 +341,27 @@ describe('domain user visibility', () => {
     await expect(
       requireDomainUserId({ domain: 'client.example.com', userId: 'ghost' }, { prisma }),
     ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('resolves the email and owning domain for the admin routes, 404 otherwise', async () => {
+    const { prisma } = fakePrisma({
+      users: [
+        {
+          id: 'u1',
+          avatarUrl: null,
+          email: 'target@example.com',
+          domain: 'client.example.com',
+        },
+      ],
+    });
+
+    await expect(requireUserContext('u1', { prisma })).resolves.toEqual({
+      userId: 'u1',
+      email: 'target@example.com',
+      domain: 'client.example.com',
+    });
+    await expect(requireUserContext('ghost', { prisma })).rejects.toMatchObject({
+      statusCode: 404,
+    });
   });
 });

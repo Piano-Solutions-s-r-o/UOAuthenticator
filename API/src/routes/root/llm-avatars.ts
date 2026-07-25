@@ -17,9 +17,9 @@ Any provider-fetch failure silently degrades to the generated image; the respons
 | ------ | ---- | ---- |
 | GET / PUT / DELETE | \`/domain/users/:userId/avatar?domain=…\` | domain hash bearer — backend-driven administration |
 | GET / PUT / DELETE | \`/avatar/me?domain=…\` | domain hash bearer **and** \`X-UOA-Access-Token\` — the end user's own choice, relayed by your backend |
-| GET | \`/internal/admin/users/:userId/avatar\` | admin superuser bearer |
+| GET / PUT / DELETE | \`/internal/admin/users/:userId/avatar\` | admin superuser bearer; the mutations are audit-logged |
 
-For \`/domain/users/:userId/avatar\` the user must be visible to the authenticated domain under the same rules as \`GET /domain/users\`; anything else is the standard generic 404. For \`/avatar/me\` the access token's \`domain\` claim must equal \`?domain=\`, and the acting identity is always the token subject — you cannot act for another user through this route.
+For \`/domain/users/:userId/avatar\` the user must be visible to the authenticated domain under the same rules as \`GET /domain/users\`; anything else is the standard generic 404. For \`/avatar/me\` the access token's \`domain\` claim must equal \`?domain=\`, and the acting identity is always the token subject — you cannot act for another user through this route. Operators can also set and remove any user's avatar from the Admin panel through \`/internal/admin/users/:userId/avatar\`, audit-logged as \`user.avatar_updated\` / \`user.avatar_deleted\` against that user's domain.
 
 \`PUT\` takes \`multipart/form-data\` with exactly one part named \`file\`: PNG, JPEG or WebP, at most 1 MiB. The stored type is decided by **magic-byte sniffing**, not the mimetype you send — SVG, HTML, PDF and everything else non-raster is rejected with the generic error envelope. It returns \`{ ok, avatar: { source, content_type, size_bytes, updated_at } }\`. \`DELETE\` returns \`{ ok: true }\` and is idempotent; resolution then falls back to the provider URL or the generated image. Both mutations are rate-limited per domain + user.
 

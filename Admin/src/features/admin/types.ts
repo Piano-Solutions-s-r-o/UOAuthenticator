@@ -87,6 +87,18 @@ export type Team = {
 /** Where a user's avatar image came from (see Docs/Auth/avatars.md §1). */
 export type AvatarSource = 'uploaded' | 'provider' | 'generated';
 
+/** Result of storing a user avatar through the admin avatar endpoint. */
+export type UserAvatarUpload = {
+  ok: boolean;
+  avatar: {
+    // An upload always resolves to "uploaded"; the other sources are fallbacks, never a PUT result.
+    source: AvatarSource;
+    content_type: string;
+    size_bytes: number;
+    updated_at: string;
+  };
+};
+
 /** Result of storing a team ("company") avatar through the admin avatar endpoint. */
 export type TeamAvatarUpload = {
   ok: boolean;

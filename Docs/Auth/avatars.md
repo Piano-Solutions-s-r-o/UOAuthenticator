@@ -143,13 +143,22 @@ unchanged.
 
 The access token's `domain` claim must match `?domain=`. The acting identity is always
 the token subject — a product backend relays the end-user's own choice here, while the
-`/domain/users/:userId/avatar` routes are for backend-driven administration.
+`/domain/users/:userId/avatar` routes are for backend-driven administration. Operators have a
+third path: the admin routes below manage any user's avatar from the Admin panel under the
+admin superuser bearer, with the same upload rules and an audit entry per mutation.
 
 ### Admin panel (auth: admin superuser bearer, `/internal/admin/*` family)
 
 | Method | Path | Returns |
 | ------ | ---- | ------- |
 | GET    | `/internal/admin/users/:userId/avatar` | **Image bytes** — same resolution pipeline, for any user. Query: `style?`, `size?` |
+| PUT    | `/internal/admin/users/:userId/avatar` | JSON `{ ok, avatar: { source, content_type, size_bytes, updated_at } }` — multipart upload sets any user's avatar |
+| DELETE | `/internal/admin/users/:userId/avatar` | JSON `{ ok: true }` — idempotent removal; resolution falls back to provider/generated |
+
+The admin mutations apply §3's upload validation unchanged, carry the same multipart body-limit
+override, are rate-limited 30/hour keyed per user, and write `user.avatar_updated` /
+`user.avatar_deleted` audit entries against the target user's domain, like the other
+`/internal/admin/*` mutations. An unknown `:userId` is the standard generic 404.
 
 Admin user summaries (`GET /internal/admin/users`, `/users/:userId`, `/search`) gain an
 additive `avatarSource` field so the UI can label where the image came from.
@@ -198,7 +207,8 @@ bytes back so the caller still receives an image:
 - Organisation and domain square avatars remain initials-only (a different concept — they have
   no avatar endpoints). Team squares are no longer in that group: teams have real avatars, served
   by the endpoints in §11.
-- User detail surfaces the `avatarSource` label (Uploaded / From provider / Generated).
+- User detail surfaces the `avatarSource` label (Uploaded / From provider / Generated) and an
+  Avatar section that uploads or removes the image through the admin routes in §5.
 
 ---
 

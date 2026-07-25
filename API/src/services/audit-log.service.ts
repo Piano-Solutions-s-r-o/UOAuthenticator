@@ -37,6 +37,8 @@ export type AdminAuditAction =
   | 'confidential_delegation.deleted'
   | 'team.avatar_updated'
   | 'team.avatar_deleted'
+  | 'user.avatar_updated'
+  | 'user.avatar_deleted'
   | 'user.twofa_reset';
 
 export type AuditLogPrisma = Pick<PrismaClient, 'adminAuditLog'>;

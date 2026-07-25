@@ -61,6 +61,30 @@ export async function requireDomainUserId(
   return role.userId;
 }
 
+export type UserAvatarContext = {
+  userId: string;
+  email: string;
+  domain: string | null;
+};
+
+/**
+ * Resolve a user for the admin routes, which may target any user. Returns the identifying email
+ * and the user's domain so mutations can be audit-logged against the right domain, the same shape
+ * `requireTeamContext` gives the admin team routes. Unknown ids are the standard generic 404.
+ */
+export async function requireUserContext(
+  userId: string,
+  deps?: AvatarDeps,
+): Promise<UserAvatarContext> {
+  const user = await prismaFor(deps).user.findUnique({
+    where: { id: userId },
+    select: { id: true, email: true, domain: true },
+  });
+  if (!user) throw new AppError('NOT_FOUND', 404, 'USER_NOT_FOUND');
+
+  return { userId: user.id, email: user.email, domain: user.domain };
+}
+
 /**
  * Fixed precedence (Docs/Auth/avatars.md §1): uploaded → proxied provider → generated.
  * Always returns an image for a known user; unknown users are a generic 404.

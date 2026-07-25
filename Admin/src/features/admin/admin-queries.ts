@@ -128,15 +128,50 @@ export function useUserQuery(userId: string | null) {
   });
 }
 
+function userAvatarQueryKey(userId: string | null | undefined) {
+  return ['admin', 'user-avatar', userId];
+}
+
 export function useUserAvatarQuery(userId: string | null | undefined) {
   return useQuery({
-    queryKey: ['admin', 'user-avatar', userId],
+    queryKey: userAvatarQueryKey(userId),
     queryFn: () => adminService.getUserAvatar(userId ?? ''),
     enabled: Boolean(userId),
     // Avatars change rarely and a failure is cosmetic: cache generously and do not
     // retry, so a broken avatar never turns into repeated requests behind a table.
     staleTime: 300_000,
     retry: false,
+  });
+}
+
+/**
+ * A mutation changes both the image and the user's `avatarSource`, so the user record is
+ * invalidated alongside the blob to keep the detail-page badge honest.
+ */
+function invalidateUserAvatar(queryClient: ReturnType<typeof useQueryClient>, userId: string) {
+  void queryClient.invalidateQueries({ queryKey: userAvatarQueryKey(userId) });
+  void queryClient.invalidateQueries({ queryKey: ['admin', 'user', userId] });
+}
+
+export function useUploadUserAvatarMutation(userId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (file: File) => adminService.uploadUserAvatar(userId, file),
+    onSuccess: () => {
+      invalidateUserAvatar(queryClient, userId);
+    },
+  });
+}
+
+export function useDeleteUserAvatarMutation(userId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => adminService.deleteUserAvatar(userId),
+    onSuccess: () => {
+      invalidateUserAvatar(queryClient, userId);
+    },
   });
 }
 
