@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router';
 
 import { AdminSessionGuard } from '../features/auth/admin-session';
 import { AdminUiProvider } from '../features/shell/admin-ui';
