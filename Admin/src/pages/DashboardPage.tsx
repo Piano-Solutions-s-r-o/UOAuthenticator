@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 
 import { Card, CardHeader } from '../components/ui/Card';
 import { PageHeader } from '../components/ui/PageHeader';

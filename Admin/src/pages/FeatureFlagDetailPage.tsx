@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 
 import { ActionButton } from '../components/ui/ActionButton';
 import { Badge } from '../components/ui/Badge';

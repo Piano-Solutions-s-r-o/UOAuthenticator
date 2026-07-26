@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 
 import { AutocompleteSelect } from '../components/ui/AutocompleteSelect';
 import { Card } from '../components/ui/Card';

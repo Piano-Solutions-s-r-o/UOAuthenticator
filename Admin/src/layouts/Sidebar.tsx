@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink } from 'react-router';
 
 import { Icon } from '../components/icons/Icon';
 import { Badge } from '../components/ui/Badge';

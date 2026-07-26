@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 
 import { ActionButton } from '../components/ui/ActionButton';
 import { Button } from '../components/ui/Button';

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router';
 
 import { Button } from '../components/ui/Button';
 import { adminAssets } from '../config/assets';
