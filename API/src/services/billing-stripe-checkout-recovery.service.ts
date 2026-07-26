@@ -63,7 +63,7 @@ async function findCheckoutSession(
 
   const matches: Stripe.Checkout.Session[] = [];
   let startingAfter: string | undefined;
-  let hasMore = true;
+  let hasMore: boolean;
   do {
     const page = await stripe.checkout.sessions.list({
       customer: customerId,
