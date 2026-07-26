@@ -17,11 +17,27 @@ describe('Avatar', () => {
     expect(screen.getByText('AL')).toBeTruthy();
   });
 
-  it('renders the image when a source is provided', () => {
+  it('shows the image only once it has actually loaded', () => {
     const { container } = render(<Avatar label="Ada Lovelace" src="blob:avatar" />);
+    const image = container.querySelector('img');
 
-    expect(container.querySelector('img')?.getAttribute('src')).toBe('blob:avatar');
+    expect(image?.getAttribute('src')).toBe('blob:avatar');
+    expect(image?.className).toContain('hidden');
+    expect(screen.getByText('AL')).toBeTruthy();
+
+    fireEvent.load(image as HTMLImageElement);
+
+    expect(container.querySelector('img')?.className).not.toContain('hidden');
     expect(screen.queryByText('AL')).toBeNull();
+  });
+
+  it('keeps initials when a blocked image never fires load or error', () => {
+    // A CSP-blocked blob: URL can be dropped silently, so the error-based fallback never
+    // runs. The load gate is what keeps this from rendering as an empty circle.
+    const { container } = render(<Avatar label="Ada Lovelace" src="blob:blocked" />);
+
+    expect(container.querySelector('img')?.className).toContain('hidden');
+    expect(screen.getByText('AL')).toBeTruthy();
   });
 
   it('falls back to initials when the image fails to load', () => {
