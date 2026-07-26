@@ -149,7 +149,9 @@ export async function createApp(): Promise<FastifyInstance> {
         formAction: ["'self'"],
         frameSrc: ["'self'", 'blob:'],
         frameAncestors: ["'none'"],
-        imgSrc: ["'self'", 'https:', 'data:'],
+        // blob: is required by the admin SPA: avatar endpoints need the admin bearer,
+        // which <img src> cannot send, so images render from object URLs.
+        imgSrc: ["'self'", 'https:', 'data:', 'blob:'],
         objectSrc: ["'none'"],
         scriptSrc: ["'self'", "'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'", 'https:'],
