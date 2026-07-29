@@ -62,7 +62,9 @@ export async function listOrganisationMembers(
   const status = params.status ?? 'ACTIVE';
   const rows = await prisma.orgMember.findMany({
     where: { orgId: org.id, ...(status === 'all' ? {} : { status }) },
-    orderBy: { createdAt: 'desc' },
+    // Total order — see the note in team.service.teams.ts: a cursor walk on a
+    // non-unique `createdAt` silently drops rows that share a millisecond.
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: limit + 1,
     cursor: cursor ? { id: cursor } : undefined,
     skip: cursor ? 1 : 0,
