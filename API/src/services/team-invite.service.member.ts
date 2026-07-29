@@ -286,7 +286,7 @@ export async function listPendingApprovalInvites(
   });
 
   const now = deps?.now ? deps.now() : new Date();
-  return { data: rows.map((row) => toInviteRecord(row, now)) };
+  return { data: rows.map((row) => toInviteRecord(row, now, org.domain)) };
 }
 
 /** `POST /org/organisations/:orgId/invitations/:inviteId/approve` — owner/admin only. */
@@ -378,7 +378,7 @@ export async function approveInvite(
     metadata: { teamId: invite.team.id },
   });
 
-  return toInviteRecord(updated, now);
+  return toInviteRecord(updated, now, org.domain);
 }
 
 /** `POST /org/organisations/:orgId/invitations/:inviteId/deny` — owner/admin only; silent to the invitee. */
@@ -417,5 +417,5 @@ export async function denyInvite(
     metadata: { teamId: invite.team.id },
   });
 
-  return toInviteRecord(updated, now);
+  return toInviteRecord(updated, now, org.domain);
 }

@@ -96,11 +96,16 @@ export function parseDomainContext(request: FastifyRequest) {
   return parsed;
 }
 
-// Async wrapper for use in Fastify preValidation arrays. Fastify's hook runner only
-// continues the chain when a hook returns a Promise or calls next(). parseDomainContext
-// returns a plain object (for direct handler use), so we wrap it here.
+// preValidation runs before the handler's own strict query parse, so this hook
+// must tolerate route-specific keys (limit, cursor, status) that the strict
+// DomainQuerySchema would reject — brief §24.11 documents `?limit=&cursor=` on
+// every list endpoint. Validate only the shared domain context here; each
+// handler still strict-parses its full query schema.
+const DomainContextHookSchema = DomainQuerySchema.passthrough();
+
 export async function parseDomainContextHook(request: FastifyRequest): Promise<void> {
-  parseDomainContext(request);
+  const parsed = DomainContextHookSchema.parse(request.query);
+  assertVerifiedDomainMatchesQuery(request, parsed.domain);
 }
 
 export function parseDomainFromRequest(request: FastifyRequest): string {

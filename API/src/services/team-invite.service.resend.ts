@@ -146,5 +146,5 @@ export async function resendTeamInvite(
     theme: extractEmailTheme(params.config),
   });
 
-  return toInviteRecord(resentInvite, now);
+  return toInviteRecord(resentInvite, now, org.domain);
 }

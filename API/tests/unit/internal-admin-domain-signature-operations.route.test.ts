@@ -140,7 +140,15 @@ describe('internal Admin signature records', () => {
         limit: 25,
       });
       expect(response.json()).toMatchObject({
-        data: [{ id: 'signature-1', evidence_key_id: 'evidence-2026' }],
+        data: [
+          {
+            id: 'signature-1',
+            evidence_key_id: 'evidence-2026',
+            // Docs/Auth/avatars.md §9: the row names a user, so it carries the admin-bearer
+            // avatar URL (relative — PUBLIC_BASE_URL is unset in tests).
+            user_avatar_image_url: '/internal/admin/users/user-1/avatar',
+          },
+        ],
         next_cursor: 'signature-1',
       });
       expect(response.body).not.toContain('evidence_signature');

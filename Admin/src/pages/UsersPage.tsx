@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 
 import { AutocompleteSelect } from '../components/ui/AutocompleteSelect';
-import { Avatar } from '../components/ui/Avatar';
 import { Card } from '../components/ui/Card';
 import { SelectField, TextField } from '../components/ui/FormFields';
 import { PageHeader } from '../components/ui/PageHeader';
 import { MethodBadge, StatusBadge } from '../components/ui/Status';
 import { DataTable, PaginationFooter, Td, usePagination } from '../components/ui/Table';
 import { useDomainsQuery, useUsersQuery } from '../features/admin/admin-queries';
+import { UserAvatar } from '../features/admin/UserAvatar';
 
 export function UsersPage() {
   const { data: users = [], isLoading } = useUsersQuery();
@@ -69,7 +69,7 @@ export function UsersPage() {
                 >
                   <Td>
                     <div className="flex items-center gap-2">
-                      <Avatar label={user.name ?? user.email} />
+                      <UserAvatar userId={user.id} label={user.name ?? user.email} />
                       <div>
                         <span className="font-medium text-gray-700">{user.name ?? user.email}</span>
                         <p className="text-xs text-gray-400">{user.email}</p>

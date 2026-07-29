@@ -137,7 +137,7 @@ export async function preparePaymentAdjustmentWebhook(
   let chargeId: string | null;
   let amount: number;
   let currency: string;
-  let objectStatus: string | null = null;
+  let objectStatus: string | null;
   if (
     event.type === 'refund.created' ||
     event.type === 'refund.updated' ||

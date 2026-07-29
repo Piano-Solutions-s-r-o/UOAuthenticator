@@ -21,7 +21,7 @@ import type { ClientConfig } from './config.service.js';
 export async function applyDomainRedirectAllowlist(config: ClientConfig): Promise<ClientConfig> {
   if (!getEnv().DATABASE_URL) return config;
 
-  let extra: string[] = [];
+  let extra: string[];
   try {
     const registry = await getAdminPrisma().clientDomain.findUnique({
       where: { domain: normalizeDomain(config.domain) },

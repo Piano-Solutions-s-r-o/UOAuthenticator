@@ -8,6 +8,7 @@ import {
   revokeAgreementSignature,
   searchAgreementSignatures,
 } from '../../../services/signature-admin-operations.service.js';
+import { adminAvatarImageUrl, avatarImageBaseUrl } from '../../../utils/avatar-url.js';
 import { normalizeDomain } from '../../../utils/domain.js';
 import { AppError } from '../../../utils/errors.js';
 
@@ -68,6 +69,12 @@ function formatSignature(row: Record<string, unknown> & {
     verification_reference: row.verificationReference,
     user_id: row.userId,
     user_email: row.userEmail,
+    // Docs/Auth/avatars.md §9. Admin-bearer URL form — this is an /internal/admin route. The
+    // revocation actor below is an email with no user object, so it deliberately gets none.
+    user_avatar_image_url:
+      typeof row.userId === 'string' && row.userId
+        ? adminAvatarImageUrl({ baseUrl: avatarImageBaseUrl(), userId: row.userId })
+        : null,
     signer_name: row.signerName,
     domain: row.domain,
     agreement_id: row.version.agreementId,

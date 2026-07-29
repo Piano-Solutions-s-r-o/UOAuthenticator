@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router';
 
 import { Avatar } from '../../components/ui/Avatar';
 import { Card } from '../../components/ui/Card';
@@ -7,6 +7,7 @@ import { TextField } from '../../components/ui/FormFields';
 import { MethodBadge, StatusBadge } from '../../components/ui/Status';
 import { DataTable, PaginationFooter, Td, usePagination } from '../../components/ui/Table';
 import { TeamTable } from './TeamTable';
+import { UserAvatar } from './UserAvatar';
 import type { DomainDirectoryDetail } from './types';
 
 type Organisations = DomainDirectoryDetail['organisations'];
@@ -124,7 +125,7 @@ export function DomainUsersTab({ users }: { users: Users }) {
           >
             <Td>
               <div className="flex items-center gap-2">
-                <Avatar label={user.name ?? user.email} />
+                <UserAvatar userId={user.id} label={user.name ?? user.email} />
                 <div>
                   <span className="font-medium text-gray-700">{user.name ?? user.email}</span>
                   <p className="text-xs text-gray-400">{user.email}</p>

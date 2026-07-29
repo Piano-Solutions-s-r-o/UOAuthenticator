@@ -62,6 +62,7 @@ If you are working on branch `api-2.0`, read [`Docs/api-2.0-implementation-plan.
 - All config JWTs must be verified before trust
 - Confidential `/auth/token` assertions must be RS256, short-lived, audience-bound, and verified through the source config's same-host JWKS. Always re-resolve the current user and source-domain role; when an assertion includes workspace context, re-resolve its current org/team membership before issue. After those checks, atomically consume the source-domain `jti` once through the assertion's accepted expiry plus clock tolerance before signing.
 - Confidential resource tokens use the shared RS256 resource-token signer and `/oauth/jwks.json`, carry only the non-secret source domain as `azp`, and must never contain the per-domain hash bearer credential. The signing key does not enable the optional public OAuth profile; that profile requires its explicit gate.
+- Avatar uploads are raster-only (PNG/JPEG/WebP), magic-byte sniffed, and size-capped; SVG uploads are rejected. Provider avatar fetches are HTTPS-only, SSRF-guarded, and fail closed to the generated image. Generated SVGs are server-authored only and served with `nosniff` plus a restrictive CSP. See `Docs/Auth/avatars.md`.
 
 ### API Schema & /llm Endpoint
 
@@ -76,7 +77,7 @@ If you are working on branch `api-2.0`, read [`Docs/api-2.0-implementation-plan.
 These are explicitly out of scope unless noted otherwise (see brief section 20):
 
 - Admin dashboard is now in scope; see `Docs/Admin/`
-- No local avatar storage
+- Avatar upload/storage and generated fallbacks are now in scope; see `Docs/Auth/avatars.md` (supersedes "no local avatar storage")
 - No per-client OAuth secrets
 - No user-visible error specificity
 - No unsigned configs accepted

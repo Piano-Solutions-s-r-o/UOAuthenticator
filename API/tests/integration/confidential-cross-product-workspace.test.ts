@@ -159,6 +159,9 @@ describe.skipIf(!hasDatabase)('confidential cross-product workspace attribution'
     const now = Math.floor(Date.now() / 1000);
     const jwt = new SignJWT({
       source_domain: params.domain,
+      // Seeded users keep the default tokenVersion (0); the assertion's
+      // credential epoch must match it.
+      tv: 0,
       ...(params.withActive
         ? { active: { orgId: params.seed.orgId, teamId: params.seed.teamId } }
         : {}),
@@ -251,6 +254,7 @@ describe.skipIf(!hasDatabase)('confidential cross-product workspace attribution'
     const subjectToken = await new SignJWT({
       email: 'cross-product@example.com',
       source_domain: sourceDomain,
+      tv: 0,
       azp: sourceDomain,
       product: 'original-product',
       scope: 'ai.invoke',

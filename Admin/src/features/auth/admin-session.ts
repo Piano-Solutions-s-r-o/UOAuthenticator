@@ -8,7 +8,7 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router';
 
 import { adminEnv } from '../../config/env';
 import {

@@ -218,6 +218,14 @@ const ClientConfigSchema = RequiredConfigSchema.extend({
     })
     .optional()
     .default({ email_code_enabled: false, workspace_selection: 'off' }),
+  // Docs/Auth/avatars.md §4: optional per-domain default for generated avatars. Absent means the
+  // stable per-user pseudo-random pick; an unknown value rejects the config like any other invalid
+  // claim. A `?style=` query parameter on the avatar endpoints still overrides this.
+  avatars: z
+    .object({
+      default_style: z.enum(['tiles', 'waves', 'rings', 'mono']).optional(),
+    })
+    .optional(),
   session: z
     .object({
       remember_me_enabled: z.boolean().default(true),

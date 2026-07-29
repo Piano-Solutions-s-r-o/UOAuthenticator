@@ -46,7 +46,7 @@ Unlike Other Authenticator is a stateless, API-first authentication service that
 - No email enumeration protection across all flows
 - All client config is signed and verified
 - Everything UI-related is templated and config-driven
-- No avatars stored locally (external URLs only)
+- Avatars resolve uploaded → provider URL → generated fallback (see `Docs/Auth/avatars.md`)
 - Generic error messages only (no information leakage)
 
 ## Configuration Options
@@ -255,6 +255,7 @@ PopupContainer
 
 **Core Tables:**
 - `users` — User accounts (email, password hash, name, pronouns preset/custom fields, avatar URL, 2FA settings)
+- `user_avatars` — Uploaded avatar images (raster bytes, one per user; see `Docs/Auth/avatars.md`)
 - `domain_roles` — Per-domain role assignments (superuser vs user)
 - `login_logs` — Audit trail of authentication events
 - `verification_tokens` — One-time tokens for email verification and password reset

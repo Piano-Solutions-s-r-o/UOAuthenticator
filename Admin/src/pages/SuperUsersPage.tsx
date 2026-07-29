@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
-import { Avatar } from '../components/ui/Avatar';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { TextField } from '../components/ui/FormFields';
@@ -9,6 +8,7 @@ import { Modal } from '../components/ui/Modal';
 import { PageHeader } from '../components/ui/PageHeader';
 import { DataTable, Td } from '../components/ui/Table';
 import { useSuperuserSearchQuery, useSuperusersQuery } from '../features/admin/admin-queries';
+import { UserAvatar } from '../features/admin/UserAvatar';
 import { adminService } from '../services/admin-service';
 
 export function SuperUsersPage() {
@@ -50,7 +50,7 @@ export function SuperUsersPage() {
                 <tr key={user.userId}>
                   <Td>
                     <div className="flex items-center gap-2">
-                      <Avatar label={user.name ?? user.email} />
+                      <UserAvatar userId={user.userId} label={user.name ?? user.email} />
                       <div>
                         <p className="font-medium text-gray-700">{user.name ?? user.email}</p>
                         <p className="text-xs text-gray-400">{user.email}</p>

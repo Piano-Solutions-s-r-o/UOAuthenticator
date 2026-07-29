@@ -323,7 +323,8 @@ describe('Organisation service: organisation CRUD', () => {
 
     expect(result).toMatchObject({
       data: [{ id: 'org-new', slug: 'new' }],
-      next_cursor: 'org-old',
+      // Cursor is the last row of the returned page (brief §24.11 last_id).
+      next_cursor: 'org-new',
     });
     expect(prisma.organisation.findMany).toHaveBeenCalledWith(
       expect.objectContaining({

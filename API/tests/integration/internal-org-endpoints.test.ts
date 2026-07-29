@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/app.js';
-import { createClientId } from '../../src/utils/hash.js';
+import { cleanClientDomains, seedDomainSecret } from '../helpers/domain-secret.js';
 import { expectJsonError } from '../helpers/error-response.js';
 import { createTestDb } from '../helpers/test-db.js';
 import {
@@ -9,17 +9,22 @@ import {
   createSignedConfigJwt,
   createTestUser,
   hasDatabase,
+  signAccessToken,
 } from '../helpers/org-user-endpoints-helper.js';
 
 const testDomain = 'client.example.com';
 const configUrl = 'https://client.example.com/auth-config';
+const adminDomain = 'admin.example.com';
+const adminTokenSecret = 'test-admin-token-secret-with-enough-length';
 
 async function stubValidInternalConfig(sharedSecret: string, groupsEnabled: boolean): Promise<void> {
   const configJwt = await createSignedConfigJwt(sharedSecret, {
     groups_enabled: groupsEnabled,
   });
 
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+  // A Response body is single-use; build a fresh one per fetch so every
+  // request in a test can re-fetch the config.
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 }
 
 describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
@@ -28,6 +33,8 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
   const originalDatabaseUrl = process.env.DATABASE_URL;
   const originalSharedSecret = process.env.SHARED_SECRET;
   const originalAud = process.env.AUTH_SERVICE_IDENTIFIER;
+  const originalAdminDomain = process.env.ADMIN_AUTH_DOMAIN;
+  const originalAdminSecret = process.env.ADMIN_ACCESS_TOKEN_SECRET;
 
   beforeAll(async () => {
     handle = await createTestDb();
@@ -42,6 +49,8 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
     process.env.DATABASE_URL = originalDatabaseUrl;
     process.env.SHARED_SECRET = originalSharedSecret;
     process.env.AUTH_SERVICE_IDENTIFIER = originalAud;
+    process.env.ADMIN_AUTH_DOMAIN = originalAdminDomain;
+    process.env.ADMIN_ACCESS_TOKEN_SECRET = originalAdminSecret;
 
     if (handle) {
       await handle.cleanup();
@@ -51,10 +60,32 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
   beforeEach(async () => {
     process.env.SHARED_SECRET = process.env.SHARED_SECRET ?? 'test-shared-secret-with-enough-length';
     process.env.AUTH_SERVICE_IDENTIFIER = process.env.AUTH_SERVICE_IDENTIFIER ?? 'uoa-auth-service';
+    process.env.ADMIN_AUTH_DOMAIN = adminDomain;
+    process.env.ADMIN_ACCESS_TOKEN_SECRET = adminTokenSecret;
 
     if (!handle) return;
     await clearOrgTestDatabase(handle);
+    await cleanClientDomains(handle.prisma);
+    await seedDomainSecret(handle.prisma, testDomain);
   });
+
+  // /internal/org routes are guarded by requireAdminSuperuser: the bearer must
+  // be an access token signed with ADMIN_ACCESS_TOKEN_SECRET for a real user
+  // holding a SUPERUSER domain role on the admin auth domain.
+  async function createAdminBearer(): Promise<string> {
+    const admin = await createTestUser(handle!, 'internal-admin@example.com');
+    await handle!.prisma.domainRole.create({
+      data: { domain: adminDomain, userId: admin.id, role: 'SUPERUSER' },
+    });
+    return await signAccessToken({
+      subject: admin.id,
+      email: 'internal-admin@example.com',
+      domain: adminDomain,
+      secret: adminTokenSecret,
+      issuer: process.env.AUTH_SERVICE_IDENTIFIER!,
+      role: 'superuser',
+    });
+  }
 
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -75,7 +106,7 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
       select: { id: true },
     });
 
-    const domainHash = createClientId(testDomain, process.env.SHARED_SECRET!);
+    const adminToken = await createAdminBearer();
     const app = await createApp();
     await app.ready();
 
@@ -85,7 +116,7 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
         configUrl,
       )}`,
       headers: {
-        authorization: `Bearer ${domainHash}`,
+        authorization: `Bearer ${adminToken}`,
       },
       payload: {
         name: 'Support',
@@ -104,14 +135,14 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
         configUrl,
       )}`,
       headers: {
-        authorization: `Bearer ${domainHash}`,
+        authorization: `Bearer ${adminToken}`,
       },
       payload: {
         name: 'Customer Support',
         description: 'Customer support queue',
       },
     });
-    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.statusCode, updateResponse.body).toBe(200);
     const updated = updateResponse.json() as { id: string; name: string; description: string | null };
     expect(updated.id).toBe(created.id);
     expect(updated.name).toBe('Customer Support');
@@ -123,7 +154,7 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
         configUrl,
       )}`,
       headers: {
-        authorization: `Bearer ${domainHash}`,
+        authorization: `Bearer ${adminToken}`,
       },
     });
     expect(deleteResponse.statusCode).toBe(200);
@@ -164,7 +195,7 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
       select: { id: true },
     });
 
-    const domainHash = createClientId(testDomain, process.env.SHARED_SECRET!);
+    const adminToken = await createAdminBearer();
     const app = await createApp();
     await app.ready();
 
@@ -174,7 +205,7 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
         configUrl,
       )}`,
       headers: {
-        authorization: `Bearer ${domainHash}`,
+        authorization: `Bearer ${adminToken}`,
       },
       payload: {
         userId: member.id,
@@ -193,11 +224,11 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
         testDomain,
       )}&config_url=${encodeURIComponent(configUrl)}`,
       headers: {
-        authorization: `Bearer ${domainHash}`,
+        authorization: `Bearer ${adminToken}`,
       },
       payload: { isAdmin: false },
     });
-    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.statusCode, updateResponse.body).toBe(200);
     const updated = updateResponse.json() as { id: string; isAdmin: boolean };
     expect(updated.id).toBe(added.id);
     expect(updated.isAdmin).toBe(false);
@@ -208,7 +239,7 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
         testDomain,
       )}&config_url=${encodeURIComponent(configUrl)}`,
       headers: {
-        authorization: `Bearer ${domainHash}`,
+        authorization: `Bearer ${adminToken}`,
       },
     });
     expect(removeResponse.statusCode).toBe(200);
@@ -245,12 +276,13 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
       data: {
         orgId: org.id,
         name: 'Platform',
+        slug: 'platform',
         description: 'Platform team',
       },
       select: { id: true },
     });
 
-    const domainHash = createClientId(testDomain, process.env.SHARED_SECRET!);
+    const adminToken = await createAdminBearer();
     const app = await createApp();
     await app.ready();
 
@@ -260,7 +292,7 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
         configUrl,
       )}`,
       headers: {
-        authorization: `Bearer ${domainHash}`,
+        authorization: `Bearer ${adminToken}`,
       },
       payload: { groupId: group.id },
     });
@@ -275,11 +307,11 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
         configUrl,
       )}`,
       headers: {
-        authorization: `Bearer ${domainHash}`,
+        authorization: `Bearer ${adminToken}`,
       },
       payload: { groupId: null },
     });
-    expect(unassignResponse.statusCode).toBe(200);
+    expect(unassignResponse.statusCode, unassignResponse.body).toBe(200);
     const unassigned = unassignResponse.json() as { id: string; groupId: string | null };
     expect(unassigned.id).toBe(team.id);
     expect(unassigned.groupId).toBeNull();
@@ -305,7 +337,7 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
       select: { id: true },
     });
 
-    const domainHash = createClientId(testDomain, process.env.SHARED_SECRET!);
+    const adminToken = await createAdminBearer();
     const app = await createApp();
     await app.ready();
 
@@ -315,7 +347,7 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
         configUrl,
       )}`,
       headers: {
-        authorization: `Bearer ${domainHash}`,
+        authorization: `Bearer ${adminToken}`,
       },
       payload: {
         name: 'Disabled Team Group',
@@ -327,7 +359,7 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
     await app.close();
   });
 
-  it('requires a valid domain hash token for internal org routes', async () => {
+  it('requires a valid admin superuser bearer for internal org routes', async () => {
     await stubValidInternalConfig(process.env.SHARED_SECRET!, true);
 
     const owner = await createTestUser(handle!, 'owner@example.com');
@@ -352,6 +384,7 @@ describe.skipIf(!hasDatabase)('internal /internal/org endpoints', () => {
       data: {
         orgId: org.id,
         name: 'Auth Team',
+        slug: 'auth-team',
       },
       select: { id: true },
     });

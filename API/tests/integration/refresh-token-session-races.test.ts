@@ -11,7 +11,10 @@ import {
   deactivateOrganisationMember,
   reactivateOrganisationMember,
 } from '../../src/services/organisation.service.lifecycle.js';
-import { issueRefreshToken } from '../../src/services/refresh-token.service.js';
+import {
+  issueRefreshToken,
+  REFRESH_TOKEN_REPLAY_GRACE_MS,
+} from '../../src/services/refresh-token.service.js';
 import { exchangeRefreshTokenForTokens } from '../../src/services/token.service.js';
 import { createClientId } from '../../src/utils/hash.js';
 import { baseClientConfigPayload } from '../helpers/test-config.js';
@@ -188,6 +191,19 @@ describe.skipIf(!hasDatabase)('refresh session serialization and reuse revocatio
     expect(state).toBe('pending');
   }
 
+  /**
+   * Reusing a just-rotated predecessor inside the replay-grace window is a
+   * documented recovery path (it returns the successor, not a 401). Push the
+   * rotation outside the window so predecessor reuse takes the theft-detection
+   * path these tests assert.
+   */
+  async function backdateBeyondReplayGrace(userId: string): Promise<void> {
+    await handle.prisma.refreshToken.updateMany({
+      where: { userId, domain, revokedAt: { not: null } },
+      data: { revokedAt: new Date(Date.now() - REFRESH_TOKEN_REPLAY_GRACE_MS - 1) },
+    });
+  }
+
   async function expectAllRevoked(userId: string, expectedCount: number): Promise<void> {
     const rows = await handle.prisma.refreshToken.findMany({
       where: { userId, domain },
@@ -274,6 +290,7 @@ describe.skipIf(!hasDatabase)('refresh session serialization and reuse revocatio
     const original = await issueLegacy(workspace.userId);
     const rotated = await refreshLegacy(original);
     const current = withRefreshValue(original, rotated.refreshToken);
+    await backdateBeyondReplayGrace(workspace.userId);
 
     await expect(refreshLegacy(original)).rejects.toMatchObject({
       statusCode: 401,
@@ -289,6 +306,7 @@ describe.skipIf(!hasDatabase)('refresh session serialization and reuse revocatio
     const original = await issueLegacy(workspace.userId);
     const firstRotation = await refreshLegacy(original);
     const current = withRefreshValue(original, firstRotation.refreshToken);
+    await backdateBeyondReplayGrace(workspace.userId);
     const locked = deferred();
     const release = deferred();
     const currentRotation = refreshLegacy(current, {
@@ -316,6 +334,7 @@ describe.skipIf(!hasDatabase)('refresh session serialization and reuse revocatio
     const original = await issueLegacy(workspace.userId);
     const firstRotation = await refreshLegacy(original);
     const current = withRefreshValue(original, firstRotation.refreshToken);
+    await backdateBeyondReplayGrace(workspace.userId);
     const locked = deferred();
     const release = deferred();
     const reuse = refreshLegacy(original, {

@@ -62,9 +62,11 @@ export async function listGroups(
   });
 
   const data = rows.slice(0, limit).map(toGroupRecord);
-  const nextCursorRow = rows[limit];
+  // Brief §24.11: `cursor=<last_id>` — the cursor is the last row of the
+  // returned page (the follow-up query skips it), not the first of the next.
+  const hasMore = rows.length > limit;
 
-  return { data, next_cursor: nextCursorRow ? nextCursorRow.id : null };
+  return { data, next_cursor: hasMore ? rows[limit - 1].id : null };
 }
 
 export async function createGroup(
@@ -181,8 +183,8 @@ export async function getGroup(
 
   return {
     ...toGroupRecord(row),
-    teams: row.teams.map(toTeamRecord),
-    members: row.members.map(toGroupMemberRecord),
+    teams: row.teams.map((team) => toTeamRecord(team, org.domain)),
+    members: row.members.map((member) => toGroupMemberRecord(member, org.domain)),
   };
 }
 

@@ -113,7 +113,7 @@ describe.skipIf(!hasDatabase)('invite-bound email workspace token flow', () => {
           sharedSecret: process.env.SHARED_SECRET!,
         }),
       },
-      select: { id: true },
+      select: { id: true, tokenVersion: true },
     });
     const invite = await handle!.prisma.teamInvite.create({
       data: {

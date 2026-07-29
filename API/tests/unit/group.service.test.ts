@@ -141,7 +141,8 @@ describe('Group service', () => {
           updatedAt: now,
         },
       ],
-      next_cursor: 'group-old',
+      // Cursor is the last row of the returned page (brief §24.11 last_id).
+      next_cursor: 'group-new',
     });
     expect(prisma.group.findMany).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -1,7 +1,6 @@
 import js from '@eslint/js';
 import globals from 'globals';
 import reactHooks from 'eslint-plugin-react-hooks';
-import reactPlugin from 'eslint-plugin-react';
 import prettierConfig from 'eslint-config-prettier';
 import tseslint from 'typescript-eslint';
 
@@ -37,17 +36,11 @@ export default [
       },
     },
     plugins: {
-      react: reactPlugin,
       'react-hooks': reactHooks,
     },
     rules: {
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
-    },
-    settings: {
-      react: {
-        version: 'detect',
-      },
     },
   },
   {

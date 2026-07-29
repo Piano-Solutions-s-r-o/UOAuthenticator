@@ -37,4 +37,62 @@ describe('adminService', () => {
       allowed_email_domains: ['example.com'],
     });
   });
+
+  it('fetches the admin user avatar as image bytes from the encoded user path', async () => {
+    const bytes = new Blob(['<svg />'], { type: 'image/svg+xml' });
+    api.getBlob.mockResolvedValue(bytes);
+
+    await expect(adminService.getUserAvatar('user/1')).resolves.toBe(bytes);
+
+    expect(api.getBlob).toHaveBeenCalledWith('/internal/admin/users/user%2F1/avatar', undefined, 'image/*');
+  });
+
+  it('uploads a user avatar as a single multipart part named file', async () => {
+    api.putForm.mockResolvedValue({ ok: true });
+    const file = new File(['png'], 'face.png', { type: 'image/png' });
+
+    await adminService.uploadUserAvatar('user/1', file);
+
+    const [path, form] = api.putForm.mock.calls[0] as [string, FormData];
+    expect(path).toBe('/internal/admin/users/user%2F1/avatar');
+    expect([...form.keys()]).toEqual(['file']);
+    expect(form.get('file')).toBe(file);
+  });
+
+  it('deletes a user avatar through the encoded user path', async () => {
+    api.delete.mockResolvedValue({ ok: true });
+
+    await adminService.deleteUserAvatar('user/1');
+
+    expect(api.delete).toHaveBeenCalledWith('/internal/admin/users/user%2F1/avatar');
+  });
+
+  it('fetches the admin team avatar as image bytes from the encoded team path', async () => {
+    const bytes = new Blob(['png'], { type: 'image/png' });
+    api.getBlob.mockResolvedValue(bytes);
+
+    await expect(adminService.getTeamAvatar('team/1')).resolves.toBe(bytes);
+
+    expect(api.getBlob).toHaveBeenCalledWith('/internal/admin/teams/team%2F1/avatar', undefined, 'image/*');
+  });
+
+  it('uploads a team avatar as a single multipart part named file', async () => {
+    api.putForm.mockResolvedValue({ ok: true });
+    const file = new File(['png'], 'logo.png', { type: 'image/png' });
+
+    await adminService.uploadTeamAvatar('team/1', file);
+
+    const [path, form] = api.putForm.mock.calls[0] as [string, FormData];
+    expect(path).toBe('/internal/admin/teams/team%2F1/avatar');
+    expect([...form.keys()]).toEqual(['file']);
+    expect(form.get('file')).toBe(file);
+  });
+
+  it('deletes a team avatar through the encoded team path', async () => {
+    api.delete.mockResolvedValue({ ok: true });
+
+    await adminService.deleteTeamAvatar('team/1');
+
+    expect(api.delete).toHaveBeenCalledWith('/internal/admin/teams/team%2F1/avatar');
+  });
 });

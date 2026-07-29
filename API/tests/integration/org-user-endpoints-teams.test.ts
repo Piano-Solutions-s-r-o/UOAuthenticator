@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/app.js';
-import { createClientId } from '../../src/utils/hash.js';
+import { seedDomainSecret } from '../helpers/domain-secret.js';
 import { createTestDb } from '../helpers/test-db.js';
 import {
   clearOrgTestDatabase,
@@ -9,6 +9,7 @@ import {
   createTestUser,
   hasDatabase,
   TeamMemberRecord,
+  expectedMemberAvatarImageUrl,
   TeamInviteRecord,
   TeamRecord,
   TeamWithMembersRecord,
@@ -58,8 +59,10 @@ describe.skipIf(!hasDatabase)('user-facing /org team CRUD and membership', () =>
   it('manages teams, team pagination, and team memberships', async () => {
     const domain = 'org-teams.example.com';
     const orgConfigUrl = 'https://org-teams.example.com/auth-config';
-    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, {});
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, { allow_user_create_org: true }, domain);
+    // A fresh Response per call: Response bodies are single-use, and multiple
+    // requests (plus app startup) fetch the config through this stub.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const owner = await createTestUser(handle!, 'team-owner@example.com');
     const teamMember = await createTestUser(handle!, 'team-member@example.com');
@@ -67,7 +70,7 @@ describe.skipIf(!hasDatabase)('user-facing /org team CRUD and membership', () =>
     const app = await createApp();
     await app.ready();
 
-    const domainHash = createClientId(domain, process.env.SHARED_SECRET!);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain);
     const ownerBaseToken = await signAccessToken({
       subject: owner.id,
       domain,
@@ -195,7 +198,8 @@ describe.skipIf(!hasDatabase)('user-facing /org team CRUD and membership', () =>
           {
             email: 'team-member@example.com',
             name: 'Existing Member',
-            teamRole: 'lead',
+            // 'lead' was removed from the canonical team roles (migrated to 'admin').
+            teamRole: 'admin',
           },
         ],
       },
@@ -238,10 +242,13 @@ describe.skipIf(!hasDatabase)('user-facing /org team CRUD and membership', () =>
       },
       payload: {
         userId: teamMember.id,
-        teamRole: 'lead',
+        teamRole: 'admin',
       },
     });
     expect(addTeamMember.statusCode).toBe(200);
+    expect((addTeamMember.json() as TeamMemberRecord).avatarImageUrl).toBe(
+      expectedMemberAvatarImageUrl(teamMember.id, domain),
+    );
 
     const teamAfterAdd = await app.inject({
       method: 'GET',
@@ -254,8 +261,11 @@ describe.skipIf(!hasDatabase)('user-facing /org team CRUD and membership', () =>
     expect(teamAfterAdd.statusCode).toBe(200);
     const teamWithMember = teamAfterAdd.json() as TeamWithMembersRecord;
     const teamRoles = teamWithMember.members.map((member: TeamMemberRecord) => member.teamRole);
-    expect(teamRoles).toContain('lead');
+    expect(teamRoles).toContain('admin');
     expect(teamWithMember.members.some((member: TeamMemberRecord) => member.userId === teamMember.id)).toBe(true);
+    for (const member of teamWithMember.members) {
+      expect(member.avatarImageUrl).toBe(expectedMemberAvatarImageUrl(member.userId, domain));
+    }
 
     const changeTeamRole = await app.inject({
       method: 'PUT',

@@ -7,6 +7,7 @@ import { AppError } from '../utils/errors.js';
 import {
   assertDatabaseEnabled,
   ensureOrgRole,
+  memberAvatarImageUrl,
   normalizeDomain,
   parseOrgFeatureRoles,
   parseOrgLimit,
@@ -36,14 +37,20 @@ export type AccessRequestRecord = {
   updatedAt: Date;
   userId: string | null;
   reviewedByUserId: string | null;
+  // Docs/Auth/avatars.md §9 — the requester's avatar; null until the request is tied to a UOA
+  // user. `reviewedByUserId` surfaces no name/email, so it deliberately gets no URL.
+  avatarImageUrl: string | null;
 };
 
-type AccessRequestRow = Omit<AccessRequestRecord, 'status'> & { status: AccessRequestStatus };
+type AccessRequestRow = Omit<AccessRequestRecord, 'status' | 'avatarImageUrl'> & {
+  status: AccessRequestStatus;
+};
 
-export function toAccessRequestRecord(row: AccessRequestRow): AccessRequestRecord {
+export function toAccessRequestRecord(row: AccessRequestRow, domain: string): AccessRequestRecord {
   return {
     ...row,
     status: row.status.toLowerCase() as AccessRequestRecord['status'],
+    avatarImageUrl: row.userId ? memberAvatarImageUrl(domain, row.userId) : null,
   };
 }
 

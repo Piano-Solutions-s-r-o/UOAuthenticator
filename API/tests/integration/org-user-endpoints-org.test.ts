@@ -1,19 +1,10 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/app.js';
-import { createClientId } from '../../src/utils/hash.js';
+import { seedDomainSecret } from '../helpers/domain-secret.js';
 import { expectJsonError } from '../helpers/error-response.js';
 import { createTestDb } from '../helpers/test-db.js';
-import { clearOrgTestDatabase, createSignedConfigJwt, createTestUser, hasDatabase, OrgListRecord, OrgMemberRecord, OrgRecord, signAccessToken } from '../helpers/org-user-endpoints-helper.js';
-
-type OrgMeRecord = {
-  org_id: string;
-  org_role: string;
-  teams: string[];
-  team_roles: Record<string, string>;
-  groups?: string[];
-  group_admin?: string[];
-};
+import { clearOrgTestDatabase, createSignedConfigJwt, createTestUser, hasDatabase, OrgListRecord, OrgMeRecord, OrgMemberRecord, OrgRecord, signAccessToken } from '../helpers/org-user-endpoints-helper.js';
 
 describe.skipIf(!hasDatabase)('user-facing /org organisations and members', () => {
   let handle: Awaited<ReturnType<typeof createTestDb>>;
@@ -58,8 +49,8 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations and members', () =
   it('performs org CRUD and list pagination', async () => {
     const domain = 'org-crud.example.com';
     const orgConfigUrl = 'https://org-crud.example.com/auth-config';
-    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, {});
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, { allow_user_create_org: true }, domain);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const ownerA = await createTestUser(handle!, 'owner-a@example.com');
     const ownerB = await createTestUser(handle!, 'owner-b@example.com');
@@ -87,7 +78,7 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations and members', () =
     const app = await createApp();
     await app.ready();
 
-    const domainHash = createClientId(domain, process.env.SHARED_SECRET!);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain);
     const orgPayloads = [
       { token: tokenA, ownerName: 'Acme Apollo' },
       { token: tokenB, ownerName: 'Acme Borealis' },
@@ -207,8 +198,8 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations and members', () =
   it('manages org members with pagination and role changes', async () => {
     const domain = 'org-members.example.com';
     const orgConfigUrl = 'https://org-members.example.com/auth-config';
-    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, {});
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, { allow_user_create_org: true }, domain);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const owner = await createTestUser(handle!, 'member-owner@example.com');
     const addMemberOne = await createTestUser(handle!, 'member-one@example.com');
@@ -224,7 +215,7 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations and members', () =
     const app = await createApp();
     await app.ready();
 
-    const domainHash = createClientId(domain, process.env.SHARED_SECRET!);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain);
 
     const createOrg = await app.inject({
       method: 'POST',
@@ -351,8 +342,8 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations and members', () =
   it('returns a generic error when adding a non-existent userId to an organisation', async () => {
     const domain = 'org-members-missing-user.example.com';
     const orgConfigUrl = 'https://org-members-missing-user.example.com/auth-config';
-    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, {});
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, { allow_user_create_org: true }, domain);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const owner = await createTestUser(handle!, 'member-owner-missing@example.com');
     const actorToken = await signAccessToken({
@@ -365,7 +356,7 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations and members', () =
     const app = await createApp();
     await app.ready();
 
-    const domainHash = createClientId(domain, process.env.SHARED_SECRET!);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain);
     const createOrg = await app.inject({
       method: 'POST',
       url: `/org/organisations?domain=${encodeURIComponent(domain)}&config_url=${encodeURIComponent(orgConfigUrl)}`,
@@ -409,8 +400,8 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations and members', () =
   it('returns current org context from /org/me for org members', async () => {
     const domain = 'client.example.com';
     const orgConfigUrl = 'https://client.example.com/auth-config';
-    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, {});
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, { allow_user_create_org: true });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const owner = await createTestUser(handle!, 'me-owner@example.com');
     const actorToken = await signAccessToken({
@@ -423,7 +414,7 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations and members', () =
     const app = await createApp();
     await app.ready();
 
-    const domainHash = createClientId(domain, process.env.SHARED_SECRET!);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain);
 
     const createOrg = await app.inject({
       method: 'POST',
@@ -469,7 +460,7 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations and members', () =
     const domain = 'client.example.com';
     const orgConfigUrl = 'https://client.example.com/auth-config';
     const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, {});
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const user = await createTestUser(handle!, 'me-anon@example.com');
     const userToken = await signAccessToken({
@@ -482,7 +473,7 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations and members', () =
     const app = await createApp();
     await app.ready();
 
-    const domainHash = createClientId(domain, process.env.SHARED_SECRET!);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain);
     const meRes = await app.inject({
       method: 'GET',
       url: `/org/me?domain=${encodeURIComponent(domain)}&config_url=${encodeURIComponent(orgConfigUrl)}`,

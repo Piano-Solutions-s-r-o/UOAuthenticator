@@ -28,6 +28,7 @@ The API is the central OAuth/auth server. It handles:
 - Canonical product tariff catalog, org/team assignments, and signed entitlement snapshots
 - Email dispatch (verification, password reset, login links)
 - Optional per-domain agreement signatures, private PDF evidence, and signed receipts
+- User avatars: uploaded image storage, SSRF-guarded provider-image proxying, and deterministic generated SVG fallbacks (see `Docs/Auth/avatars.md`)
 
 ### Structure
 
@@ -200,7 +201,7 @@ The React implementation should translate those templates into reusable componen
 
 - **PostgreSQL** — the database
 - **Prisma** — ORM and migration tool
-- Tables: `users`, `domain_roles`, `login_logs`, `verification_tokens`, `confidential_assertion_uses`
+- Tables: `users`, `domain_roles`, `login_logs`, `verification_tokens`, `confidential_assertion_uses`, `user_avatars`
 - Confidential delegation policy: `confidential_delegation_mappings` binds an authenticated `client_domains` row + product to one exact HTTPS resource and an explicit `ai.invoke` / `billing.read` / `token.provision` allowlist. Every application-to-application hop authenticates with the immediate caller application's own credential and mapping. Chained UOA access tokens require the exact caller audience, narrow through the inbound token and both source/caller mappings, cannot outlive the inbound token, and preserve provenance in the `act` chain. Token provisioning is never implied by AI invocation. It is admin-only under forced RLS; there is no process-env fallback.
 - Organisational tables: `organisations`, `org_members`, `teams`, `team_members`, `groups`, `group_members`
 - Billing control-plane tables include `billing_services`, immutable tariffs and assignments, purpose-bound app keys, service access, commercial adjustments, append-only `billing_customer_action_intents`, Stripe account/customer/catalog/subscription/webhook projections, one exact-team shared credit account with append-only entries and settlement allocations, top-up/auto-top-up consent and Stripe evidence, and versioned recurring add-on offers/subscriptions/cancellation intents. Before a customer billing effect, the action-intent trigger locks and rechecks the exact lifecycle app, user, organisation, team, memberships, and manager scope; domain-specific rows remain the idempotent effect state machines. Commercial tables use forced RLS and deny the ordinary app role; exact invariants live in the Prisma migration rather than product code.

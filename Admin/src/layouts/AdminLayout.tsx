@@ -1,4 +1,4 @@
-import { Outlet } from 'react-router-dom';
+import { Outlet } from 'react-router';
 
 import { ConfirmDialog } from '../components/dialogs/ConfirmDialog';
 import { DebugFab } from '../components/DebugFab';

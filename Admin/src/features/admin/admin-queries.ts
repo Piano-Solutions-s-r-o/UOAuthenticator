@@ -78,6 +78,44 @@ export function useTeamQuery(orgId: string | undefined, teamId: string | undefin
   });
 }
 
+function teamAvatarQueryKey(teamId: string | null | undefined) {
+  return ['admin', 'team-avatar', teamId];
+}
+
+export function useTeamAvatarQuery(teamId: string | null | undefined) {
+  return useQuery({
+    queryKey: teamAvatarQueryKey(teamId),
+    queryFn: () => adminService.getTeamAvatar(teamId ?? ''),
+    enabled: Boolean(teamId),
+    // Same rationale as user avatars: rarely changing and cosmetic on failure, so cache
+    // generously and never retry behind a table.
+    staleTime: 300_000,
+    retry: false,
+  });
+}
+
+export function useUploadTeamAvatarMutation(teamId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (file: File) => adminService.uploadTeamAvatar(teamId, file),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: teamAvatarQueryKey(teamId) });
+    },
+  });
+}
+
+export function useDeleteTeamAvatarMutation(teamId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => adminService.deleteTeamAvatar(teamId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: teamAvatarQueryKey(teamId) });
+    },
+  });
+}
+
 export function useUsersQuery() {
   return useQuery({ queryKey: ['admin', 'users'], queryFn: adminService.getUsers });
 }
@@ -87,6 +125,53 @@ export function useUserQuery(userId: string | null) {
     queryKey: ['admin', 'user', userId],
     queryFn: () => adminService.getUser(userId ?? ''),
     enabled: Boolean(userId),
+  });
+}
+
+function userAvatarQueryKey(userId: string | null | undefined) {
+  return ['admin', 'user-avatar', userId];
+}
+
+export function useUserAvatarQuery(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: userAvatarQueryKey(userId),
+    queryFn: () => adminService.getUserAvatar(userId ?? ''),
+    enabled: Boolean(userId),
+    // Avatars change rarely and a failure is cosmetic: cache generously and do not
+    // retry, so a broken avatar never turns into repeated requests behind a table.
+    staleTime: 300_000,
+    retry: false,
+  });
+}
+
+/**
+ * A mutation changes both the image and the user's `avatarSource`, so the user record is
+ * invalidated alongside the blob to keep the detail-page badge honest.
+ */
+function invalidateUserAvatar(queryClient: ReturnType<typeof useQueryClient>, userId: string) {
+  void queryClient.invalidateQueries({ queryKey: userAvatarQueryKey(userId) });
+  void queryClient.invalidateQueries({ queryKey: ['admin', 'user', userId] });
+}
+
+export function useUploadUserAvatarMutation(userId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (file: File) => adminService.uploadUserAvatar(userId, file),
+    onSuccess: () => {
+      invalidateUserAvatar(queryClient, userId);
+    },
+  });
+}
+
+export function useDeleteUserAvatarMutation(userId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => adminService.deleteUserAvatar(userId),
+    onSuccess: () => {
+      invalidateUserAvatar(queryClient, userId);
+    },
   });
 }
 

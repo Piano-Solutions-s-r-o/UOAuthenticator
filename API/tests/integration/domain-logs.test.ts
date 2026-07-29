@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../src/app.js';
-import { createClientId } from '../../src/utils/hash.js';
+import { cleanClientDomains, seedDomainSecret } from '../helpers/domain-secret.js';
 import { expectJsonError } from '../helpers/error-response.js';
 import { createTestDb } from '../helpers/test-db.js';
 
@@ -32,6 +32,7 @@ describe.skipIf(!hasDatabase)('GET /domain/logs', () => {
     await handle.prisma.verificationToken.deleteMany();
     await handle.prisma.domainRole.deleteMany();
     await handle.prisma.user.deleteMany();
+    await cleanClientDomains(handle.prisma);
   });
 
   it('returns recent logs for a domain when authorized', async () => {
@@ -70,7 +71,7 @@ describe.skipIf(!hasDatabase)('GET /domain/logs', () => {
       ],
     });
 
-    const token = createClientId('client.example.com', process.env.SHARED_SECRET);
+    const token = await seedDomainSecret(handle!.prisma, 'client.example.com');
 
     const app = await createApp();
     await app.ready();
@@ -90,6 +91,7 @@ describe.skipIf(!hasDatabase)('GET /domain/logs', () => {
         id: string;
         user_id: string;
         email: string;
+        avatar_image_url: string | null;
         domain: string;
         timestamp: string;
         auth_method: string;
@@ -105,6 +107,12 @@ describe.skipIf(!hasDatabase)('GET /domain/logs', () => {
     expect(body.logs[0].ip).toBe('203.0.113.2');
     expect(body.logs[1].auth_method).toBe('google');
     expect(body.logs[1].ip).toBe('203.0.113.1');
+    // Docs/Auth/avatars.md §9: a log row names a user, so it carries the domain-hash avatar URL.
+    for (const log of body.logs) {
+      expect(log.avatar_image_url).toBe(
+        `/domain/users/${log.user_id}/avatar?domain=${encodeURIComponent('client.example.com')}`,
+      );
+    }
 
     await app.close();
   });

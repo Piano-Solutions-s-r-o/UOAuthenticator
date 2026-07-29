@@ -10,6 +10,7 @@ import {
   ensureUserAssignedToConfiguredAccessTarget,
   assertDatabaseEnabled,
 } from './access-request.service.base.js';
+import { normalizeDomain } from '../utils/domain.js';
 import { AppError } from '../utils/errors.js';
 
 type AccessRequestAdminDeps = {
@@ -60,7 +61,8 @@ export async function listAccessRequests(params: {
     },
   });
 
-  return { data: rows.map(toAccessRequestRecord) };
+  const domain = normalizeDomain(params.config.domain);
+  return { data: rows.map((row) => toAccessRequestRecord(row, domain)) };
 }
 
 async function findRequestOrThrow(params: {
@@ -122,7 +124,7 @@ export async function approveAccessRequest(params: {
     teamId: params.teamId,
   });
   if (row.status === 'APPROVED') {
-    return toAccessRequestRecord(row);
+    return toAccessRequestRecord(row, normalizeDomain(params.config.domain));
   }
 
   if (row.userId) {
@@ -161,7 +163,7 @@ export async function approveAccessRequest(params: {
     },
   });
 
-  return toAccessRequestRecord(updated);
+  return toAccessRequestRecord(updated, normalizeDomain(params.config.domain));
 }
 
 export async function rejectAccessRequest(params: {
@@ -216,5 +218,5 @@ export async function rejectAccessRequest(params: {
     },
   });
 
-  return toAccessRequestRecord(updated);
+  return toAccessRequestRecord(updated, normalizeDomain(params.config.domain));
 }

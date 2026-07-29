@@ -45,6 +45,8 @@ tags:
     description: Integration claim flows
   - name: Domain
     description: Domain-scoped user and log queries
+  - name: Avatars
+    description: User avatar images — uploads, provider proxying, and generated fallbacks
   - name: Organizations
     description: User-facing org, team, group, and membership management
   - name: Internal Admin
@@ -165,6 +167,42 @@ components:
       schema:
         type: string
         example: acme.example.com
+
+    avatarStyleQuery:
+      name: style
+      in: query
+      required: false
+      description: |
+        Overrides the generated-avatar style for this call. Only affects generated
+        avatars — uploaded and proxied provider images are served as stored.
+      schema:
+        type: string
+        enum: [tiles, waves, rings, mono]
+
+    avatarSizeQuery:
+      name: size
+      in: query
+      required: false
+      description: |
+        Rendered width/height of a generated SVG, clamped to 16-512 (default 128).
+        The viewBox is constant; ignored for raster images.
+      schema:
+        type: integer
+        minimum: 16
+        maximum: 512
+        default: 128
+
+    avatarConfigUrlQuery:
+      name: config_url
+      in: query
+      required: false
+      description: |
+        Optional HTTPS URL to the domain's signed config JWT. When supplied it is fetched
+        and verified, and its `avatars.default_style` claim is used when `style` is absent.
+        Its `domain` claim must match the authenticated domain.
+      schema:
+        type: string
+        format: uri
 
   schemas:
     ErrorResponse:
@@ -1424,6 +1462,14 @@ components:
     MemberObject:
       type: object
       additionalProperties: true
+      properties:
+        avatarImageUrl:
+          type: string
+          description: |
+            Absolute URL that always resolves to this member's avatar image
+            (`<PUBLIC_BASE_URL>/domain/users/{userId}/avatar?domain=...`; root-relative when
+            `PUBLIC_BASE_URL` is unset). Fetchable with the same domain hash bearer used for
+            this request — see Docs/Auth/avatars.md §9.
 
     GroupObject:
       type: object
@@ -1555,6 +1601,21 @@ components:
               avatar_url:
                 type: string
                 nullable: true
+                description: |
+                  External provider avatar URL. Unchanged behaviour: overwritten on every
+                  social login, and null for providers that supply none (e.g. Apple).
+              avatar_source:
+                type: string
+                enum: [uploaded, provider, generated]
+                description: |
+                  Which source `GET /domain/users/{userId}/avatar` would serve from.
+              avatar_image_url:
+                type: string
+                description: |
+                  Absolute URL that always resolves to this user's avatar image
+                  (`<PUBLIC_BASE_URL>/domain/users/{userId}/avatar?domain=...`; root-relative
+                  when `PUBLIC_BASE_URL` is unset). Fetchable with the same domain hash bearer
+                  used for this request — see Docs/Auth/avatars.md §9.
               twofa_enabled:
                 type: boolean
               role:
@@ -1562,6 +1623,42 @@ components:
               created_at:
                 type: string
                 format: date-time
+
+    AvatarUploadResponse:
+      type: object
+      required: [ok, avatar]
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+        avatar:
+          type: object
+          required: [source, content_type, size_bytes, updated_at]
+          properties:
+            source:
+              type: string
+              enum: [uploaded]
+            content_type:
+              type: string
+              enum: [image/png, image/jpeg, image/webp]
+              description: The magic-byte sniffed type that was stored.
+            size_bytes:
+              type: integer
+            updated_at:
+              type: string
+              format: date-time
+
+    AvatarUploadRequest:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: |
+            PNG, JPEG or WebP, at most 1 MiB. The stored type is decided by magic-byte
+            sniffing, not the supplied mimetype; SVG and other non-raster uploads are
+            rejected with the generic error envelope.
 
     DomainLogsResponse:
       type: object
@@ -1584,6 +1681,12 @@ components:
               email:
                 type: string
                 nullable: true
+              avatar_image_url:
+                type: string
+                nullable: true
+                description: |
+                  Avatar image URL for `user_id`, fetchable with the same domain hash bearer
+                  (Docs/Auth/avatars.md §9). Null on rows with no `user_id`.
               domain:
                 type: string
               timestamp:
@@ -1617,6 +1720,11 @@ components:
               type: string
             email:
               type: string
+            avatar_image_url:
+              type: string
+              description: |
+                Avatar image URL for the calling superuser, fetchable with the same domain hash
+                bearer (Docs/Auth/avatars.md §9).
 
     AdminSessionResponse:
       type: object
@@ -1628,6 +1736,13 @@ components:
         adminUser:
           type: object
           additionalProperties: true
+          properties:
+            avatarImageUrl:
+              type: string
+              description: |
+                Avatar image URL for the calling admin
+                (`<PUBLIC_BASE_URL>/internal/admin/users/{userId}/avatar`), fetchable with the
+                same admin bearer — see Docs/Auth/avatars.md §9.
 
     AdminDashboardResponse:
       type: object
@@ -3216,6 +3331,462 @@ paths:
                 $ref: '#/components/schemas/DomainUsersResponse'
         '401':
           description: Missing or invalid domain hash auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ── Avatars ───────────────────────────────────────────────────────────────────
+
+  /domain/users/{userId}/avatar:
+    get:
+      tags: [Avatars]
+      summary: Get a user's avatar image
+      operationId: getDomainUserAvatar
+      description: |
+        Returns image bytes, never JSON. Resolution precedence is fixed: uploaded image →
+        server-side proxy of the provider `avatar_url` → deterministic generated SVG. Any
+        provider-fetch failure falls back to the generated image, so a user visible to the
+        authenticated domain always yields 200 with an image.
+
+        The user must be visible to the domain under the same rules as `GET /domain/users`;
+        unknown or cross-domain ids return the standard generic 404.
+      security:
+        - domainHashBearer: []
+      parameters:
+        - $ref: '#/components/parameters/userIdPath'
+        - $ref: '#/components/parameters/domainQuery'
+        - $ref: '#/components/parameters/avatarConfigUrlQuery'
+        - $ref: '#/components/parameters/avatarStyleQuery'
+        - $ref: '#/components/parameters/avatarSizeQuery'
+      responses:
+        '200':
+          description: Avatar image bytes.
+          headers:
+            X-UOA-Avatar-Source:
+              description: Which source the bytes came from.
+              schema:
+                type: string
+                enum: [uploaded, provider, generated]
+            Cache-Control:
+              description: |
+                `private, max-age=300` for uploaded/proxied images;
+                `private, max-age=86400` for deterministic generated images.
+              schema:
+                type: string
+            ETag:
+              description: SHA-256 of the returned bytes.
+              schema:
+                type: string
+            X-Content-Type-Options:
+              schema:
+                type: string
+                enum: [nosniff]
+            Content-Disposition:
+              schema:
+                type: string
+            Content-Security-Policy:
+              description: SVG responses only.
+              schema:
+                type: string
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: Not modified (matching `If-None-Match`).
+        '401':
+          description: Missing or invalid domain hash auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Generic not found — unknown or cross-domain user id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags: [Avatars]
+      summary: Set a user's uploaded avatar
+      operationId: putDomainUserAvatar
+      description: |
+        Replaces the user's uploaded avatar. Rate-limited per domain + user.
+        `users.avatar_url` is untouched, so a later social login cannot clobber the upload.
+      security:
+        - domainHashBearer: []
+      parameters:
+        - $ref: '#/components/parameters/userIdPath'
+        - $ref: '#/components/parameters/domainQuery'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AvatarUploadRequest'
+      responses:
+        '200':
+          description: Stored avatar metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvatarUploadResponse'
+        '400':
+          description: Generic error — not a supported raster image.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid domain hash auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Upload exceeds the 1 MiB cap.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Avatars]
+      summary: Remove a user's uploaded avatar
+      operationId: deleteDomainUserAvatar
+      description: |
+        Idempotent. Resolution falls back to the provider URL or the generated image.
+        Rate-limited per domain + user.
+      security:
+        - domainHashBearer: []
+      parameters:
+        - $ref: '#/components/parameters/userIdPath'
+        - $ref: '#/components/parameters/domainQuery'
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [true]
+        '401':
+          description: Missing or invalid domain hash auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /avatar/me:
+    get:
+      tags: [Avatars]
+      summary: Get the access-token subject's avatar image
+      operationId: getMyAvatar
+      description: |
+        Same resolution pipeline as the domain route, for the caller's own user. The access
+        token's `domain` claim must equal `domain`; the acting identity is always the token
+        subject.
+      security:
+        - domainHashBearer: []
+          accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/domainQuery'
+        - $ref: '#/components/parameters/avatarConfigUrlQuery'
+        - $ref: '#/components/parameters/avatarStyleQuery'
+        - $ref: '#/components/parameters/avatarSizeQuery'
+      responses:
+        '200':
+          description: Avatar image bytes.
+          headers:
+            X-UOA-Avatar-Source:
+              schema:
+                type: string
+                enum: [uploaded, provider, generated]
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: Not modified (matching `If-None-Match`).
+        '401':
+          description: Missing or invalid domain hash auth or access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access token domain does not match `domain`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags: [Avatars]
+      summary: Set the caller's own avatar
+      operationId: putMyAvatar
+      description: |
+        Uploads the access-token subject's own avatar. The acting identity is always the
+        token subject. Rate-limited per domain + user.
+      security:
+        - domainHashBearer: []
+          accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/domainQuery'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AvatarUploadRequest'
+      responses:
+        '200':
+          description: Stored avatar metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvatarUploadResponse'
+        '400':
+          description: Generic error — not a supported raster image.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid domain hash auth or access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Upload exceeds the 1 MiB cap.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Avatars]
+      summary: Clear the caller's own uploaded avatar
+      operationId: deleteMyAvatar
+      description: |
+        Idempotent. Resolution falls back to the provider URL or the generated image.
+        Rate-limited per domain + user.
+      security:
+        - domainHashBearer: []
+          accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/domainQuery'
+      responses:
+        '200':
+          description: Cleared.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [true]
+        '401':
+          description: Missing or invalid domain hash auth or access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /domain/teams/{teamId}/avatar:
+    get:
+      tags: [Avatars]
+      summary: Get a team's (company) avatar image
+      operationId: getDomainTeamAvatar
+      description: |
+        Returns image bytes, never JSON — the team counterpart of
+        `/domain/users/{userId}/avatar`, for backend rendering with no end-user context.
+        Resolution precedence is fixed: uploaded team image -> server-side proxy of the team
+        `iconUrl` -> deterministic generated SVG seeded from the team id. Any proxy failure
+        falls back to the generated image, so a team visible to the authenticated domain
+        always yields 200 with an image.
+
+        The team's organisation must belong to the authenticated domain; unknown or
+        cross-domain team ids return the standard generic 404.
+      security:
+        - domainHashBearer: []
+      parameters:
+        - $ref: '#/components/parameters/teamIdPath'
+        - $ref: '#/components/parameters/domainQuery'
+        - $ref: '#/components/parameters/avatarConfigUrlQuery'
+        - $ref: '#/components/parameters/avatarStyleQuery'
+        - $ref: '#/components/parameters/avatarSizeQuery'
+      responses:
+        '200':
+          description: Avatar image bytes.
+          headers:
+            X-UOA-Avatar-Source:
+              description: Which source the bytes came from (`provider` = the proxied team `iconUrl`).
+              schema:
+                type: string
+                enum: [uploaded, provider, generated]
+            Cache-Control:
+              description: |
+                `private, max-age=300` for uploaded/proxied images;
+                `private, max-age=86400` for deterministic generated images.
+              schema:
+                type: string
+            ETag:
+              description: SHA-256 of the returned bytes.
+              schema:
+                type: string
+            X-Content-Type-Options:
+              schema:
+                type: string
+                enum: [nosniff]
+            Content-Disposition:
+              schema:
+                type: string
+            Content-Security-Policy:
+              description: SVG responses only.
+              schema:
+                type: string
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: Not modified (matching `If-None-Match`).
+        '401':
+          description: Missing or invalid domain hash auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Generic not found — unknown or cross-domain team id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags: [Avatars]
+      summary: Set a team's uploaded avatar (backend path)
+      operationId: putDomainTeamAvatar
+      description: |
+        Replaces the team's uploaded avatar with no end-user context — the management path for
+        product backends, which keep a bound refresh credential rather than a spendable UOA
+        access token and therefore cannot drive the dual-auth `/org/*` mutations.
+
+        No role check: per brief §24.10 the domain hash token represents full system trust for
+        that domain, so the calling backend enforces its own owner/admin gating before relaying.
+        The team's organisation must still belong to the authenticated domain. The team
+        `iconUrl` column is untouched. Rate-limited per domain + team.
+      security:
+        - domainHashBearer: []
+      parameters:
+        - $ref: '#/components/parameters/teamIdPath'
+        - $ref: '#/components/parameters/domainQuery'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AvatarUploadRequest'
+      responses:
+        '200':
+          description: Stored avatar metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvatarUploadResponse'
+        '400':
+          description: Generic error — not a supported raster image.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid domain hash auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Generic not found — unknown or cross-domain team id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Upload exceeds the 1 MiB cap.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Avatars]
+      summary: Remove a team's uploaded avatar (backend path)
+      operationId: deleteDomainTeamAvatar
+      description: |
+        Idempotent. Resolution falls back to the team `iconUrl` or the generated image. Same
+        full-trust domain-hash semantics as the PUT. Rate-limited per domain + team.
+      security:
+        - domainHashBearer: []
+      parameters:
+        - $ref: '#/components/parameters/teamIdPath'
+        - $ref: '#/components/parameters/domainQuery'
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkTrue'
+        '401':
+          description: Missing or invalid domain hash auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Generic not found — unknown or cross-domain team id.
           content:
             application/json:
               schema:
@@ -5199,7 +5770,9 @@ paths:
         - $ref: '#/components/parameters/cursorQuery'
       responses:
         '200':
-          description: Paginated member list.
+          description: |
+            Paginated member list. Each entry carries `avatarImageUrl` — see
+            Docs/Auth/avatars.md §9.
           content:
             application/json:
               schema:
@@ -5493,6 +6066,170 @@ paths:
                 $ref: '#/components/schemas/OkTrue'
         '401':
           description: Missing auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /org/organisations/{orgId}/teams/{teamId}/avatar:
+    parameters:
+      - $ref: '#/components/parameters/orgIdPath'
+      - $ref: '#/components/parameters/teamIdPath'
+      - $ref: '#/components/parameters/domainQuery'
+      - $ref: '#/components/parameters/configUrl'
+    get:
+      tags: [Avatars]
+      summary: Get a team's (company) avatar image
+      operationId: getOrgTeamAvatar
+      description: |
+        Returns image bytes, never JSON. Same auth chain as `GET /org/organisations/{orgId}/teams/{teamId}`
+        — any ACTIVE member of the organisation may read it. Resolution precedence is
+        uploaded team image -> proxied team `iconUrl` -> deterministic generated SVG.
+      security:
+        - domainHashBearer: []
+          accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/avatarStyleQuery'
+        - $ref: '#/components/parameters/avatarSizeQuery'
+      responses:
+        '200':
+          description: Avatar image bytes.
+          headers:
+            X-UOA-Avatar-Source:
+              description: Which source the bytes came from (`provider` = the proxied team `iconUrl`).
+              schema:
+                type: string
+                enum: [uploaded, provider, generated]
+            Cache-Control:
+              description: |
+                `private, max-age=300` for uploaded/proxied images;
+                `private, max-age=86400` for deterministic generated images.
+              schema:
+                type: string
+            ETag:
+              description: SHA-256 of the returned bytes.
+              schema:
+                type: string
+            X-Content-Type-Options:
+              schema:
+                type: string
+                enum: [nosniff]
+            Content-Disposition:
+              schema:
+                type: string
+            Content-Security-Policy:
+              description: SVG responses only.
+              schema:
+                type: string
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: Not modified (matching `If-None-Match`).
+        '401':
+          description: Missing or invalid domain hash auth, access token, or config.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Caller is not an active member of the organisation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Generic not found — org features disabled, or unknown org/team.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags: [Avatars]
+      summary: Set a team's uploaded avatar
+      operationId: putOrgTeamAvatar
+      description: |
+        Replaces the team's uploaded avatar. Organisation owner/admin only — the same
+        authorization as `PUT /org/organisations/{orgId}/teams/{teamId}`. Rate-limited per
+        organisation + team. The team `iconUrl` column is untouched.
+      security:
+        - domainHashBearer: []
+          accessToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AvatarUploadRequest'
+      responses:
+        '200':
+          description: Stored avatar metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvatarUploadResponse'
+        '400':
+          description: Generic error — not a supported raster image.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid domain hash auth, access token, or config.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Caller is not an organisation owner or admin.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Upload exceeds the 1 MiB cap.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Avatars]
+      summary: Remove a team's uploaded avatar
+      operationId: deleteOrgTeamAvatar
+      description: |
+        Idempotent. Resolution falls back to the team `iconUrl` or the generated image.
+        Organisation owner/admin only. Rate-limited per organisation + team.
+      security:
+        - domainHashBearer: []
+          accessToken: []
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkTrue'
+        '401':
+          description: Missing or invalid domain hash auth, access token, or config.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Caller is not an organisation owner or admin.
           content:
             application/json:
               schema:
@@ -6783,6 +7520,10 @@ paths:
       tags: [Internal Admin]
       summary: List superusers
       operationId: adminListSuperusers
+      description: |
+        Each entry carries `avatarImageUrl`
+        (`<PUBLIC_BASE_URL>/internal/admin/users/{userId}/avatar`), fetchable with the same
+        admin bearer — see Docs/Auth/avatars.md §9.
       security:
         - adminBearer: []
       responses:
@@ -7447,6 +8188,10 @@ paths:
       tags: [Internal Admin]
       summary: List all users (admin view)
       operationId: adminListUsers
+      description: |
+        Each entry carries `avatarSource` and `avatarImageUrl`
+        (`<PUBLIC_BASE_URL>/internal/admin/users/{userId}/avatar`), fetchable with the same
+        admin bearer — see Docs/Auth/avatars.md §9.
       security:
         - adminBearer: []
       parameters:
@@ -7479,6 +8224,10 @@ paths:
       tags: [Internal Admin]
       summary: Get user (admin view)
       operationId: adminGetUser
+      description: |
+        Carries `avatarSource` and `avatarImageUrl`
+        (`<PUBLIC_BASE_URL>/internal/admin/users/{userId}/avatar`), fetchable with the same
+        admin bearer — see Docs/Auth/avatars.md §9.
       security:
         - adminBearer: []
       parameters:
@@ -7505,6 +8254,326 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /internal/admin/users/{userId}/avatar:
+    parameters:
+      - $ref: '#/components/parameters/userIdPath'
+    get:
+      tags: [Avatars]
+      summary: Get any user's avatar image (admin view)
+      operationId: adminGetUserAvatar
+      description: |
+        Image bytes for any user through the same resolution pipeline as the product-facing
+        routes. Requires a bearer credential, so a plain `<img src>` cannot call it — fetch
+        the blob and render an object URL.
+      security:
+        - adminBearer: []
+      parameters:
+        - $ref: '#/components/parameters/avatarStyleQuery'
+        - $ref: '#/components/parameters/avatarSizeQuery'
+      responses:
+        '200':
+          description: Avatar image bytes.
+          headers:
+            X-UOA-Avatar-Source:
+              schema:
+                type: string
+                enum: [uploaded, provider, generated]
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: Not modified (matching `If-None-Match`).
+        '401':
+          description: Missing auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not a superuser or wrong admin domain.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Generic not found — unknown user id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags: [Avatars]
+      summary: Set any user's uploaded avatar (admin view)
+      operationId: adminPutUserAvatar
+      description: |
+        Replaces the user's uploaded avatar so operators can manage avatars from the Admin
+        panel. Audit-logged as `user.avatar_updated` against the user's domain. Rate-limited
+        per user. `users.avatar_url` is untouched, so a later social login cannot clobber the
+        upload.
+      security:
+        - adminBearer: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AvatarUploadRequest'
+      responses:
+        '200':
+          description: Stored avatar metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvatarUploadResponse'
+        '400':
+          description: Generic error — not a supported raster image.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not a superuser or wrong admin domain.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Generic not found — unknown user id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Upload exceeds the 1 MiB cap.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Avatars]
+      summary: Remove any user's uploaded avatar (admin view)
+      operationId: adminDeleteUserAvatar
+      description: |
+        Idempotent. Resolution falls back to the provider `avatar_url` or the generated image.
+        Audit-logged as `user.avatar_deleted` against the user's domain. Rate-limited per user.
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkTrue'
+        '401':
+          description: Missing auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not a superuser or wrong admin domain.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Generic not found — unknown user id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /internal/admin/teams/{teamId}/avatar:
+    parameters:
+      - $ref: '#/components/parameters/teamIdPath'
+    get:
+      tags: [Avatars]
+      summary: Get any team's avatar image (admin view)
+      operationId: adminGetTeamAvatar
+      description: |
+        Image bytes for any team through the same resolution pipeline as the product-facing
+        routes. Requires a bearer credential, so a plain `<img src>` cannot call it — fetch
+        the blob and render an object URL.
+      security:
+        - adminBearer: []
+      parameters:
+        - $ref: '#/components/parameters/avatarStyleQuery'
+        - $ref: '#/components/parameters/avatarSizeQuery'
+      responses:
+        '200':
+          description: Avatar image bytes.
+          headers:
+            X-UOA-Avatar-Source:
+              description: Which source the bytes came from (`provider` = the proxied team `iconUrl`).
+              schema:
+                type: string
+                enum: [uploaded, provider, generated]
+            Cache-Control:
+              description: |
+                `private, max-age=300` for uploaded/proxied images;
+                `private, max-age=86400` for deterministic generated images.
+              schema:
+                type: string
+            ETag:
+              description: SHA-256 of the returned bytes.
+              schema:
+                type: string
+            X-Content-Type-Options:
+              schema:
+                type: string
+                enum: [nosniff]
+            Content-Disposition:
+              schema:
+                type: string
+            Content-Security-Policy:
+              description: SVG responses only.
+              schema:
+                type: string
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: Not modified (matching `If-None-Match`).
+        '401':
+          description: Missing auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not a superuser or wrong admin domain.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Generic not found — unknown team id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags: [Avatars]
+      summary: Set any team's uploaded avatar (admin view)
+      operationId: adminPutTeamAvatar
+      description: |
+        Replaces the team's uploaded avatar so operators can manage company avatars from the
+        Admin panel. Audit-logged as `team.avatar_updated` against the owning domain.
+        Rate-limited per team.
+      security:
+        - adminBearer: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AvatarUploadRequest'
+      responses:
+        '200':
+          description: Stored avatar metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvatarUploadResponse'
+        '400':
+          description: Generic error — not a supported raster image.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not a superuser or wrong admin domain.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Generic not found — unknown team id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Upload exceeds the 1 MiB cap.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Avatars]
+      summary: Remove any team's uploaded avatar (admin view)
+      operationId: adminDeleteTeamAvatar
+      description: |
+        Idempotent. Resolution falls back to the team `iconUrl` or the generated image.
+        Audit-logged as `team.avatar_deleted` against the owning domain. Rate-limited per team.
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkTrue'
+        '401':
+          description: Missing auth.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Not a superuser or wrong admin domain.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Generic not found — unknown team id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /internal/admin/logs:
     get:
       tags: [Internal Admin]
