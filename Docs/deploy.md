@@ -243,6 +243,26 @@ Before enabling the confidential exchange in production:
    with `alg=RS256`, a unique `kid`, and public `n`/`e` members; grant both the
    Cloud Run runtime identity and GitHub deployment identity Secret Manager
    accessor permission.
+
+   > **This is a hard prerequisite for the entire confidential exchange, not an
+   > optimisation.** `MCP_OAUTH_ACCESS_TOKEN_PRIVATE_JWK` is the key the service
+   > uses both to SIGN confidential access tokens and to VERIFY them when they
+   > come back (including on `/org/*`). Until it is set, the exchange cannot mint
+   > anything and the verifier fails with `MCP_OAUTH_DISABLED` (500) —
+   > deliberately a server error, never a 401, so an unprovisioned deployment
+   > cannot be mistaken for a bad token.
+   >
+   > **Verify before enabling any delegation mapping:**
+   >
+   > ```bash
+   > curl -fsS https://<uoa-host>/oauth/jwks.json | jq '.keys | length'
+   > ```
+   >
+   > A **404 means the key is not set** (`isOAuthAccessTokenJwksEnabled()` gates
+   > the route on exactly this variable). A 200 with at least one key means the
+   > profile is ready. Do not create `token.provision` mappings — or tell a
+   > product to start using them — until this returns 200, or every call will
+   > fail with a 5xx.
 2. Keep `MCP_OAUTH_PUBLIC_PROFILE_ENABLED=false`; confidential signing and JWKS
    publication do not require a public OAuth tenant.
 3. Apply
@@ -260,9 +280,49 @@ Before enabling the confidential exchange in production:
    and the separately granted `token.provision`. The panel calls
    `/internal/admin/confidential-delegations` with the existing same-origin
    admin session; do not extract the browser token or expose a product
-   credential. `token.provision` is only for a dedicated Coder provisioner and
-   must never be inferred from `ai.invoke`. Mapping state is database-backed;
-   do not add source/resource env fallbacks.
+   credential. Mapping state is database-backed; do not add source/resource env
+   fallbacks.
+
+   > ### ⚠️ `token.provision` — read before granting it
+   >
+   > **`token.provision` is the highest-trust delegation scope, and what it
+   > grants depends entirely on the `resource` you pair it with.** Two very
+   > different capabilities share this one scope name:
+   >
+   > | `resource` | What the mapping grants |
+   > |---|---|
+   > | A product's own HTTPS origin (e.g. `https://coder.example.com`) | Token provisioning for that product only — the original dedicated-provisioner use. |
+   > | **`<UOA public base URL>/org`** (e.g. `https://sso.hugopos.eu/org`) | **Full organisation and team authority over UOA's own tenancy for that source domain** — create/rename organisations, add and remove members, change org and team roles, transfer ownership, create and revoke invites and invite links. |
+   >
+   > The second row is the capability added by the `/org/*` confidential
+   > provisioning path. A backend holding such a token acts **as one of its
+   > users**, bounded by that user's live org/team role and source-domain role —
+   > it is never more privileged than that user's own session, and it cannot
+   > reach another domain's tenant. But within that user's authority it needs no
+   > further human interaction, and the token is minted server-to-server.
+   >
+   > **Before enabling a `token.provision` mapping:**
+   >
+   > 1. Look at the `resource`. If it ends in `/org` on a UOA base URL, you are
+   >    granting organisation and team authority over UOA itself — not merely
+   >    "token provisioning". Confirm that is intended and approved.
+   > 2. Confirm the source domain is a first-party backend you control. It will
+   >    be able to act for any of its users who hold a role on that domain.
+   > 3. Prefer the narrowest resource that works. `normalizeResource` plus exact
+   >    string audience matching mean a mapping for any other resource cannot
+   >    reach `/org` — so scoping the resource IS the containment boundary.
+   > 4. `token.provision` is never implied by `ai.invoke`; grant it explicitly
+   >    and only alongside the scopes actually needed.
+   > 5. Every org/team mutation made this way is recorded in `OrgAuditLog` with
+   >    backend provenance under the `uoa_actor` metadata key (`via`, `product`,
+   >    `source_domain`, and the `act` chain). Rows without that key were made by
+   >    the user directly. Use it when reviewing org history.
+   >
+   > To revoke, disable or delete the mapping — it fails closed before any token
+   > is issued. Already-issued tokens remain valid until `exp` (bounded by the
+   > confidential access-token lifetime), but every request re-reads the user's
+   > credential epoch and `DomainRole`, so bumping the epoch or removing the role
+   > revokes in-flight tokens immediately.
 7. Verify `GET https://authentication.unlikeotherai.com/oauth/jwks.json` returns
    the configured public key, while discovery, registration, authorize, login,
    and `/oauth/token` return 404. Exercise correct and wrong product credentials,
