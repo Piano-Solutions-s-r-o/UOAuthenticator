@@ -56,9 +56,16 @@ export type AuditLogPrisma = Pick<PrismaClient, 'adminAuditLog'>;
  * domain-hash bearer, which identifies a client backend and not a user, so there is no address to
  * record. The `client:` prefix keeps those rows unmistakable and unmatchable against any real
  * address, so a reader never mistakes a machine action for a human one.
+ *
+ * `clientDomainId` is `ClientDomain.id` — a plain row cuid. It must NEVER be
+ * `request.domainAuthClientId`, which despite its name is the caller's **live domain-hash bearer**
+ * (`verifyDomainAuthToken` returns `clientId: clientHash`, the token exactly as presented). Writing
+ * that here would persist a full-system-trust credential in plaintext, in an operator-readable
+ * table, under a column nobody would think to check for a secret — and it rotates with the domain
+ * secret, so it would not even correlate the trail it exists to build.
  */
-export function machineActor(params: { domain: string; clientId?: string | null }): string {
-  const client = params.clientId ? `#${params.clientId}` : '';
+export function machineActor(params: { domain: string; clientDomainId?: string | null }): string {
+  const client = params.clientDomainId ? `#${params.clientDomainId}` : '';
   return `client:${params.domain}${client}`;
 }
 

@@ -1,6 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { fetch as undiciFetch } from 'undici';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/app.js';
 import { expectJsonError } from '../helpers/error-response.js';
@@ -39,7 +39,9 @@ afterAll(async () => {
   }
 });
 
-afterEach(() => {
+// Cleared before each test, not after: a "no outbound work" assertion must not depend on which
+// test happened to run immediately before it.
+beforeEach(() => {
   vi.mocked(undiciFetch).mockClear();
   vi.mocked(lookup).mockClear();
 });

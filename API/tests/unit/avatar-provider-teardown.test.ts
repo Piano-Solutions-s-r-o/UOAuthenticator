@@ -36,6 +36,8 @@ const running: Server[] = [];
 async function startStallingServer(head: {
   status: number;
   headers?: Record<string, string>;
+  /** Bytes to emit before stalling. Defaults to a single token byte. */
+  body?: Buffer;
 }): Promise<StallingServer> {
   let releaseBody: () => void = () => {};
   const bodyReleased = new Promise<void>((resolve) => {
@@ -45,8 +47,8 @@ async function startStallingServer(head: {
   const server = createServer((_req, res) => {
     res.on('close', releaseBody);
     res.writeHead(head.status, head.headers ?? {});
-    // Flush the headers plus one token byte, then never end the body.
-    res.write('.');
+    // Flush the headers plus the opening bytes, then never end the body.
+    res.write(head.body ?? '.');
   });
 
   await new Promise<void>((resolve) => {
@@ -59,6 +61,7 @@ async function startStallingServer(head: {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   while (running.length) {
     const server = running.pop()!;
     server.closeAllConnections();
@@ -95,17 +98,31 @@ function relayTo(server: StallingServer) {
 
 const PROVIDER_URL = 'https://cdn.example.com/avatar.png';
 
+/**
+ * Upper bound that separates "the body was released" from "the body was abandoned".
+ *
+ * A released body lets the graceful `Agent.close()` settle at once — measured at 2–15ms. An
+ * abandoned one cannot settle at all, so `closeSsrfAgent` must sit out its full 250ms grace window
+ * before forcing the sockets down. 200ms is therefore below the hard floor of the broken path and
+ * an order of magnitude above the working one. Without it these tests pass with
+ * `releaseResponseBody` deleted, because the deadline and the bounded close still return a timely
+ * `null` — the two halves of the fix would mask each other.
+ */
+const RELEASED_BODY_BUDGET_MS = 200;
+
 describe('fetchProviderAvatar teardown', () => {
   it('returns null instead of hanging when a non-2xx response never ends its body', async () => {
     const server = await startStallingServer({ status: 404 });
 
+    const started = Date.now();
     const result = await within(
-      fetchProviderAvatar(PROVIDER_URL, { fetch: relayTo(server), deadlineMs: 500 }),
+      fetchProviderAvatar(PROVIDER_URL, { fetch: relayTo(server), deadlineMs: 2_000 }),
       3_000,
       'fetchProviderAvatar (404 with a stalled body)',
     );
 
     expect(result).toBeNull();
+    expect(Date.now() - started).toBeLessThan(RELEASED_BODY_BUDGET_MS);
     await within(server.bodyReleased, 2_000, 'response body teardown');
   });
 
@@ -118,13 +135,37 @@ describe('fetchProviderAvatar teardown', () => {
       },
     });
 
+    const started = Date.now();
     const result = await within(
-      fetchProviderAvatar(PROVIDER_URL, { fetch: relayTo(server), deadlineMs: 500 }),
+      fetchProviderAvatar(PROVIDER_URL, { fetch: relayTo(server), deadlineMs: 2_000 }),
       3_000,
       'fetchProviderAvatar (oversized content-length with a stalled body)',
     );
 
     expect(result).toBeNull();
+    expect(Date.now() - started).toBeLessThan(RELEASED_BODY_BUDGET_MS);
+    await within(server.bodyReleased, 2_000, 'response body teardown');
+  });
+
+  it('gives up on the overall deadline when the body stalls mid-stream', async () => {
+    // The most realistic hostile shape: a 200 that starts sending real PNG bytes and then simply
+    // stops. Nothing is oversized and nothing is malformed, so the streaming read itself is the
+    // blocking leg — only the wall-clock deadline ends it.
+    const server = await startStallingServer({
+      status: 200,
+      headers: { 'content-type': 'image/png' },
+      body: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    });
+
+    const started = Date.now();
+    const result = await within(
+      fetchProviderAvatar(PROVIDER_URL, { fetch: relayTo(server), deadlineMs: 250 }),
+      3_000,
+      'fetchProviderAvatar (body that stalls mid-stream)',
+    );
+
+    expect(result).toBeNull();
+    expect(Date.now() - started).toBeLessThan(1_000);
     await within(server.bodyReleased, 2_000, 'response body teardown');
   });
 
@@ -139,7 +180,8 @@ describe('fetchProviderAvatar teardown', () => {
     );
 
     expect(result).toBeNull();
-    expect(Date.now() - started).toBeLessThan(3_000);
+    // Well inside the 3s guard above, which would pass for any deadline up to 3s.
+    expect(Date.now() - started).toBeLessThan(1_000);
     expect(neverSettles).toHaveBeenCalledOnce();
   });
 });

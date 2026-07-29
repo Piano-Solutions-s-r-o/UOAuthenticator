@@ -484,9 +484,18 @@ describe.skipIf(!hasDatabase)('team avatar routes', () => {
       expect(updated[0].metadata).toMatchObject({ teamId: team.id, contentType: 'image/png' });
       expect(deleted[0].metadata).toMatchObject({ teamId: team.id });
 
-      // The actor is a client backend, not a person: the row must never read as an address.
+      const clientDomain = await handle!.prisma.clientDomain.findUnique({
+        where: { domain: DOMAIN },
+        select: { id: true },
+      });
+
       for (const row of [...updated, ...deleted]) {
-        expect(row.actorEmail.startsWith(`client:${DOMAIN}`)).toBe(true);
+        // The actor is a client backend, not a person: the row must never read as an address, and
+        // it names the ClientDomain row rather than the credential that authenticated the call.
+        expect(row.actorEmail).toBe(`client:${DOMAIN}#${clientDomain!.id}`);
+        // `domainHash` IS the live domain-hash bearer — full system trust for this domain. It must
+        // not reach an operator-readable table in any field.
+        expect(JSON.stringify(row)).not.toContain(domainHash);
       }
     });
 

@@ -178,9 +178,12 @@ async function requestImage(
 
 /**
  * Release whatever is left of a response body. A WHATWG `ReadableStream` (undici's `fetch`) is
- * cancelled; a Node stream is destroyed. A body that was already fully consumed needs neither, and
- * one that is still locked by an abandoned reader throws — both are fine outcomes here, because
- * the pinned agent is force-closed right after.
+ * cancelled; a Node stream is destroyed.
+ *
+ * Two cases are deliberately no-ops. A body already drained by `readCappedBody` has nothing left to
+ * release. A body still `locked` — undici leaves `arrayBuffer()`-consumed bodies locked, and
+ * `cancel()` on a locked stream throws — is skipped here and cleaned up by the abort signal plus
+ * `closeSsrfAgent`. Neither can strand a request: both mean the read already finished.
  */
 async function releaseResponseBody(res: ProviderFetchResponse): Promise<void> {
   const body = res.body as
