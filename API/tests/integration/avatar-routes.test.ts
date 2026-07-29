@@ -92,6 +92,7 @@ describe.skipIf(!hasDatabase)('avatar routes', () => {
 
   beforeEach(async () => {
     if (!handle) return;
+    await handle.prisma.adminAuditLog.deleteMany();
     await handle.prisma.userAvatar.deleteMany();
     await handle.prisma.domainRole.deleteMany();
     await handle.prisma.user.deleteMany();
@@ -224,6 +225,57 @@ describe.skipIf(!hasDatabase)('avatar routes', () => {
         headers: { authorization: `Bearer ${hash}` },
       });
       expect(afterDelete.headers['x-uoa-avatar-source']).toBe('generated');
+    });
+
+    it('audit-logs the backend upload and delete against the acting domain', async () => {
+      // A `global`-scope user is one row shared by every domain they belong to, so this write is
+      // visible in every other tenant's UI. The audit row is what makes it attributable.
+      const hash = await seedDomainSecret(handle!.prisma, DOMAIN);
+      const userId = await seedUser({ email: 'audited@example.com', domain: DOMAIN });
+      const url = `/domain/users/${userId}/avatar?domain=${encodeURIComponent(DOMAIN)}`;
+      const upload = multipartFile(png(0x44));
+
+      const put = await app!.inject({
+        method: 'PUT',
+        url,
+        headers: { authorization: `Bearer ${hash}`, 'content-type': upload.contentType },
+        payload: upload.body,
+      });
+      expect(put.statusCode).toBe(200);
+
+      const del = await app!.inject({
+        method: 'DELETE',
+        url,
+        headers: { authorization: `Bearer ${hash}` },
+      });
+      expect(del.statusCode).toBe(200);
+
+      const updated = await handle!.prisma.adminAuditLog.findMany({
+        where: { action: 'domain.user_avatar_updated' },
+      });
+      const deleted = await handle!.prisma.adminAuditLog.findMany({
+        where: { action: 'domain.user_avatar_deleted' },
+      });
+
+      expect(updated).toHaveLength(1);
+      expect(deleted).toHaveLength(1);
+      expect(updated[0].targetDomain).toBe(DOMAIN);
+      expect(updated[0].metadata).toMatchObject({ userId, contentType: 'image/png' });
+      expect(deleted[0].metadata).toMatchObject({ userId });
+
+      const clientDomain = await handle!.prisma.clientDomain.findUnique({
+        where: { domain: DOMAIN },
+        select: { id: true },
+      });
+
+      for (const row of [...updated, ...deleted]) {
+        // The actor is a client backend, not a person: the row must never read as an address, and
+        // it names the ClientDomain row rather than the credential that authenticated the call.
+        expect(row.actorEmail).toBe(`client:${DOMAIN}#${clientDomain!.id}`);
+        // `hash` IS the live domain-hash bearer — full system trust for this domain. It must not
+        // reach an operator-readable table in any field.
+        expect(JSON.stringify(row)).not.toContain(hash);
+      }
     });
 
     it('honours ?style= and ?size= on the generated image', async () => {

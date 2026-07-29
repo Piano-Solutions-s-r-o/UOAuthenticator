@@ -214,10 +214,50 @@ export function createPinnedAgent(url: URL, destination: PublicDestination): Age
   });
 }
 
-export async function closeSsrfAgent(agent: Agent): Promise<void> {
+/**
+ * Upper bound on the graceful phase of {@link closeSsrfAgent}. Long enough for a healthy agent
+ * whose response was fully consumed, short enough that a stalled peer cannot hold a request.
+ */
+const SSRF_AGENT_CLOSE_GRACE_MS = 250;
+
+/**
+ * Close a pinned agent without ever blocking the caller indefinitely.
+ *
+ * `Agent.close()` is *graceful*: it waits for every in-flight request on that agent to finish. A
+ * peer that sends response headers and then never ends the body keeps its request active forever,
+ * so an abandoned response body used to make this await — which every SSRF-guarded fetch runs in a
+ * `finally` — never settle, stranding the whole HTTP request that triggered it. Callers must still
+ * release response bodies; this is the backstop that makes a missed release survivable.
+ */
+export async function closeSsrfAgent(
+  agent: Agent,
+  graceMs = SSRF_AGENT_CLOSE_GRACE_MS,
+): Promise<void> {
+  const graceful = (async () => {
+    try {
+      await agent.close();
+    } catch {
+      // Ignore close failures; fetch errors are handled separately.
+    }
+    return true;
+  })();
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const grace = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), graceMs);
+  });
+
   try {
-    await agent.close();
+    if (await Promise.race([graceful, grace])) return;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+
+  // The graceful close did not settle in time. Force every socket on this agent down; `destroy()`
+  // always settles and also unblocks the still-pending `close()` above.
+  try {
+    await agent.destroy();
   } catch {
-    // Ignore close failures; fetch errors are handled separately.
+    // Ignore destroy failures; fetch errors are handled separately.
   }
 }
