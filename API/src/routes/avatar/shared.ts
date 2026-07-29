@@ -96,6 +96,14 @@ export async function readAvatarUpload(request: FastifyRequest): Promise<Buffer>
  * §2). This never relaxes verification — a supplied config is fetched and verified exactly as on
  * any other route, and a present-but-invalid one fails the request. An absent one simply means
  * "no configured preference".
+ *
+ * **Register this AFTER the route's auth guard, never before.** `configVerifier` does real
+ * outbound work on a caller-supplied URL — DNS resolution, an HTTPS fetch with its own multi-second
+ * budget, JWKS lookup, signature verification, and a handshake-error log write. Running it first
+ * would let an anonymous caller aim all of that wherever it liked and only then collect its 401,
+ * which is both a bandwidth amplifier and a request-slot sink on the auth host. Every `/org/*`
+ * chain puts the bearer check first for the same reason. The style preference is cosmetic, so
+ * nothing downstream needs the config before the caller has been authenticated.
  */
 export async function optionalConfigVerifier(
   request: FastifyRequest,

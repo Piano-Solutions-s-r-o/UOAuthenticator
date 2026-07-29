@@ -62,7 +62,9 @@ const uploadResponseSchema = { type: 'object', additionalProperties: true } as c
 export function registerDomainTeamAvatarRoutes(app: FastifyInstance): void {
   app.get(
     '/domain/teams/:teamId/avatar',
-    { preHandler: [optionalConfigVerifier, requireDomainHashAuthForDomainQuery] },
+    // Auth first, config second: `optionalConfigVerifier` does attacker-directed outbound work, so
+    // it must never run for a caller that is about to get a 401. See `optionalConfigVerifier`.
+    { preHandler: [requireDomainHashAuthForDomainQuery, optionalConfigVerifier] },
     async (request, reply) => {
       const { teamId } = ParamsSchema.parse(request.params);
       const query = ImageQuerySchema.parse(request.query);
