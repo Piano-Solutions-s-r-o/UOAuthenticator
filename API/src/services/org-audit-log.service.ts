@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 
 import { getAdminPrisma } from '../db/prisma.js';
+import type { AccessTokenActor } from './access-token.service.js';
 
 /**
  * Org-scoped audit log (design §4.10). Distinct from the platform-admin `AdminAuditLog`
@@ -56,8 +57,58 @@ export type WriteOrgAuditLogParams = {
   targetType: OrgAuditTargetType;
   targetId: string;
   actorUserId?: string | null;
+  /**
+   * Provenance of a backend that acted FOR `actorUserId` rather than the user
+   * acting themselves. Undefined for every user-initiated mutation, which is
+   * every mutation on the HS256 path.
+   */
+  actor?: AccessTokenActor;
   metadata?: Prisma.InputJsonValue;
 };
+
+/**
+ * Reserved `metadata` key holding backend-actor provenance.
+ *
+ * `OrgAuditLog` has no dedicated actor column and adding one would mean a schema
+ * migration on a production auth service; `metadata` is already a `Json` column
+ * with a `{}` default, so provenance rides there under one reserved key. Rows
+ * without the key are user-initiated — including every row written before this
+ * feature existed, which stays true without a backfill.
+ */
+export const ORG_AUDIT_ACTOR_METADATA_KEY = 'uoa_actor';
+
+/** Serialise actor provenance into the reserved metadata key. */
+function actorMetadata(
+  actor: AccessTokenActor | undefined,
+): Record<string, Prisma.InputJsonValue> | undefined {
+  if (!actor) return undefined;
+  return {
+    [ORG_AUDIT_ACTOR_METADATA_KEY]: {
+      via: actor.via,
+      product: actor.product,
+      source_domain: actor.sourceDomain,
+      ...(actor.chain?.length ? { chain: actor.chain } : {}),
+    },
+  };
+}
+
+/**
+ * Merge caller metadata with actor provenance.
+ *
+ * Callers always pass a plain object, but `Prisma.InputJsonValue` also admits
+ * scalars and arrays, so guard before spreading and fall back to the provenance
+ * alone rather than silently discarding it.
+ */
+function buildMetadata(params: WriteOrgAuditLogParams): Prisma.InputJsonValue {
+  const provenance = actorMetadata(params.actor);
+  const base = params.metadata ?? {};
+  if (!provenance) return base;
+  const isPlainObject = typeof base === 'object' && base !== null && !Array.isArray(base);
+  // Provenance last so caller metadata can never shadow the reserved key.
+  return isPlainObject
+    ? { ...(base as Record<string, Prisma.InputJsonValue>), ...provenance }
+    : provenance;
+}
 
 /**
  * Write an org audit row. Pass `deps.prisma` (the tenant transaction client) to record it inside a
@@ -76,7 +127,7 @@ export async function writeOrgAuditLog(
       action: params.action,
       targetType: params.targetType,
       targetId: params.targetId,
-      metadata: params.metadata ?? {},
+      metadata: buildMetadata(params),
     },
   });
 }

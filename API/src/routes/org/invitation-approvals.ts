@@ -14,7 +14,12 @@ import {
 } from '../../services/team-invite.service.js';
 import { AppError } from '../../utils/errors.js';
 import { assertVerifiedDomainMatchesQuery, normalizeDomain } from './domain-context.js';
-import { type RequestWithClaims, getActorUserId, getOrgIdFromParams } from './organisation-route.shared.js';
+import {
+  type RequestWithClaims,
+  getActorProvenance,
+  getActorUserId,
+  getOrgIdFromParams,
+} from './organisation-route.shared.js';
 
 const ListQuerySchema = z
   .object({
@@ -116,7 +121,15 @@ export function registerInvitationApprovalRoutes(app: FastifyInstance): void {
       setTenantContextFromRequest(request, { orgId, userId: reviewerUserId });
       const invite = await request.withTenantTx((tx) =>
         approveInvite(
-          { orgId, domain, inviteId, config, configUrl, reviewerUserId },
+          {
+            orgId,
+            domain,
+            inviteId,
+            config,
+            configUrl,
+            reviewerUserId,
+            actor: getActorProvenance(request),
+          },
           { prisma: asPrismaClient(tx) },
         ),
       );
@@ -143,7 +156,10 @@ export function registerInvitationApprovalRoutes(app: FastifyInstance): void {
 
       setTenantContextFromRequest(request, { orgId, userId: reviewerUserId });
       const invite = await request.withTenantTx((tx) =>
-        denyInvite({ orgId, domain, inviteId, reviewerUserId }, { prisma: asPrismaClient(tx) }),
+        denyInvite(
+          { orgId, domain, inviteId, reviewerUserId, actor: getActorProvenance(request) },
+          { prisma: asPrismaClient(tx) },
+        ),
       );
 
       reply.status(200).send(invite);

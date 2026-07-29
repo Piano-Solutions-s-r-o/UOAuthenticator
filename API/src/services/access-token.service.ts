@@ -41,6 +41,35 @@ const AccessTokenClaimsSchema = z
   })
   .passthrough();
 
+/** One hop in a delegation chain, nearest caller first. */
+export type AccessTokenActorHop = {
+  /** The calling product's own domain. */
+  sub: string;
+  /** The calling product's lowercase identifier. */
+  product: string;
+};
+
+/**
+ * Provenance of a request that a backend made *on behalf of* the acting user,
+ * rather than the user making it themselves.
+ *
+ * Absent on the HS256 user path, where the acting user IS the caller — so
+ * `actor === undefined` means "user-initiated" and is the only shape any existing
+ * caller ever sees. Populated only by
+ * `confidential-provisioning-token.service.ts`, which reads it from the
+ * confidential token's `product` / `azp` / `act` claims.
+ */
+export type AccessTokenActor = {
+  /** Which acceptance path produced these claims. */
+  via: 'confidential_provisioning';
+  /** Product identifier the delegation mapping bound this token to. */
+  product: string;
+  /** Domain of the backend that presented the token (`source_domain` = `azp`). */
+  sourceDomain: string;
+  /** Upstream delegation chain from `act`, immediate caller first. */
+  chain?: AccessTokenActorHop[];
+};
+
 export type AccessTokenClaims = {
   userId: string;
   tokenVersion: number;
@@ -48,6 +77,11 @@ export type AccessTokenClaims = {
   domain: string;
   clientId: string;
   role: 'superuser' | 'user';
+  /**
+   * Set only when a trusted product backend acted for this user server-to-server.
+   * Undefined for every user-initiated request.
+   */
+  actor?: AccessTokenActor;
   org?: {
     org_id: string;
     org_role: string;

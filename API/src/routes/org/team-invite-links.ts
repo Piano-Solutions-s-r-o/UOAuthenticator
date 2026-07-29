@@ -16,6 +16,7 @@ import { AppError } from '../../utils/errors.js';
 import {
   InviteLinkCreateBodySchema,
   type RequestWithClaims,
+  getActorProvenance,
   getActorUserId,
   getLinkIdFromParams,
   getOrgIdFromParams,
@@ -66,6 +67,7 @@ export function registerTeamInviteLinkRoutes(app: FastifyInstance): void {
             teamId,
             domain,
             actorUserId,
+            actor: getActorProvenance(request),
             roleToAssign: body.roleToAssign,
             maxUses: body.maxUses,
             expiresInDays: body.expiresInDays,
@@ -129,7 +131,7 @@ export function registerTeamInviteLinkRoutes(app: FastifyInstance): void {
       setTenantContextFromRequest(request, { orgId, userId: actorUserId });
       const result = await request.withTenantTx((tx) =>
         revokeTeamInviteLink(
-          { orgId, teamId, linkId, domain, actorUserId },
+          { orgId, teamId, linkId, domain, actorUserId, actor: getActorProvenance(request) },
           { prisma: asPrismaClient(tx) },
         ),
       );

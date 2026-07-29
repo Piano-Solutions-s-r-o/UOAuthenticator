@@ -13,6 +13,7 @@ import {
   auditOrg,
   normalizeDomain,
   resolveOrganisationByDomain,
+  type AccessTokenActor,
 } from './organisation.service.base.js';
 import { isOrgOrTeamManager } from './team.service.base.js';
 import {
@@ -125,6 +126,7 @@ export async function createTeamInviteLink(
     teamId: string;
     domain: string;
     actorUserId: string;
+    actor?: AccessTokenActor;
     roleToAssign?: string;
     maxUses?: number;
     expiresInDays?: number;
@@ -182,6 +184,7 @@ export async function createTeamInviteLink(
   await auditOrg({
     orgId: org.id,
     actorUserId: params.actorUserId,
+    actor: params.actor,
     action: 'invite_link.created',
     targetType: 'invite_link',
     targetId: created.id,
@@ -223,7 +226,14 @@ export async function listTeamInviteLinks(
 
 /** Revoke an invite link. Idempotent — revoking an already-revoked link is a no-op success. */
 export async function revokeTeamInviteLink(
-  params: { orgId: string; teamId: string; linkId: string; domain: string; actorUserId: string },
+  params: {
+    orgId: string;
+    teamId: string;
+    linkId: string;
+    domain: string;
+    actorUserId: string;
+    actor?: AccessTokenActor;
+  },
   deps?: InviteLinkDeps,
 ): Promise<{ revoked: boolean }> {
   const env = deps?.env ?? getEnv();
@@ -262,6 +272,7 @@ export async function revokeTeamInviteLink(
   await auditOrg({
     orgId: org.id,
     actorUserId: params.actorUserId,
+    actor: params.actor,
     action: 'invite_link.revoked',
     targetType: 'invite_link',
     targetId: link.id,
@@ -356,7 +367,13 @@ export type RedeemTeamInviteLinkResult = { teamId: string; orgId: string };
  * `useCount` past `maxUses`.
  */
 export async function redeemTeamInviteLink(
-  params: { token: string; userId: string; domain: string; config: ClientConfig },
+  params: {
+    token: string;
+    userId: string;
+    actor?: AccessTokenActor;
+    domain: string;
+    config: ClientConfig;
+  },
   deps?: InviteLinkDeps,
 ): Promise<RedeemTeamInviteLinkResult> {
   void params.config;
@@ -452,6 +469,7 @@ export async function redeemTeamInviteLink(
   await auditOrg({
     orgId: result.orgId,
     actorUserId: params.userId,
+    actor: params.actor,
     action: 'team_member.added',
     targetType: 'team_member',
     targetId: result.teamMemberId,

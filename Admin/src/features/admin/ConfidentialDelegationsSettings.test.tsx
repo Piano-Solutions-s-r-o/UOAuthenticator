@@ -163,4 +163,40 @@ describe('ConfidentialDelegationsSettings', () => {
       }),
     );
   });
+
+  // `token.provision` paired with a `<UOA base URL>/org` resource grants full
+  // organisation and team authority over UOA's own tenancy. The scope name does
+  // not say that, so the dialog must say it before an operator saves.
+  it('warns that token.provision on an /org resource grants organisation authority', async () => {
+    const user = userEvent.setup();
+    render(<ConfidentialDelegationsSettings />);
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const resource = screen.getByRole('textbox', { name: /^Resource/ });
+    await user.clear(resource);
+    await user.type(resource, 'https://sso.hugopos.eu/org');
+
+    // No warning until the high-trust scope is actually selected.
+    expect(screen.queryByRole('alert')).toBeNull();
+
+    await user.click(screen.getByRole('checkbox', { name: /Token provisioning/ }));
+
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByText(/organisation and team authority over UOA itself/i)).toBeTruthy();
+    expect(within(alert).getByText(/add and remove members/i)).toBeTruthy();
+  });
+
+  it('explains the /org consequence without claiming it for a non-org resource', async () => {
+    const user = userEvent.setup();
+    render(<ConfidentialDelegationsSettings />);
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(screen.getByRole('checkbox', { name: /Token provisioning/ }));
+
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByText(/highest-trust scope/i)).toBeTruthy();
+    expect(
+      within(alert).queryByText(/organisation and team authority over UOA itself/i),
+    ).toBeNull();
+  });
 });

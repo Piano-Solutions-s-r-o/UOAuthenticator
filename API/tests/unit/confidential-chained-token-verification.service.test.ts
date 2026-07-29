@@ -42,6 +42,7 @@ async function signInboundToken(
     expiresInSeconds?: number;
     issuer?: string;
     omitActive?: boolean;
+    active?: unknown;
     omitOrg?: boolean;
     org?: unknown;
     product?: string;
@@ -67,7 +68,9 @@ async function signInboundToken(
       : defaultOrg();
   }
   if (!overrides.omitActive) {
-    payload.active = { orgId: 'org_1', teamId: 'team_1' };
+    payload.active = Object.prototype.hasOwnProperty.call(overrides, 'active')
+      ? overrides.active
+      : { orgId: 'org_1', teamId: 'team_1' };
   }
   if (Object.prototype.hasOwnProperty.call(overrides, 'actor')) {
     payload.act = overrides.actor;
@@ -219,6 +222,30 @@ describe('chained UOA access-token verification', () => {
       verifyChainedSubjectAccessToken(
         { subjectToken: oversized.token, callerAudience, issuer },
         { now: () => oversized.now },
+      ),
+    ).rejects.toThrow('INVALID_SUBJECT_TOKEN');
+  });
+
+  // Regression: `team_roles[activeTeamId]` used a bare index, which resolves
+  // `Object.prototype` members. For `teamId: "constructor"` it returned the Object
+  // constructor — truthy — so this consistency check passed vacuously on a token
+  // that never carried a role for that team. The identical bug existed in the
+  // org-provisioning verifier.
+  it('rejects an active teamId that only resolves through Object.prototype', async () => {
+    const { now, token } = await signInboundToken({
+      org: {
+        org_id: 'org_1',
+        org_role: 'member',
+        teams: ['constructor'],
+        team_roles: { team_1: 'member' },
+      },
+      active: { orgId: 'org_1', teamId: 'constructor' },
+    });
+
+    await expect(
+      verifyChainedSubjectAccessToken(
+        { subjectToken: token, callerAudience, issuer },
+        { now: () => now },
       ),
     ).rejects.toThrow('INVALID_SUBJECT_TOKEN');
   });

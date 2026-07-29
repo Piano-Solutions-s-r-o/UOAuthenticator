@@ -35,9 +35,24 @@ const scopeOptions: Array<{
   {
     value: 'token.provision',
     label: 'Token provisioning',
-    description: 'High-trust capability for explicitly approved provisioners only.',
+    description:
+      'Highest-trust scope. What it grants depends on the resource above — see the warning shown when it is selected.',
   },
 ];
+
+/**
+ * `token.provision` paired with `<UOA base URL>/org` is not merely "token
+ * provisioning": it grants full organisation and team authority over UOA's own
+ * tenancy for that source domain. The scope name alone does not convey that, so
+ * surface it at the moment an operator selects the scope.
+ */
+function isOrgProvisioningResource(resource: string): boolean {
+  try {
+    return new URL(resource.trim()).pathname.replace(/\/+$/, '') === '/org';
+  } catch {
+    return false;
+  }
+}
 
 const emptyValues: ConfidentialDelegationFormValues = {
   sourceDomain: '',
@@ -79,6 +94,9 @@ export function ConfidentialDelegationFormDialog({ mapping, onClose, open }: Pro
 
   const selectedScopes = form.watch('scopes');
   const enabled = form.watch('enabled');
+  const resource = form.watch('resource');
+  const orgProvisioning = isOrgProvisioningResource(resource ?? '');
+  const sourceDomainLabel = mapping ? mapping.source_domain : form.watch('sourceDomain');
   const pending = create.isPending || update.isPending;
   const mutationFailed = create.isError || update.isError;
 
@@ -211,6 +229,40 @@ export function ConfidentialDelegationFormDialog({ mapping, onClose, open }: Pro
           </div>
           {form.formState.errors.scopes?.message ? (
             <p className="mt-1 text-xs text-red-600">{form.formState.errors.scopes.message}</p>
+          ) : null}
+
+          {selectedScopes.includes('token.provision') ? (
+            <div
+              role="alert"
+              className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"
+            >
+              <p className="font-semibold">
+                {orgProvisioning
+                  ? 'This grants organisation and team authority over UOA itself'
+                  : 'token.provision is the highest-trust scope'}
+              </p>
+              {orgProvisioning ? (
+                <p className="mt-1">
+                  The resource above ends in <code>/org</code>. This mapping lets{' '}
+                  <span className="font-medium">{sourceDomainLabel || 'the source domain'}</span>{' '}
+                  create and rename organisations, add and remove members, change organisation and
+                  team roles, transfer ownership, and manage invites — acting as any of its users,
+                  bounded by that user&rsquo;s own live role. Grant it only to a first-party backend
+                  you control and only when this has been explicitly approved.
+                </p>
+              ) : (
+                <p className="mt-1">
+                  Pairing this scope with a resource ending in <code>/org</code> on a UOA base URL
+                  would additionally grant full organisation and team authority over UOA&rsquo;s own
+                  tenancy. The current resource does not, so this mapping is limited to token
+                  provisioning for that resource.
+                </p>
+              )}
+              <p className="mt-1">
+                Every resulting organisation change is recorded in the org audit log with the
+                calling product&rsquo;s provenance.
+              </p>
+            </div>
           ) : null}
         </fieldset>
 

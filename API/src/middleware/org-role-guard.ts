@@ -2,6 +2,10 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { AppError } from '../utils/errors.js';
 import { verifyAccessToken, type AccessTokenClaims } from '../services/access-token.service.js';
+import {
+  isConfidentialProvisioningTokenCandidate,
+  verifyConfidentialProvisioningToken,
+} from '../services/confidential-provisioning-token.service.js';
 import { normalizeDomain } from '../utils/domain.js';
 
 function resolveDomainFromRequest(request: FastifyRequest): string {
@@ -46,6 +50,30 @@ function normalizeOrgId(value: string): string {
   return value.trim();
 }
 
+/**
+ * Resolve the acting user behind `x-uoa-access-token`.
+ *
+ * The HS256 user access token is tried first and its behaviour — including every
+ * failure mode, error code, and the DB-error passthrough that must never look
+ * like a logout — is unchanged. Only a token that fails that verification AND
+ * carries the exact RS256 `at+jwt` protected header of a confidential resource
+ * token is re-tried on the confidential provisioning path, so a trusted product
+ * backend can act for one of its users server-to-server (see
+ * `confidential-provisioning-token.service.ts`). Neither path can widen the org
+ * role checks below.
+ */
+export async function resolveActingUserClaims(
+  token: string,
+  domain: string,
+): Promise<AccessTokenClaims> {
+  try {
+    return await verifyAccessToken(token);
+  } catch (userTokenError) {
+    if (!isConfidentialProvisioningTokenCandidate(token)) throw userTokenError;
+    return await verifyConfidentialProvisioningToken({ token, domain });
+  }
+}
+
 export function requireOrgRole(...requiredRoles: string[]) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     void reply;
@@ -55,8 +83,8 @@ export function requireOrgRole(...requiredRoles: string[]) {
       throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
     }
 
-    const claims = await verifyAccessToken(token);
     const domain = resolveDomainFromRequest(request);
+    const claims = await resolveActingUserClaims(token, domain);
     if (normalizeDomain(claims.domain) !== domain) {
       throw new AppError('FORBIDDEN', 403, 'ACCESS_TOKEN_DOMAIN_MISMATCH');
     }
