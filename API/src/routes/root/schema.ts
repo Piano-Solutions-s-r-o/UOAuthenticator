@@ -265,7 +265,7 @@ const orgEndpoints: EndpointSchema[] = [
     description: 'List invitation history for a team',
     auth: 'domain hash bearer token',
     response: {
-      data: 'array — invite records with status (pending|accepted|declined|replaced|expired), approval_status (not_required|pending|approved|denied), expiresAt, inviter, send/open, accepted/declined state, plus invitedByAvatarImageUrl and acceptedAvatarImageUrl (null until the matching user id exists; the invitee email never gets one)',
+      data: 'array — invite records with status (pending|accepted|declined|replaced|expired), approvalStatus (not_required|pending|approved|denied), expiresAt, inviter, send/open, accepted/declined state, plus invitedByAvatarImageUrl and acceptedAvatarImageUrl (null until the matching user id exists; the invitee email never gets one)',
     },
   },
   {
@@ -283,21 +283,21 @@ const orgEndpoints: EndpointSchema[] = [
     auth: 'domain hash bearer token + access token (X-UOA-Access-Token header), owner/admin only',
     query: { approval: 'string (required) — must be "pending"' },
     response: {
-      data: 'array — invite records with approval_status: pending, each carrying invitedByAvatarImageUrl and acceptedAvatarImageUrl (null until the matching user id exists)',
+      data: 'array — invite records with approvalStatus: pending, each carrying invitedByAvatarImageUrl and acceptedAvatarImageUrl (null until the matching user id exists)',
     },
   },
   {
     method: 'POST',
     path: '/org/organisations/:orgId/invitations/:inviteId/approve',
     description:
-      'Approve a PENDING member-initiated invite: sets approval_status APPROVED and sends the invite email',
+      'Approve a pending member-initiated invite: sets approvalStatus to approved and sends the invite email',
     auth: 'domain hash bearer token + access token (X-UOA-Access-Token header), owner/admin only',
   },
   {
     method: 'POST',
     path: '/org/organisations/:orgId/invitations/:inviteId/deny',
     description:
-      'Deny a PENDING member-initiated invite: sets approval_status DENIED; sends nothing (silent to the invitee)',
+      'Deny a pending member-initiated invite: sets approvalStatus to denied; sends nothing (silent to the invitee)',
     auth: 'domain hash bearer token + access token (X-UOA-Access-Token header), owner/admin only',
   },
   {
