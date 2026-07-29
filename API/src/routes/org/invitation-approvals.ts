@@ -48,8 +48,17 @@ function parseDomainQuery(request: FastifyRequest) {
   return parsed;
 }
 
+// preValidation runs before the handler's own strict query parse, so this hook
+// must tolerate the route-specific key (approval) that the strict
+// DomainQuerySchema would reject — the GET handler *requires* `?approval=pending`,
+// so the strict hook rejected the only call shape that endpoint accepts.
+// Validate only the shared domain context here (the domain gate below still
+// runs); each handler still strict-parses its full query schema.
+const DomainContextHookSchema = DomainQuerySchema.passthrough();
+
 async function parseDomainQueryHook(request: FastifyRequest): Promise<void> {
-  parseDomainQuery(request);
+  const parsed = DomainContextHookSchema.parse(request.query);
+  assertVerifiedDomainMatchesQuery(request, parsed.domain);
 }
 
 /**
