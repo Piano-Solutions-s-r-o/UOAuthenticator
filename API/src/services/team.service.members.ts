@@ -4,7 +4,7 @@ import { getAdminPrisma, getPrisma } from '../db/prisma.js';
 import { runInTransaction } from '../db/tenant-context.js';
 import { AppError } from '../utils/errors.js';
 
-import { auditOrg } from './organisation.service.base.js';
+import { auditOrg, type AccessTokenActor } from './organisation.service.base.js';
 import { revokeRefreshTokenFamiliesForUserTeam } from './refresh-token-revocation.service.js';
 import { lockRefreshSessionUser } from './refresh-session-lock.service.js';
 import { lockWorkspaceMembershipRows } from './workspace-scope.service.js';
@@ -327,6 +327,7 @@ export async function selfJoinTeam(
     teamId: string;
     domain: string;
     actorUserId: string;
+    actor?: AccessTokenActor;
     config: ClientConfig;
   },
   deps?: OrgServiceDeps,
@@ -420,6 +421,7 @@ export async function selfJoinTeam(
   await auditOrg({
     orgId: org.id,
     actorUserId,
+    actor: params.actor,
     action: 'team_member.added',
     targetType: 'team_member',
     targetId: record.id,

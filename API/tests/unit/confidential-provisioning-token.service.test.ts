@@ -191,6 +191,7 @@ describe('verifyConfidentialProvisioningToken', () => {
       domain: sourceDomain,
       clientId: sourceDomain,
       role: 'user',
+      actor: { via: 'confidential_provisioning', product, sourceDomain },
     });
   });
 
@@ -209,6 +210,7 @@ describe('verifyConfidentialProvisioningToken', () => {
       domain: sourceDomain,
       clientId: sourceDomain,
       role: 'user',
+      actor: { via: 'confidential_provisioning', product, sourceDomain },
       org: defaultOrg(),
       active: { orgId: 'org_1', teamId: 'team_1' },
     });

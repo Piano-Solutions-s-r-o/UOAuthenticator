@@ -62,7 +62,7 @@ function normalizeOrgId(value: string): string {
  * `confidential-provisioning-token.service.ts`). Neither path can widen the org
  * role checks below.
  */
-async function resolveActingUserClaims(
+export async function resolveActingUserClaims(
   token: string,
   domain: string,
 ): Promise<AccessTokenClaims> {

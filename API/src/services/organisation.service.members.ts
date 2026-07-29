@@ -23,6 +23,7 @@ import {
   toListLimit,
   toMemberRecord,
   toOrganisationRecord,
+  type AccessTokenActor,
   type CursorList,
   type OrgServiceDeps,
   type OrgServicePrisma,
@@ -80,6 +81,7 @@ export async function addOrganisationMember(
     orgId: string;
     domain: string;
     actorUserId: string;
+    actor?: AccessTokenActor;
     userId: string;
     role: string;
     config: ClientConfig;
@@ -200,6 +202,7 @@ export async function addOrganisationMember(
   await auditOrg({
     orgId: org.id,
     actorUserId,
+    actor: params.actor,
     action: 'member.added',
     targetType: 'org_member',
     targetId: createdMember.id,
@@ -214,6 +217,7 @@ export async function changeOrganisationMemberRole(
     orgId: string;
     domain: string;
     actorUserId: string;
+    actor?: AccessTokenActor;
     userId: string;
     role: string;
     config: ClientConfig;
@@ -256,6 +260,7 @@ export async function changeOrganisationMemberRole(
   await auditOrg({
     orgId: org.id,
     actorUserId,
+    actor: params.actor,
     action: 'member.role_changed',
     targetType: 'org_member',
     targetId: updated.id,
@@ -270,6 +275,7 @@ export async function removeOrganisationMember(
     orgId: string;
     domain: string;
     actorUserId: string;
+    actor?: AccessTokenActor;
     userId: string;
   },
   deps?: OrgServiceDeps & {
@@ -393,6 +399,7 @@ export async function removeOrganisationMember(
   await auditOrg({
     orgId: org.id,
     actorUserId,
+    actor: params.actor,
     action: 'member.removed',
     targetType: 'org_member',
     targetId: member.id,
