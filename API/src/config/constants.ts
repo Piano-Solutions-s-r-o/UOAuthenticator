@@ -38,7 +38,12 @@ export const AVATAR_MAX_BYTES = 1024 * 1024;
 // Docs/Auth/avatars.md §6: provider avatar URLs are proxied server-side so callers always get
 // image bytes. The fetch is HTTPS-only, SSRF-guarded, time-capped and size-capped; any failure
 // falls back to the generated avatar rather than surfacing an error.
-export const AVATAR_PROVIDER_FETCH_TIMEOUT_MS = 5_000;
+//
+// The budget is a deadline for the WHOLE operation — DNS resolution, every sequential address
+// attempt, the fetch, and the streamed read — not a per-leg timeout. The URL is attacker-supplied,
+// so a per-leg bound would let a host multiply the legs (slow DNS, then N addresses each stalling
+// just under the cap) to occupy a request far longer than the number below suggests.
+export const AVATAR_PROVIDER_DEADLINE_MS = 5_000;
 export const AVATAR_PROVIDER_MAX_BYTES = 5 * 1024 * 1024;
 
 // Cache lifetimes for avatar GET responses. Generated avatars are deterministic for a given

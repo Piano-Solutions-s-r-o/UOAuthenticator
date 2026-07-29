@@ -186,8 +186,22 @@ When resolution lands on the provider URL, UOA fetches it server-side and stream
 bytes back so the caller still receives an image:
 
 - HTTPS only; destination passes the existing SSRF safeguards (`utils/ssrf.ts`).
-- Timeout ~5s, response capped at 5 MiB, response content type must sniff as a raster
-  image.
+- **One ~5s wall-clock deadline for the whole operation** — DNS resolution, every
+  sequential resolved-address attempt, the fetch, and the streamed read all share it
+  (`AVATAR_PROVIDER_DEADLINE_MS`). It is not a per-leg timeout: the URL is
+  attacker-supplied, so a per-leg bound would let a host multiply the legs and occupy the
+  request for a multiple of the stated budget. An `AbortController` is plumbed through
+  every leg so an expired attempt unwinds itself, and the deadline is additionally raced
+  so a leg that ignores its signal still cannot outlast it.
+- Response capped at 5 MiB, response content type must sniff as a raster image.
+- **The response body is always released.** Every exit from the request — non-2xx,
+  oversized declared `Content-Length`, oversized streamed body, non-raster bytes, or a
+  throw — cancels/destroys the body before returning. An abandoned body keeps its request
+  active on the pinned agent, and `closeSsrfAgent` waits on exactly that; leaving one
+  behind used to make the whole avatar request hang indefinitely.
+- `closeSsrfAgent` is itself bounded: the graceful `Agent.close()` gets a short grace
+  window and is then forced down with `destroy()`, so a stalled peer can never strand the
+  `finally` that every SSRF-guarded fetch runs.
 - **Any failure falls back to the generated avatar** — the endpoint still returns 200
   with an image, and `X-UOA-Avatar-Source: generated`.
 - No provider bytes are persisted (keeps brief §22.7's no-caching spirit).
