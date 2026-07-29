@@ -10,6 +10,7 @@ import {
   hasDatabase,
   signAccessToken,
 } from '../helpers/org-user-endpoints-helper.js';
+import { baseClientConfigPayload, signTestConfigJwt } from '../helpers/test-config.js';
 import { createTestDb } from '../helpers/test-db.js';
 
 /**
@@ -412,6 +413,43 @@ describe.skipIf(!hasDatabase)('team avatar routes', () => {
       const afterDelete = await app!.inject({ method: 'GET', url, headers });
       expect(afterDelete.headers['x-uoa-avatar-source']).toBe('generated');
       expect(await handle!.prisma.teamAvatar.count()).toBe(0);
+    });
+
+    it('still applies avatars.default_style from a verified config_url once authenticated', async () => {
+      // The config hook now runs AFTER the bearer check. That is about anonymous callers, not about
+      // dropping the feature — an authenticated caller must still get its configured default style.
+      const { domainHash, team } = await seedWorkspace();
+      const headers = { authorization: `Bearer ${domainHash}` };
+      const base = `/domain/teams/${team.id}/avatar?domain=${encodeURIComponent(DOMAIN)}`;
+
+      // Two styles, because the id-derived default can only ever equal one of them: if the config
+      // were being ignored, at least one iteration would return that default instead.
+      for (const style of ['mono', 'waves'] as const) {
+        const styledConfig = await signTestConfigJwt(
+          baseClientConfigPayload({
+            domain: DOMAIN,
+            redirect_urls: [`https://${DOMAIN}/oauth/callback`],
+            avatars: { default_style: style },
+          }),
+        );
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(styledConfig, { status: 200 })));
+
+        const viaConfig = await app!.inject({
+          method: 'GET',
+          url: `${base}&config_url=${encodeURIComponent(CONFIG_URL)}`,
+          headers,
+        });
+        const explicit = await app!.inject({
+          method: 'GET',
+          url: `${base}&style=${style}`,
+          headers,
+        });
+
+        expect(viaConfig.statusCode).toBe(200);
+        expect(explicit.statusCode).toBe(200);
+        expect(viaConfig.headers['x-uoa-avatar-source']).toBe('generated');
+        expect(viaConfig.body).toBe(explicit.body);
+      }
     });
 
     it('audit-logs the backend upload and delete against the acting domain', async () => {
