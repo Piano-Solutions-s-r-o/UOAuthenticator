@@ -310,6 +310,38 @@ function explainKnownCode(
         summary: 'The supplied access token does not match the requested domain.',
         hints: ['Use an access token issued for the same domain as the current request.'],
       };
+    // Confidential provisioning path (`/org/*`). These are operator-facing only:
+    // like every other code here they reach a caller solely when DEBUG_ENABLED is
+    // set, because `buildPublicErrorBody` returns the generic body in production
+    // for anything outside PRODUCTION_PUBLIC_ERROR_CODES. They exist so a failed
+    // confidential token is separable from a failed user token in logs.
+    case 'CONFIDENTIAL_TOKEN_INVALID':
+      return {
+        summary:
+          'The supplied confidential provisioning token was not accepted: signature, issuer, audience, scope form, lifetime, or credential epoch did not check out.',
+        hints: [
+          'The audience must be exactly <UOA public base URL>/org as a single string.',
+          'Re-run the /auth/token exchange; the acting user may have had their credential epoch bumped.',
+        ],
+      };
+    case 'CONFIDENTIAL_TOKEN_DOMAIN_MISMATCH':
+      return {
+        summary:
+          'The confidential provisioning token was minted for a different source domain than the requested one.',
+        hints: ['The token source_domain and azp must equal the request domain.'],
+      };
+    case 'CONFIDENTIAL_SCOPE_MISSING':
+      return {
+        summary: 'The confidential provisioning token does not carry the token.provision scope.',
+        hints: [
+          'Grant token.provision on the delegation mapping for this source domain and product.',
+        ],
+      };
+    case 'CONFIDENTIAL_DOMAIN_ROLE_MISSING':
+      return {
+        summary: 'The acting user no longer holds a role on the token source domain.',
+        hints: ['Restore the DomainRole for that user, or act as a user who still holds one.'],
+      };
     case 'INSUFFICIENT_ORG_ROLE':
       return {
         summary:
