@@ -4,8 +4,8 @@ import { z } from 'zod';
 import { asPrismaClient } from '../../db/tenant-context.js';
 import { requireDomainHashAuthForDomainQuery } from '../../middleware/domain-hash-auth.js';
 import { requireOrgFeaturesEnabled } from '../../middleware/org-features.js';
+import { resolveActingUserClaims } from '../../middleware/org-role-guard.js';
 import { setTenantContextFromRequest } from '../../plugins/tenant-context.plugin.js';
-import { verifyAccessToken } from '../../services/access-token.service.js';
 import { getUserOrgContext } from '../../services/org-context.service.js';
 import {
   buildSidebarPendingInvites,
@@ -50,7 +50,12 @@ export function registerOrgMeRoute(app: FastifyInstance): void {
         throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
       }
 
-      const claims = await verifyAccessToken(token);
+      // Same resolver as `requireOrgRole`, so `/org/me` accepts exactly the tokens
+      // every other `/org/*` route accepts. This route predates the confidential
+      // provisioning path and called the HS256 verifier directly, which made a
+      // valid `token.provision` token 401 here while working everywhere else — a
+      // product backend reading its own workspace context hits this route first.
+      const claims = await resolveActingUserClaims(token, normalizedDomain);
       if (normalizeDomain(claims.domain) !== normalizedDomain) {
         throw new AppError('FORBIDDEN', 403, 'ACCESS_TOKEN_DOMAIN_MISMATCH');
       }

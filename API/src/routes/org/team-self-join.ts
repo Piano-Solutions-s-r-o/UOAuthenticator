@@ -10,6 +10,7 @@ import { selfJoinTeam } from '../../services/team.service.js';
 import { AppError } from '../../utils/errors.js';
 import {
   type RequestWithClaims,
+  getActorProvenance,
   getActorUserId,
   getOrgIdFromParams,
   getTeamIdFromParams,
@@ -45,7 +46,7 @@ export function registerTeamSelfJoinRoute(app: FastifyInstance): void {
       setTenantContextFromRequest(request, { orgId, userId: actorUserId });
       const member = await request.withTenantTx((tx) =>
         selfJoinTeam(
-          { orgId, teamId, domain, actorUserId, config },
+          { orgId, teamId, domain, actorUserId, actor: getActorProvenance(request), config },
           { prisma: asPrismaClient(tx) },
         ),
       );

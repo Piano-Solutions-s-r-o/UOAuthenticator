@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
@@ -6,6 +7,7 @@ import { configVerifier } from '../../middleware/config-verifier.js';
 import { AVATAR_STYLES, isAvatarStyle, type AvatarStyle } from '../../utils/avatar-svg.js';
 import { normalizeDomain } from '../../utils/domain.js';
 import { AppError } from '../../utils/errors.js';
+import { machineActor, writeAuditLog } from '../../services/audit-log.service.js';
 import type { AvatarUploadResult, ResolvedAvatar } from '../../services/avatar.service.js';
 
 /** Shared `?style=` / `?size=` parsing for every avatar GET (Docs/Auth/avatars.md §2). */
@@ -96,6 +98,20 @@ export async function readAvatarUpload(request: FastifyRequest): Promise<Buffer>
  * §2). This never relaxes verification — a supplied config is fetched and verified exactly as on
  * any other route, and a present-but-invalid one fails the request. An absent one simply means
  * "no configured preference".
+ *
+ * **Register this AFTER the route's auth guard, never before.** `configVerifier` does real
+ * outbound work on a caller-supplied URL — DNS resolution, an HTTPS fetch with its own multi-second
+ * budget, JWKS lookup, signature verification, a handshake-error log write, and possibly
+ * `tryAutoOnboard`. Running it first would let an anonymous caller aim all of that wherever it
+ * liked and only then collect its 401, which is both a bandwidth amplifier and a request-slot sink
+ * on the auth host. `/org/me` orders it this way for the same reason. The style preference is
+ * cosmetic, so nothing downstream needs the config before the caller has been authenticated.
+ *
+ * Two routes still cannot be ordered this way — `auth/revoke.ts` and `domain/signatures.ts` use
+ * `requireDomainHashAuth`, which derives the domain *from* the verified config — and their rate
+ * limiters sit behind the config work rather than in front of it. The fix there is a pre-auth
+ * limiter first, the way `auth/token-exchange.ts` does it; see the follow-up note in
+ * `Docs/Auth/avatars.md` §8.
  */
 export async function optionalConfigVerifier(
   request: FastifyRequest,
@@ -105,6 +121,54 @@ export async function optionalConfigVerifier(
   if (typeof configUrl !== 'string' || !configUrl.trim()) return;
 
   await configVerifier(request, reply);
+}
+
+/**
+ * The four `/domain/*` avatar audit actions, spelled out rather than derived with
+ * `Extract<AdminAuditAction, `domain.${string}`>` — that pattern also admits `domain.disabled`,
+ * `domain.secret_rotated` and friends, so it would not actually constrain a caller.
+ */
+type DomainAvatarAuditAction =
+  | 'domain.user_avatar_updated'
+  | 'domain.user_avatar_deleted'
+  | 'domain.team_avatar_updated'
+  | 'domain.team_avatar_deleted';
+
+/**
+ * Record a `/domain/*` avatar mutation against the acting domain.
+ *
+ * `/internal/admin/*` avatar mutations have always been audited; the `/domain/*` ones were not, so
+ * a product backend could replace a user's or a workspace's image leaving no trace anywhere. That
+ * matters more here than on the operator side, because a `global`-scope user is ONE identity shared
+ * by every domain they belong to: the row this writes is the only record of which tenant changed an
+ * image that the others then render. See the header note on `registerDomainUserAvatarRoutes`.
+ *
+ * The actor is a client, not a person, so `actorEmail` carries a `client:` principal built from
+ * `domainAuthClientDomainId` (a `ClientDomain` row cuid) — never `domainAuthClientId`, which is the
+ * caller's live bearer token, not an id. See `machineActor`.
+ *
+ * The write is awaited and its failure propagates, matching the `/internal/admin/*` avatar routes:
+ * an unrecorded change to shared state is not an acceptable success. It is not yet atomic with the
+ * mutation — the billing services get that by writing their audit row inside the same
+ * `$transaction`, which would mean threading a tx through `uploadAvatar`. Until then a failing
+ * audit insert means a 500 on an avatar that did change.
+ */
+export async function recordDomainAvatarAudit(
+  request: FastifyRequest,
+  params: {
+    action: DomainAvatarAuditAction;
+    domain: string;
+    metadata: Prisma.InputJsonObject;
+  },
+): Promise<void> {
+  const domain = normalizeDomain(params.domain);
+
+  await writeAuditLog({
+    actorEmail: machineActor({ domain, clientDomainId: request.domainAuthClientDomainId }),
+    action: params.action,
+    targetDomain: domain,
+    metadata: params.metadata,
+  });
 }
 
 /**

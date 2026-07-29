@@ -23,6 +23,7 @@ import {
   AddMemberBodySchema,
   SetRoleBodySchema,
   type RequestWithClaims,
+  getActorProvenance,
   getActorUserId,
   getOrgIdFromParams,
   getTransferOwnerId,
@@ -91,7 +92,15 @@ export function registerOrganisationMemberRoutes(app: FastifyInstance) {
       setTenantContextFromRequest(request, { orgId, userId: actorUserId });
       const member = await request.withTenantTx((tx) =>
         addOrganisationMember(
-          { orgId, domain, actorUserId, userId, role: role ?? 'member', config },
+          {
+            orgId,
+            domain,
+            actorUserId,
+            actor: getActorProvenance(request),
+            userId,
+            role: role ?? 'member',
+            config,
+          },
           { prisma: asPrismaClient(tx) },
         ),
       );
@@ -124,7 +133,15 @@ export function registerOrganisationMemberRoutes(app: FastifyInstance) {
       setTenantContextFromRequest(request, { orgId, userId: actorUserId });
       const member = await request.withTenantTx((tx) =>
         changeOrganisationMemberRole(
-          { orgId, domain, actorUserId, userId, role, config },
+          {
+            orgId,
+            domain,
+            actorUserId,
+            actor: getActorProvenance(request),
+            userId,
+            role,
+            config,
+          },
           { prisma: asPrismaClient(tx) },
         ),
       );
@@ -151,7 +168,7 @@ export function registerOrganisationMemberRoutes(app: FastifyInstance) {
       const actorUserId = getActorUserId(request as RequestWithClaims);
 
       await removeOrganisationMember(
-        { orgId, domain, actorUserId, userId },
+        { orgId, domain, actorUserId, actor: getActorProvenance(request), userId },
         { prisma: request.adminDb },
       );
 
@@ -177,7 +194,7 @@ export function registerOrganisationMemberRoutes(app: FastifyInstance) {
       const actorUserId = getActorUserId(request as RequestWithClaims);
 
       await deactivateOrganisationMember(
-        { orgId, domain, actorUserId, userId },
+        { orgId, domain, actorUserId, actor: getActorProvenance(request), userId },
         { prisma: request.adminDb },
       );
 
@@ -205,7 +222,7 @@ export function registerOrganisationMemberRoutes(app: FastifyInstance) {
       setTenantContextFromRequest(request, { orgId, userId: actorUserId });
       await request.withTenantTx((tx) =>
         reactivateOrganisationMember(
-          { orgId, domain, actorUserId, userId },
+          { orgId, domain, actorUserId, actor: getActorProvenance(request), userId },
           { prisma: asPrismaClient(tx) },
         ),
       );

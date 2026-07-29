@@ -8,6 +8,7 @@ import { sendTeamInviteEmail } from './email.service.js';
 import {
   assertDatabaseEnabled,
   auditOrg,
+  type AccessTokenActor,
   getOrganisationMember,
   resolveOrganisationByDomain,
 } from './organisation.service.base.js';
@@ -63,6 +64,7 @@ export async function createMemberInvite(
     config: ClientConfig;
     configUrl: string;
     actorUserId: string;
+    actor?: AccessTokenActor;
     redirectUrl?: string;
     invite: { email: string; name?: string; teamRole?: string };
   },
@@ -237,6 +239,7 @@ export async function createMemberInvite(
   await auditOrg({
     orgId: org.id,
     actorUserId: params.actorUserId,
+    actor: params.actor,
     action: 'invite.created',
     targetType: 'invite',
     targetId: invite.id,
@@ -298,6 +301,7 @@ export async function approveInvite(
     config: ClientConfig;
     configUrl: string;
     reviewerUserId: string;
+    actor?: AccessTokenActor;
   },
   deps?: InviteDeps & { sendTeamInviteEmail?: typeof sendTeamInviteEmail },
 ): Promise<TeamInviteRecord> {
@@ -372,6 +376,7 @@ export async function approveInvite(
   await auditOrg({
     orgId: org.id,
     actorUserId: params.reviewerUserId,
+    actor: params.actor,
     action: 'invite.approved',
     targetType: 'invite',
     targetId: updated.id,
@@ -383,7 +388,13 @@ export async function approveInvite(
 
 /** `POST /org/organisations/:orgId/invitations/:inviteId/deny` — owner/admin only; silent to the invitee. */
 export async function denyInvite(
-  params: { orgId: string; domain: string; inviteId: string; reviewerUserId: string },
+  params: {
+    orgId: string;
+    domain: string;
+    inviteId: string;
+    reviewerUserId: string;
+    actor?: AccessTokenActor;
+  },
   deps?: InviteDeps,
 ): Promise<TeamInviteRecord> {
   const env = deps?.env ?? getEnv();
@@ -411,6 +422,7 @@ export async function denyInvite(
   await auditOrg({
     orgId: org.id,
     actorUserId: params.reviewerUserId,
+    actor: params.actor,
     action: 'invite.denied',
     targetType: 'invite',
     targetId: updated.id,

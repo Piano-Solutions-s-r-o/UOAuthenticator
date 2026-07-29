@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 
-import { writeAuditLog } from '../../src/services/audit-log.service.js';
+import { machineActor, writeAuditLog } from '../../src/services/audit-log.service.js';
 
 describe('writeAuditLog', () => {
   it('writes a row with actor, action, target and metadata', async () => {
@@ -42,5 +42,29 @@ describe('writeAuditLog', () => {
         metadata: {},
       },
     });
+  });
+});
+
+describe('machineActor', () => {
+  it('names the calling backend by its ClientDomain row id', () => {
+    expect(
+      machineActor({ domain: 'client.example.com', clientDomainId: 'cd_1' }),
+    ).toBe('client:client.example.com#cd_1');
+  });
+
+  it('omits the client id when the request carried none', () => {
+    expect(machineActor({ domain: 'client.example.com' })).toBe('client:client.example.com');
+    expect(machineActor({ domain: 'client.example.com', clientDomainId: null })).toBe(
+      'client:client.example.com',
+    );
+  });
+
+  it('never produces a value a reader could mistake for an email address', () => {
+    // `/internal/admin/*` rows carry a real operator address. A machine row must be
+    // distinguishable at a glance and unmatchable against any address.
+    const actor = machineActor({ domain: 'client.example.com', clientDomainId: 'cd_1' });
+
+    expect(actor.startsWith('client:')).toBe(true);
+    expect(actor).not.toMatch(/^[^@\s:]+@[^@\s:]+$/);
   });
 });
