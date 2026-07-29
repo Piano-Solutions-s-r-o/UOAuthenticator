@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 
 import { ActionButton } from '../components/ui/ActionButton';
-import { Avatar } from '../components/ui/Avatar';
 import { Button } from '../components/ui/Button';
 import { Card, CardHeader } from '../components/ui/Card';
 import { FieldShell, SelectField, TextAreaField, TextField } from '../components/ui/FormFields';
@@ -12,6 +11,7 @@ import { Modal } from '../components/ui/Modal';
 import { PageHeader } from '../components/ui/PageHeader';
 import { eligibleUsers, featureFlagNames, groupUserSummary, killSwitchNames, platformCoverage } from '../features/admin/feature-audience';
 import { useSettingsQuery, useUsersQuery } from '../features/admin/admin-queries';
+import { UserAvatar } from '../features/admin/UserAvatar';
 import type { AppFlagSummary, FeatureAudienceGroup, UserSummary } from '../features/admin/types';
 import { useAdminUi } from '../features/shell/admin-ui';
 
@@ -126,7 +126,7 @@ function AudienceGroupEditor({ app, group, isNew, onBack, users }: { app: AppFla
                 <tr key={user.id} className="transition-colors hover:bg-gray-50">
                   <Td>
                     <div className="flex items-center gap-2">
-                      <Avatar label={user.name ?? user.email} />
+                      <UserAvatar userId={user.id} label={user.name ?? user.email} />
                       <div>
                         <span className="font-medium text-gray-700">{user.name ?? user.email}</span>
                         <p className="text-xs text-gray-400">{user.email}</p>

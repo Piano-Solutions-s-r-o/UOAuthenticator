@@ -68,9 +68,11 @@ export async function listOrganisationMembers(
     select: MEMBER_SELECT,
   });
 
-  const data = rows.slice(0, limit).map(toMemberRecord);
-  const nextCursorRow = rows[limit];
-  return { data, next_cursor: nextCursorRow ? nextCursorRow.id : null };
+  const data = rows.slice(0, limit).map((row) => toMemberRecord(row, org.domain));
+  // Brief §24.11: `cursor=<last_id>` — the cursor is the last row of the
+  // returned page (the follow-up query skips it), not the first of the next.
+  const hasMore = rows.length > limit;
+  return { data, next_cursor: hasMore ? rows[limit - 1].id : null };
 }
 
 export async function addOrganisationMember(
@@ -204,7 +206,7 @@ export async function addOrganisationMember(
     metadata: reactivated ? { userId, role, reactivated: true } : { userId, role },
   });
 
-  return toMemberRecord(createdMember);
+  return toMemberRecord(createdMember, org.domain);
 }
 
 export async function changeOrganisationMemberRole(
@@ -260,7 +262,7 @@ export async function changeOrganisationMemberRole(
     metadata: { userId, role, previousRole },
   });
 
-  return toMemberRecord(updated);
+  return toMemberRecord(updated, org.domain);
 }
 
 export async function removeOrganisationMember(

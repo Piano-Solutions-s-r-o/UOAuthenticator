@@ -4,8 +4,8 @@ import { SignJWT } from 'jose';
 
 import { createApp } from '../../src/app.js';
 import { ACCESS_TOKEN_AUDIENCE } from '../../src/config/constants.js';
-import { digestDomainClientHash } from '../../src/utils/client-hash.js';
 import { createClientId } from '../../src/utils/hash.js';
+import { cleanClientDomains, seedDomainSecret } from '../helpers/domain-secret.js';
 import { expectJsonError } from '../helpers/error-response.js';
 import { createTestDb } from '../helpers/test-db.js';
 
@@ -60,8 +60,8 @@ describe.skipIf(!hasDatabase)('GET /domain/debug', () => {
 
   beforeEach(async () => {
     if (!handle) return;
-    await handle.prisma.clientDomainSecret.deleteMany();
-    await handle.prisma.clientDomain.deleteMany();
+    await cleanClientDomains(handle.prisma);
+    await handle.prisma.user.deleteMany();
   });
 
   afterEach(() => {
@@ -69,23 +69,14 @@ describe.skipIf(!hasDatabase)('GET /domain/debug', () => {
     process.env.AUTH_SERVICE_IDENTIFIER = originalIssuer;
   });
 
-  async function seedDomainSecret(domain: string, clientSecret: string): Promise<string> {
-    const clientHash = createClientId(domain, clientSecret);
-    await handle!.prisma.clientDomain.create({
-      data: {
-        domain,
-        label: domain,
-        status: 'active',
-        secrets: {
-          create: {
-            active: true,
-            hashPrefix: clientHash.slice(0, 12),
-            secretDigest: digestDomainClientHash(clientHash),
-          },
-        },
-      },
+  // Access tokens are re-resolved against the DB: the subject must be a real
+  // user row whose tokenVersion matches the token's epoch (fresh users are 0).
+  async function seedUser(email: string): Promise<string> {
+    const user = await handle!.prisma.user.create({
+      data: { email, userKey: email },
+      select: { id: true },
     });
-    return clientHash;
+    return user.id;
   }
 
   it('returns debug info when authorized with domain hash and superuser access token', async () => {
@@ -93,9 +84,10 @@ describe.skipIf(!hasDatabase)('GET /domain/debug', () => {
     process.env.AUTH_SERVICE_IDENTIFIER = 'uoa-auth-service';
 
     const domain = 'client.example.com';
-    const domainHash = await seedDomainSecret(domain, process.env.SHARED_SECRET);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain, process.env.SHARED_SECRET);
+    const userId = await seedUser('admin@example.com');
     const accessToken = await signTestAccessToken({
-      userId: 'user_1',
+      userId,
       email: 'admin@example.com',
       domain,
       role: 'superuser',
@@ -120,7 +112,12 @@ describe.skipIf(!hasDatabase)('GET /domain/debug', () => {
       ok: true,
       domain,
       client_id: domainHash,
-      superuser: { user_id: 'user_1', email: 'admin@example.com' },
+      superuser: {
+        user_id: userId,
+        email: 'admin@example.com',
+        // Docs/Auth/avatars.md §9 — relative form, PUBLIC_BASE_URL is unset in tests.
+        avatar_image_url: `/domain/users/${encodeURIComponent(userId)}/avatar?domain=${encodeURIComponent(domain)}`,
+      },
     });
 
     await app.close();
@@ -131,7 +128,7 @@ describe.skipIf(!hasDatabase)('GET /domain/debug', () => {
     process.env.AUTH_SERVICE_IDENTIFIER = 'uoa-auth-service';
 
     const domain = 'client.example.com';
-    const domainHash = await seedDomainSecret(domain, process.env.SHARED_SECRET);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain, process.env.SHARED_SECRET);
 
     const app = await createApp();
     await app.ready();
@@ -153,9 +150,10 @@ describe.skipIf(!hasDatabase)('GET /domain/debug', () => {
     process.env.AUTH_SERVICE_IDENTIFIER = 'uoa-auth-service';
 
     const domain = 'client.example.com';
-    const domainHash = await seedDomainSecret(domain, process.env.SHARED_SECRET);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain, process.env.SHARED_SECRET);
+    const userId = await seedUser('user@example.com');
     const accessToken = await signTestAccessToken({
-      userId: 'user_2',
+      userId,
       email: 'user@example.com',
       domain,
       role: 'user',
@@ -188,9 +186,10 @@ describe.skipIf(!hasDatabase)('GET /domain/debug', () => {
     const domain = 'client.example.com';
     const otherDomain = 'other.example.com';
 
-    const domainHash = await seedDomainSecret(domain, process.env.SHARED_SECRET);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain, process.env.SHARED_SECRET);
+    const userId = await seedUser('admin@example.com');
     const accessToken = await signTestAccessToken({
-      userId: 'user_1',
+      userId,
       email: 'admin@example.com',
       domain: otherDomain,
       role: 'superuser',

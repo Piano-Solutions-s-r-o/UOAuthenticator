@@ -2027,7 +2027,10 @@ choice.
 
 UOA owns one exact-team credit balance shared across every connected product in
 the same Stripe account/mode. The fixed customer conversion is 1,000 credits =
-US$1.00 and the required product heading is `Remaining credits`. Individual
+US$1.00 and the required product heading is `Remaining credits`. Customer credit
+quantities are always whole integers: UOA floors each cumulative service/user
+rated amount to complete credits and carries the sub-credit remainder internally
+until it crosses the next credit boundary. Individual
 products may advertise different fixed top-up offers, but every successful
 payment funds the shared account. Manual and bounded automatic top-up are
 available to all services only through UOA-authored frozen actions; products
@@ -2126,3 +2129,48 @@ plus DeepWater's team feature policy and recurring add-on catalog. Stripe
 metadata contains stable public contract identifiers only, never UOA database
 IDs. Any local or remote drift aborts instead of mutating or replacing an
 existing Stripe object or local binding.
+
+## 2026-07-25 User Avatars: uploads, provider proxy, and generated fallbacks
+
+This addendum supersedes the "no avatars stored locally" principle (§2), the §15
+"Avatar — No avatar storage" rules, and the §20 non-goal "No local avatar storage",
+and qualifies §22.7. The complete specification is
+[User Avatars](./Auth/avatars.md), incorporated into this brief by reference and
+authoritative for the avatar system.
+
+Summary of what changes and what does not:
+
+- Users may now have an **uploaded avatar** stored in UOA (Postgres `user_avatars`
+  table, raster-only PNG/JPEG/WebP, magic-byte validated, 1 MiB cap). It is set
+  through the API: by the user via the dual-auth `/avatar/me` endpoints, or by the
+  product backend via `/domain/users/:userId/avatar` (domain hash auth).
+- **Avatar resolution precedence is: uploaded → provider URL → generated.** An
+  avatar set in UOA always wins over the social-provider image; the generated
+  image is the universal fallback so avatar GET endpoints always return an image.
+- Four deterministic, non-AI **generated SVG styles** exist: `tiles`, `waves`,
+  `rings`, `mono`. The optional signed-config claim `avatars.default_style`
+  selects a domain's default generated style; absent, a stable per-user
+  pseudo-random style is used.
+- §22.7 remains true **for the provider URL column only**: `User.avatarUrl` is
+  still overwritten on every social login, no history, no caching of provider
+  bytes. Uploaded avatars live in a separate table precisely so that overwrite
+  cannot destroy them.
+- Provider images are **proxied server-side** (HTTPS-only, SSRF-guarded,
+  size/time-capped) so callers always receive image bytes; any proxy failure
+  falls back to the generated image.
+- The Admin panel displays user avatars through
+  `GET /internal/admin/users/:userId/avatar` regardless of source.
+- **Teams (companies) now have avatars too**, on the same terms: an uploaded image in the
+  Postgres `team_avatars` table wins, otherwise the team's existing `iconUrl` is proxied
+  server-side under the same SSRF/size/time rules, otherwise the deterministic generated
+  SVG seeded from the team id. Managed through `GET`/`PUT`/`DELETE
+  /domain/teams/:teamId/avatar` — domain hash bearer only, the machine-to-machine path a
+  product backend uses, since products retain the bound refresh credential rather than a
+  spendable end-user access token; per §24.10 that token is full system trust for the domain,
+  so the backend applies its own owner/admin gating before relaying. The dual-auth
+  `PUT`/`DELETE /org/organisations/:orgId/teams/:teamId/avatar` (organisation owner/admin
+  only, the same authorization as updating the team) and the audited
+  `/internal/admin/teams/:teamId/avatar` routes remain available for callers that do hold a
+  user token, and for operators. Team records now also carry an `avatarImageUrl`.
+  `Team.iconUrl` keeps its current meaning and is never written by the avatar endpoints,
+  exactly as `User.avatarUrl` is not.

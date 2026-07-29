@@ -141,6 +141,8 @@ describe.skipIf(!hasDatabase)('secure one-time login continuation', () => {
   async function mint(userId: string, config: ClientConfig, jti: string) {
     return await signLoginSession({
       userId,
+      // Fresh users start at tokenVersion 0; the routes re-assert this epoch.
+      credentialEpoch: 0,
       authMethod: 'email_password',
       config,
       configUrl,

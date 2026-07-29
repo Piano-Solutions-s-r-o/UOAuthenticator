@@ -91,10 +91,12 @@ export async function listTeams(
     select: TEAM_SELECT,
   });
 
-  const data = rows.slice(0, limit).map(toTeamRecord);
-  const nextCursorRow = rows[limit];
+  const data = rows.slice(0, limit).map((row) => toTeamRecord(row, org.domain));
+  // Brief §24.11: `cursor=<last_id>` — the cursor is the last row of the
+  // returned page (the follow-up query skips it), not the first of the next.
+  const hasMore = rows.length > limit;
 
-  return { data, next_cursor: nextCursorRow ? nextCursorRow.id : null };
+  return { data, next_cursor: hasMore ? rows[limit - 1].id : null };
 }
 
 export async function createTeam(
@@ -159,7 +161,7 @@ export async function createTeam(
         select: TEAM_SELECT,
       });
 
-      return toTeamRecord(created);
+      return toTeamRecord(created, org.domain);
     } catch (err) {
       if (isP2002Error(err)) {
         throw new AppError('BAD_REQUEST', 400);
@@ -223,8 +225,8 @@ export async function getTeam(
   }
 
   const result: TeamWithMembersRecord & { invited?: TeamInvitedEntry[] } = {
-    ...toTeamRecord(row),
-    members: row.members.map(toTeamMemberRecord),
+    ...toTeamRecord(row, org.domain),
+    members: row.members.map((member) => toTeamMemberRecord(member, org.domain)),
   };
 
   if (params.includeInvited) {
@@ -232,7 +234,7 @@ export async function getTeam(
     // plain member gets `invited: []` rather than the whole read failing with 403 (design gapfix-a
     // Task 2).
     result.invited = await getTeamInvitedEntries(
-      { orgId: org.id, teamId: row.id, actorUserId },
+      { orgId: org.id, teamId: row.id, domain: org.domain, actorUserId },
       { prisma },
     );
   }
@@ -327,7 +329,7 @@ export async function updateTeam(
       select: TEAM_SELECT,
     });
 
-    return toTeamRecord(updated);
+    return toTeamRecord(updated, org.domain);
   } catch (err) {
     if (isP2002Error(err)) {
       throw new AppError('BAD_REQUEST', 400);

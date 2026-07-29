@@ -4,6 +4,7 @@ import { SignJWT } from 'jose';
 import { ACCESS_TOKEN_AUDIENCE } from '../../src/config/constants.js';
 import { createApp } from '../../src/app.js';
 import { createClientId } from '../../src/utils/hash.js';
+import { cleanClientDomains, seedDomainSecret } from '../helpers/domain-secret.js';
 import { expectJsonError } from '../helpers/error-response.js';
 import { createTestDb } from '../helpers/test-db.js';
 import {
@@ -101,6 +102,7 @@ describe.skipIf(!hasDatabase)('GET /org/organisations/:orgId/groups', () => {
     await handle.prisma.group.deleteMany();
     await handle.prisma.organisation.deleteMany();
     await handle.prisma.user.deleteMany();
+    await cleanClientDomains(handle.prisma);
   });
 
   it('returns paginated groups for org members when groups feature is enabled', async () => {
@@ -167,7 +169,7 @@ describe.skipIf(!hasDatabase)('GET /org/organisations/:orgId/groups', () => {
     const app = await createApp();
     await app.ready();
 
-    const domainHash = createClientId('client.example.com', process.env.SHARED_SECRET);
+    const domainHash = await seedDomainSecret(handle!.prisma, 'client.example.com');
     const first = await app.inject({
       method: 'GET',
       url: `/org/organisations/${org.id}/groups?domain=client.example.com&config_url=${encodeURIComponent(
@@ -243,7 +245,7 @@ describe.skipIf(!hasDatabase)('GET /org/organisations/:orgId/groups', () => {
     const app = await createApp();
     await app.ready();
 
-    const domainHash = createClientId('client.example.com', process.env.SHARED_SECRET);
+    const domainHash = await seedDomainSecret(handle!.prisma, 'client.example.com');
     const res = await app.inject({
       method: 'GET',
       url: `/org/organisations/${org.id}/groups?domain=client.example.com&config_url=${encodeURIComponent(
@@ -292,6 +294,7 @@ describe.skipIf(!hasDatabase)('GET /org/organisations/:orgId/groups', () => {
       data: {
         orgId: org.id,
         name: orgNameDateSuffix('Team Alpha'),
+        slug: 'acme-team-alpha',
       },
       select: { id: true },
     });
@@ -326,7 +329,7 @@ describe.skipIf(!hasDatabase)('GET /org/organisations/:orgId/groups', () => {
       issuer: process.env.AUTH_SERVICE_IDENTIFIER!,
     });
 
-    const domainHash = createClientId(domain, process.env.SHARED_SECRET);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain);
     const app = await createApp();
     await app.ready();
 

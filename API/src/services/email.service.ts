@@ -65,7 +65,7 @@ async function dispatchEmail(message: EmailMessage, options?: { swallowFailures?
       safeEmailLog(env, message);
     }
     if (options?.swallowFailures === false) {
-      throw new Error('EMAIL_DISPATCH_FAILED');
+      throw new Error('EMAIL_DISPATCH_FAILED', { cause: err });
     }
   }
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 
 import { ActionButton, ActionDivider } from '../components/ui/ActionButton';
 import { Badge } from '../components/ui/Badge';

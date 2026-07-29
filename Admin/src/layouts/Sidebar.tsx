@@ -1,10 +1,12 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink } from 'react-router';
 
 import { Icon } from '../components/icons/Icon';
+import { Avatar } from '../components/ui/Avatar';
 import { Badge } from '../components/ui/Badge';
 import { adminAssets } from '../config/assets';
 import { useDashboardQuery, useIntegrationRequestsQuery } from '../features/admin/admin-queries';
 import type { AdminData } from '../features/admin/types';
+import { UserAvatar } from '../features/admin/UserAvatar';
 import { useAdminSession, useAdminSessionActions } from '../features/auth/admin-session';
 import { useAdminUi } from '../features/shell/admin-ui';
 import { cn } from '../utils/cn';
@@ -63,7 +65,11 @@ export function Sidebar() {
         </nav>
         <div className="border-t border-slate-800 p-2">
           <button className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors hover:bg-slate-800" type="button" onClick={signOut}>
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-900 text-xs font-semibold text-white">SA</span>
+            {adminUser?.id ? (
+              <UserAvatar userId={adminUser.id} label={adminUser.email} />
+            ) : (
+              <Avatar label={adminUser?.email ?? 'sys_admin'} />
+            )}
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium text-slate-200">sys_admin</span>
               <span className="block truncate text-xs text-slate-500">{adminUser?.email ?? 'admin@system.local'}</span>

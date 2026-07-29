@@ -5,7 +5,7 @@ import { jwtVerify } from 'jose';
 import { ACCESS_TOKEN_AUDIENCE } from '../../src/config/constants.js';
 import { createApp } from '../../src/app.js';
 import { hashPassword } from '../../src/services/password.service.js';
-import { createClientId } from '../../src/utils/hash.js';
+import { seedDomainSecret } from '../helpers/domain-secret.js';
 import { createTestDb } from '../helpers/test-db.js';
 import {
   clearOrgTestDatabase,
@@ -17,6 +17,8 @@ import {
 
 const sampleDomain = 'client.example.com';
 const sampleConfigUrl = 'https://client.example.com/auth-config';
+const adminDomain = 'admin.example.com';
+const adminTokenSecret = 'test-admin-token-secret-with-enough-length';
 const pkceVerifier = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ';
 
 function pkceChallenge(codeVerifier: string): string {
@@ -29,6 +31,8 @@ describe.skipIf(!hasDatabase)('org features disabled behaviour', () => {
   const originalDatabaseUrl = process.env.DATABASE_URL;
   const originalSharedSecret = process.env.SHARED_SECRET;
   const originalAuthServiceIdentifier = process.env.AUTH_SERVICE_IDENTIFIER;
+  const originalAdminDomain = process.env.ADMIN_AUTH_DOMAIN;
+  const originalAdminSecret = process.env.ADMIN_ACCESS_TOKEN_SECRET;
 
   beforeAll(async () => {
     handle = await createTestDb();
@@ -43,6 +47,8 @@ describe.skipIf(!hasDatabase)('org features disabled behaviour', () => {
     process.env.DATABASE_URL = originalDatabaseUrl;
     process.env.SHARED_SECRET = originalSharedSecret;
     process.env.AUTH_SERVICE_IDENTIFIER = originalAuthServiceIdentifier;
+    process.env.ADMIN_AUTH_DOMAIN = originalAdminDomain;
+    process.env.ADMIN_ACCESS_TOKEN_SECRET = originalAdminSecret;
 
     if (handle) {
       await handle.cleanup();
@@ -52,6 +58,8 @@ describe.skipIf(!hasDatabase)('org features disabled behaviour', () => {
   beforeEach(async () => {
     process.env.SHARED_SECRET = process.env.SHARED_SECRET ?? 'test-shared-secret-with-enough-length';
     process.env.AUTH_SERVICE_IDENTIFIER = process.env.AUTH_SERVICE_IDENTIFIER ?? 'uoa-auth-service';
+    process.env.ADMIN_AUTH_DOMAIN = adminDomain;
+    process.env.ADMIN_ACCESS_TOKEN_SECRET = adminTokenSecret;
 
     if (!handle) return;
     await clearOrgTestDatabase(handle);
@@ -62,13 +70,15 @@ describe.skipIf(!hasDatabase)('org features disabled behaviour', () => {
   });
 
   afterEach(() => {
-    vi.unstubAllMocks();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
   it('returns 404 for /org and /internal/org endpoints when org_features is disabled', async () => {
     const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, { enabled: false });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    // A fresh Response per call: Response bodies are single-use, and multiple
+    // requests (plus app startup) fetch the config through this stub.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const user = await createTestUser(handle!, 'no-org-features@example.com');
     const actorToken = await signAccessToken({
@@ -81,11 +91,28 @@ describe.skipIf(!hasDatabase)('org features disabled behaviour', () => {
     const app = await createApp();
     await app.ready();
 
-    const domainHash = createClientId(sampleDomain, process.env.SHARED_SECRET!);
+    const domainHash = await seedDomainSecret(handle!.prisma, sampleDomain);
     const headers = {
       authorization: `Bearer ${domainHash}`,
       'x-uoa-access-token': `Bearer ${actorToken}`,
     };
+
+    // /internal/org routes sit behind requireAdminSuperuser, so they need an
+    // admin bearer (signed with ADMIN_ACCESS_TOKEN_SECRET for a SUPERUSER on
+    // the admin auth domain) to reach the org-features gate that returns 404.
+    const adminUser = await createTestUser(handle!, 'internal-admin-disabled@example.com');
+    await handle!.prisma.domainRole.create({
+      data: { domain: adminDomain, userId: adminUser.id, role: 'SUPERUSER' },
+    });
+    const adminToken = await signAccessToken({
+      subject: adminUser.id,
+      email: 'internal-admin-disabled@example.com',
+      domain: adminDomain,
+      secret: adminTokenSecret,
+      issuer: process.env.AUTH_SERVICE_IDENTIFIER!,
+      role: 'superuser',
+    });
+    const adminHeaders = { authorization: `Bearer ${adminToken}` };
     const configQuery = `domain=${encodeURIComponent(sampleDomain)}&config_url=${encodeURIComponent(sampleConfigUrl)}`;
     const orgId = 'org-disabled';
     const teamId = 'team-disabled';
@@ -165,11 +192,15 @@ describe.skipIf(!hasDatabase)('org features disabled behaviour', () => {
       },
     ];
 
-    for (const endpoint of [...userFacingOrgEndpoints, ...internalOrgEndpoints]) {
+    const requests = [
+      ...userFacingOrgEndpoints.map((endpoint) => ({ ...endpoint, headers })),
+      ...internalOrgEndpoints.map((endpoint) => ({ ...endpoint, headers: adminHeaders })),
+    ];
+    for (const endpoint of requests) {
       const response = await app.inject({
         method: endpoint.method as 'GET' | 'POST' | 'PUT' | 'DELETE',
         url: endpoint.url,
-        headers,
+        headers: endpoint.headers,
         ...(endpoint.payload ? { payload: endpoint.payload } : {}),
       });
       expect(response.statusCode).toBe(404);
@@ -208,7 +239,9 @@ describe.skipIf(!hasDatabase)('org features disabled behaviour', () => {
     });
 
     const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, { enabled: false });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    // A fresh Response per call: Response bodies are single-use, and multiple
+    // requests (plus app startup) fetch the config through this stub.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const app = await createApp();
     await app.ready();
@@ -224,11 +257,12 @@ describe.skipIf(!hasDatabase)('org features disabled behaviour', () => {
     expect(loginRes.statusCode).toBe(200);
     const { code } = loginRes.json() as { code: string };
 
+    const domainHash = await seedDomainSecret(handle!.prisma, sampleDomain);
     const tokenRes = await app.inject({
       method: 'POST',
       url: `/auth/token?config_url=${encodeURIComponent(sampleConfigUrl)}`,
       headers: {
-        authorization: `Bearer ${createClientId(sampleDomain, process.env.SHARED_SECRET!)}`,
+        authorization: `Bearer ${domainHash}`,
       },
       payload: {
         code,

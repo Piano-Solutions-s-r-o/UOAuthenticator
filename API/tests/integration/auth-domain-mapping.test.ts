@@ -178,6 +178,7 @@ describe.skipIf(!hasDatabase)('GET /auth/domain-mapping (mapping resolution)', (
       data: {
         orgId: org.id,
         name: 'Engineering',
+        slug: 'engineering',
         isDefault: false,
       },
       select: { id: true, name: true },

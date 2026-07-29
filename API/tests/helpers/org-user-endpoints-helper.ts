@@ -14,6 +14,8 @@ type PrismaCreateUser = (args: {
 
 type OrgTestDbHandle = {
   prisma: {
+    clientDomainSecret: { deleteMany: PrismaDeleteMany };
+    clientDomain: { deleteMany: PrismaDeleteMany };
     verificationToken: { deleteMany: PrismaDeleteMany };
     teamInvite: { deleteMany: PrismaDeleteMany };
     groupMember: { deleteMany: PrismaDeleteMany };
@@ -72,8 +74,14 @@ export type TeamMemberRecord = {
   id: string;
   teamId: string;
   userId: string;
+  avatarImageUrl: string;
   teamRole: string;
 };
+
+/** Docs/Auth/avatars.md §9: the URL a domain-hash caller can fetch this member's avatar with. */
+export function expectedMemberAvatarImageUrl(userId: string, domain: string): string {
+  return `/domain/users/${userId}/avatar?domain=${encodeURIComponent(domain)}`;
+}
 
 export type TeamInviteRecord = {
   id: string;
@@ -99,21 +107,34 @@ export type OrgMemberRecord = {
   id: string;
   orgId: string;
   userId: string;
+  avatarImageUrl: string;
   role: string;
 };
 
-export function clearOrgTestDatabase(handle: OrgTestDbHandle): Promise<unknown[]> {
-  return Promise.all([
-    handle.prisma.verificationToken.deleteMany(),
-    handle.prisma.teamInvite.deleteMany(),
-    handle.prisma.groupMember.deleteMany(),
-    handle.prisma.teamMember.deleteMany(),
-    handle.prisma.orgMember.deleteMany(),
-    handle.prisma.team.deleteMany(),
-    handle.prisma.group.deleteMany(),
-    handle.prisma.organisation.deleteMany(),
-    handle.prisma.user.deleteMany(),
-  ]);
+export type OrgMeRecord = {
+  org_id: string;
+  org_role: string;
+  teams: string[];
+  team_roles: Record<string, string>;
+  groups?: string[];
+  group_admin?: string[];
+};
+
+export async function clearOrgTestDatabase(handle: OrgTestDbHandle): Promise<void> {
+  // Sequential, children before parents: concurrent deletes race the
+  // Restrict FK from organisations.owner_id to users and the client_domains
+  // FK from client_domain_secrets.
+  await handle.prisma.verificationToken.deleteMany();
+  await handle.prisma.teamInvite.deleteMany();
+  await handle.prisma.groupMember.deleteMany();
+  await handle.prisma.teamMember.deleteMany();
+  await handle.prisma.orgMember.deleteMany();
+  await handle.prisma.team.deleteMany();
+  await handle.prisma.group.deleteMany();
+  await handle.prisma.organisation.deleteMany();
+  await handle.prisma.user.deleteMany();
+  await handle.prisma.clientDomainSecret.deleteMany();
+  await handle.prisma.clientDomain.deleteMany();
 }
 
 function secretKey(sharedSecret: string): Uint8Array {
@@ -123,9 +144,16 @@ function secretKey(sharedSecret: string): Uint8Array {
 export async function createSignedConfigJwt(
   sharedSecret: string,
   orgFeatures: Record<string, unknown>,
+  domain?: string,
 ): Promise<string> {
   void sharedSecret;
+  // The config verifier requires the JWT's `domain` claim to match both the
+  // config_url host and the ?domain= query, so tests using their own domain
+  // must bake it into the signed config.
   const payload = baseClientConfigPayload({
+    ...(domain
+      ? { domain, redirect_urls: [`https://${domain}/oauth/callback`] }
+      : {}),
     org_features: {
       enabled: true,
       ...orgFeatures,

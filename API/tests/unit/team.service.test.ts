@@ -85,7 +85,8 @@ describe('Team service', () => {
           isDefault: false,
         },
       ],
-      next_cursor: 'team-old',
+      // Cursor is the last row of the returned page (brief §24.11 last_id).
+      next_cursor: 'team-new',
     });
     expect(prisma.team.findMany).toHaveBeenCalledWith(
       expect.objectContaining({

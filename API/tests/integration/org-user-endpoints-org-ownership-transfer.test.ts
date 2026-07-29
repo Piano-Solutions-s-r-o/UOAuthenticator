@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../src/app.js';
-import { createClientId } from '../../src/utils/hash.js';
+import { seedDomainSecret } from '../helpers/domain-secret.js';
 import { expectJsonError } from '../helpers/error-response.js';
 import { createTestDb } from '../helpers/test-db.js';
 import {
@@ -56,8 +56,10 @@ describe.skipIf(!hasDatabase)('organisation owner transfer before sole-owner rem
   it('blocks removing sole owner until ownership is transferred', async () => {
     const domain = 'org-owner-transfer.example.com';
     const orgConfigUrl = 'https://org-owner-transfer.example.com/auth-config';
-    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, {});
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(configJwt, { status: 200 })));
+    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, { allow_user_create_org: true }, domain);
+    // A fresh Response per call: Response bodies are single-use, and multiple
+    // requests (plus app startup) fetch the config through this stub.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const owner = await createTestUser(handle!, 'owner-transfer@example.com');
     const secondOwner = await createTestUser(handle!, 'second-owner@example.com');
@@ -72,7 +74,7 @@ describe.skipIf(!hasDatabase)('organisation owner transfer before sole-owner rem
     const app = await createApp();
     await app.ready();
 
-    const domainHash = createClientId(domain, process.env.SHARED_SECRET!);
+    const domainHash = await seedDomainSecret(handle!.prisma, domain);
     const createOrg = await app.inject({
       method: 'POST',
       url: `/org/organisations?domain=${encodeURIComponent(domain)}&config_url=${encodeURIComponent(orgConfigUrl)}`,

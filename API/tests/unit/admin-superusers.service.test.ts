@@ -59,6 +59,9 @@ describe('admin superuser service', () => {
         userId: 'user_1',
         email: 'admin@example.com',
         name: 'Admin',
+        // Docs/Auth/avatars.md §9 — admin-bearer URL form; relative because PUBLIC_BASE_URL is
+        // unset in tests.
+        avatarImageUrl: '/internal/admin/users/user_1/avatar',
         createdAt: '2026-04-23T10:00:00.000Z',
       },
     ]);
@@ -72,7 +75,12 @@ describe('admin superuser service', () => {
     const { searchNonSuperusers } = await import('../../src/services/admin-superusers.service.js');
 
     await expect(searchNonSuperusers('user')).resolves.toEqual([
-      { userId: 'user_2', email: 'user@example.com', name: null },
+      {
+        userId: 'user_2',
+        email: 'user@example.com',
+        name: null,
+        avatarImageUrl: '/internal/admin/users/user_2/avatar',
+      },
     ]);
     expect(user.findMany).toHaveBeenCalledWith(
       expect.objectContaining({

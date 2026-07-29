@@ -141,6 +141,9 @@ describe.skipIf(!hasDatabase)('email-route first-product placement transaction',
         email: params.email,
         expiresAt: new Date(Date.now() + 10 * 60_000),
         tokenHash,
+        // Existing-user tokens must snapshot the user's tokenVersion (0 for fresh users)
+        // or the verification-token epoch check rejects them as INVALID_TOKEN.
+        tokenVersion: 0,
         type: params.type,
         userId: params.userId,
         userKey: params.email,
@@ -160,10 +163,18 @@ describe.skipIf(!hasDatabase)('email-route first-product placement transaction',
   type LockState = { placementWaiters: number; relationWaiters: number };
 
   async function readLockState(userId: string): Promise<LockState> {
+    // The fixed route serializes a concurrent email consumption on the
+    // refresh-session user advisory lock before it can reach the placement
+    // lock, so a waiter on either key means the second request is queued
+    // behind the first and the race window is closed.
     const [row] = await handle.prisma.$queryRawUnsafe<LockState[]>(`
       WITH placement_key AS (
         SELECT hashtextextended(
           'uoa:required-team-placement:${userId}', 0
+        ) AS value
+        UNION ALL
+        SELECT hashtextextended(
+          '["uoa:refresh-session:user:v1","${userId}"]', 0
         ) AS value
       )
       SELECT

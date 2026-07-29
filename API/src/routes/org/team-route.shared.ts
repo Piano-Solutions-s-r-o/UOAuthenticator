@@ -132,8 +132,16 @@ export function parseDomainContext(request: FastifyRequest) {
   return parsed;
 }
 
+// preValidation runs before the handler's own strict query parse, so this hook
+// must tolerate route-specific keys (limit, cursor, include) that the strict
+// DomainQuerySchema would reject — brief §24.11 documents `?limit=&cursor=` on
+// every list endpoint. Validate only the shared domain context here; each
+// handler still strict-parses its full query schema.
+const DomainContextHookSchema = DomainQuerySchema.passthrough();
+
 export async function parseDomainContextHook(request: FastifyRequest): Promise<void> {
-  parseDomainContext(request);
+  const parsed = DomainContextHookSchema.parse(request.query);
+  assertVerifiedDomainMatchesQuery(request, parsed.domain);
 }
 
 export function parseDomainFromRequest(request: FastifyRequest): string {

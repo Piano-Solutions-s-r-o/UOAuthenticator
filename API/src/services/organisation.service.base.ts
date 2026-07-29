@@ -3,6 +3,11 @@ import { Prisma, PrismaClient, type MembershipStatus } from '@prisma/client';
 
 import type { ClientConfig } from './config.service.js';
 import { getEnv } from '../config/env.js';
+import {
+  avatarImageBaseUrl,
+  domainAvatarImageUrl,
+  domainTeamAvatarImageUrl,
+} from '../utils/avatar-url.js';
 import { normalizeDomain } from '../utils/domain.js';
 import { AppError } from '../utils/errors.js';
 import { parseIconUrl } from '../utils/http-url.js';
@@ -80,11 +85,31 @@ export type OrganisationMemberRecord = {
   id: string;
   orgId: string;
   userId: string;
+  avatarImageUrl: string;
   role: string;
   status: MembershipStatus;
   createdAt: Date;
   updatedAt: Date;
 };
+
+/**
+ * Avatar image URL for a user named in an `/org/*` payload (Docs/Auth/avatars.md §9). The
+ * `/org/*` family authenticates with the domain hash bearer (plus the caller's access token), so
+ * the domain-hash form is exactly the credential class the caller already used. Shared by the org,
+ * team, group, invite and access-request serializers so the shape is derived in one place.
+ */
+export function memberAvatarImageUrl(domain: string, userId: string): string {
+  return domainAvatarImageUrl({ baseUrl: avatarImageBaseUrl(), domain, userId });
+}
+
+/**
+ * Avatar image URL for a team ("company") named in an `/org/*` or `/internal/org/*` payload
+ * (Docs/Auth/avatars.md §11). Same credential class as `memberAvatarImageUrl`: the domain-hash
+ * bearer the caller already used.
+ */
+export function teamAvatarImageUrl(domain: string, teamId: string): string {
+  return domainTeamAvatarImageUrl({ baseUrl: avatarImageBaseUrl(), domain, teamId });
+}
 
 const RESERVED_ORG_SLUGS = new Set([
   'admin',
@@ -233,19 +258,23 @@ export function toOrganisationRecord(row: {
   };
 }
 
-export function toMemberRecord(row: {
-  id: string;
-  orgId: string;
-  userId: string;
-  role: string;
-  status: MembershipStatus;
-  createdAt: Date;
-  updatedAt: Date;
-}): OrganisationMemberRecord {
+export function toMemberRecord(
+  row: {
+    id: string;
+    orgId: string;
+    userId: string;
+    role: string;
+    status: MembershipStatus;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  domain: string,
+): OrganisationMemberRecord {
   return {
     id: row.id,
     orgId: row.orgId,
     userId: row.userId,
+    avatarImageUrl: memberAvatarImageUrl(domain, row.userId),
     role: row.role,
     status: row.status,
     createdAt: row.createdAt,

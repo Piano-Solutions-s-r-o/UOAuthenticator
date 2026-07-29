@@ -1,3 +1,4 @@
+import { IDENTITY_AVATAR_URL_NOTE } from './schema.avatars.js';
 import type { EndpointSchema } from './schema.js';
 
 export function buildInternalAdminSignatureEndpoints(params: {
@@ -125,7 +126,12 @@ export function buildInternalAdminSignatureEndpoints(params: {
         cursor: 'signature id returned as next_cursor (optional; must belong to domain)',
         limit: 'integer (optional, 1-100, default 50)',
       },
-      response: { 200: '{ data, next_cursor }', 429: 'separate Admin signature-search limit', '401/403': authFailures },
+      response: {
+        200: '{ data, next_cursor } — each row carries user_avatar_image_url for its user_id (the revocation actor_email has no user object and gets none)',
+        429: 'separate Admin signature-search limit',
+        '401/403': authFailures,
+      },
+      notes: IDENTITY_AVATAR_URL_NOTE,
     },
     {
       method: 'GET',

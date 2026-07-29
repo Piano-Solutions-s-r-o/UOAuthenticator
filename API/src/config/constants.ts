@@ -29,3 +29,19 @@ export const LOGIN_CODE_MAX_ATTEMPTS = 5;
 // authentication by itself. JWT `aud` claim, mirroring ACCESS_TOKEN_AUDIENCE's fixed-audience shape.
 export const LOGIN_SESSION_AUDIENCE = 'uoa:login-session';
 export const LOGIN_SESSION_TTL_MS = 10 * 60 * 1000;
+
+// Docs/Auth/avatars.md §3: uploaded avatars are raster-only (PNG/JPEG/WebP, magic-byte sniffed)
+// and hard-capped at 1 MiB. Enforced after the multipart buffer is read, independently of the
+// global @fastify/multipart fileSize limit, which is tuned for signature PDFs.
+export const AVATAR_MAX_BYTES = 1024 * 1024;
+
+// Docs/Auth/avatars.md §6: provider avatar URLs are proxied server-side so callers always get
+// image bytes. The fetch is HTTPS-only, SSRF-guarded, time-capped and size-capped; any failure
+// falls back to the generated avatar rather than surfacing an error.
+export const AVATAR_PROVIDER_FETCH_TIMEOUT_MS = 5_000;
+export const AVATAR_PROVIDER_MAX_BYTES = 5 * 1024 * 1024;
+
+// Cache lifetimes for avatar GET responses. Generated avatars are deterministic for a given
+// user/style/size, so they get a long private lifetime; uploaded and proxied images can change.
+export const AVATAR_DYNAMIC_CACHE_CONTROL = 'private, max-age=300';
+export const AVATAR_GENERATED_CACHE_CONTROL = 'private, max-age=86400';

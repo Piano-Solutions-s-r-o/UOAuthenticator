@@ -66,9 +66,11 @@ export async function listOrganisationsForDomain(
   });
 
   const data = rows.slice(0, limit).map(toOrganisationRecord);
-  const nextCursorRow = rows[limit];
+  // Brief §24.11: `cursor=<last_id>` — the cursor is the last row of the
+  // returned page (the follow-up query skips it), not the first of the next.
+  const hasMore = rows.length > limit;
 
-  return { data, next_cursor: nextCursorRow ? nextCursorRow.id : null };
+  return { data, next_cursor: hasMore ? rows[limit - 1].id : null };
 }
 
 export async function createOrganisation(

@@ -17,6 +17,9 @@ export type TeamInvitedEntry = {
   teamRole: string;
   invitedByName: string | null;
   invitedByEmail: string | null;
+  // Docs/Auth/avatars.md §9 — the inviter's avatar. Null when the invite predates inviter-id
+  // capture; the invitee's `email` gets none, they have no UOA user yet.
+  invitedByAvatarImageUrl: string | null;
   lastSentAt: Date;
   expiresAt: Date | null;
   approvalStatus: InviteApprovalStatusValue;
@@ -33,7 +36,7 @@ export type TeamInvitedEntry = {
  * awaiting member-invite approval, distinguished by that same field.
  */
 export async function getTeamInvitedEntries(
-  params: { orgId: string; teamId: string; actorUserId: string },
+  params: { orgId: string; teamId: string; domain: string; actorUserId: string },
   deps?: InviteDeps,
 ): Promise<TeamInvitedEntry[]> {
   const env = deps?.env ?? getEnv();
@@ -55,7 +58,7 @@ export async function getTeamInvitedEntries(
   });
 
   return rows.map((row) => {
-    const record = toInviteRecord(row, now);
+    const record = toInviteRecord(row, now, params.domain);
     return {
       inviteId: record.id,
       email: record.email,
@@ -63,6 +66,7 @@ export async function getTeamInvitedEntries(
       teamRole: record.teamRole,
       invitedByName: record.invitedByName,
       invitedByEmail: record.invitedByEmail,
+      invitedByAvatarImageUrl: record.invitedByAvatarImageUrl,
       lastSentAt: record.lastSentAt,
       expiresAt: record.expiresAt,
       approvalStatus: record.approvalStatus,
