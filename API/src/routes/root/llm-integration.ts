@@ -4,7 +4,8 @@ export const llmIntegrationMarkdown = `---
 
 Sections 4.1–4.7 describe the legacy authorization-code / refresh-token profile.
 Section 4.6a documents the separate confidential JWT assertion grant and its
-resource-verifiable RS256 token.
+resource-verifiable RS256 token; section 4.6b documents presenting such a token
+back to UOA's own \`/org/*\` surface for server-to-server provisioning.
 
 This call is server-to-server. The browser MUST never see the bearer token.
 
@@ -322,6 +323,47 @@ for, never the full mapping allowlist.
 The confidential grant is rate-limited per authenticated source domain
 (600/minute) and per verified source-domain user (60/minute), so users behind
 one Nessie egress IP do not consume a shared 10/minute bucket.
+
+### 4.6b Server-to-server organisation/team provisioning (\`token.provision\`)
+
+Every \`/org/*\` endpoint reads the acting user from \`X-UOA-Access-Token\`. That
+header normally carries the user's HS256 access token, which a product backend
+does not retain. A backend that must manage organisations and teams for one of
+its users can instead present a confidential resource token from the exchange
+above, provided the delegation mapping grants \`token.provision\` and binds the
+resource to UOA's own org surface:
+
+\`\`\`text
+resource = "<UOA public base URL>/org"     # e.g. https://sso.example.com/org
+scope    = "token.provision"                # alone, or alongside other granted scopes
+\`\`\`
+
+The token is then sent unchanged on the normal org call (alongside the usual
+domain-hash bearer):
+
+\`\`\`text
+POST /org/organisations/<orgId>/teams?domain=<d>&config_url=<u>
+Authorization: Bearer <client_hash>
+X-UOA-Access-Token: <RS256 at+jwt from /auth/token>
+\`\`\`
+
+UOA verifies the user token first and only falls back to this path for a token
+whose protected header is exactly RS256 \`at+jwt\`. It then requires: this
+service's own issuer, the exact \`/org\` audience (no prefix or path tolerance),
+an unexpired token inside the confidential access-token lifetime, a canonical
+scope containing \`token.provision\`, \`source_domain\` (= \`azp\`) equal to the
+request's domain, a live credential epoch matching \`tv\`, and a current
+source-domain role for the subject. The resulting acting user is the token's
+\`sub\`, its \`org\`/\`active\` claims are honoured exactly as a user token's are,
+and every organisation/team role rule is unchanged — a token without an \`org\`
+claim can still only do what an org-less user token can (e.g. bootstrap
+\`POST /org/organisations\`). A confidential token never carries the
+platform-superuser escalation, so \`POST /org/organisations\` still needs
+\`org_features.allow_user_create_org=true\` unless the subject holds a
+\`SUPERUSER\` role on that domain. Failures use distinct codes
+(\`CONFIDENTIAL_TOKEN_INVALID\` 401, \`CONFIDENTIAL_TOKEN_DOMAIN_MISMATCH\` 403,
+\`CONFIDENTIAL_SCOPE_MISSING\` 403, \`CONFIDENTIAL_DOMAIN_ROLE_MISSING\` 403) so
+this path is distinguishable from a failed user token in operations.
 
 ### 4.7 Organisation member lifecycle — deactivate, reactivate, soft-remove
 
