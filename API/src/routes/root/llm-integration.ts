@@ -363,7 +363,41 @@ platform-superuser escalation, so \`POST /org/organisations\` still needs
 \`SUPERUSER\` role on that domain. Failures use distinct codes
 (\`CONFIDENTIAL_TOKEN_INVALID\` 401, \`CONFIDENTIAL_TOKEN_DOMAIN_MISMATCH\` 403,
 \`CONFIDENTIAL_SCOPE_MISSING\` 403, \`CONFIDENTIAL_DOMAIN_ROLE_MISSING\` 403) so
-this path is distinguishable from a failed user token in operations.
+this path is distinguishable from a failed user token in operations. In
+production those codes are not echoed to the caller — the response body stays
+generic unless \`DEBUG_ENABLED\` is set — so they are an operator signal, not a
+new oracle.
+
+**Prerequisite.** This path needs \`MCP_OAUTH_ACCESS_TOKEN_PRIVATE_JWK\`
+provisioned on the auth service: it is the key that both signs these tokens and
+verifies them here. Check \`GET /oauth/jwks.json\` — **200 with at least one key
+means ready; 404 means the key is not set**, and every call will fail with a
+5xx. Deliberately 5xx and never 401, so an unprovisioned deployment can never be
+mistaken for a rejected token. The same rule holds for a database outage: it
+propagates as an error you should retry, never as a 401 that would look like the
+user was logged out.
+
+**\`/org/me\` works with this token too.** It resolves the acting user through the
+same code as every other \`/org/*\` route, so a backend can read its user's
+workspace context before mutating anything.
+
+**Audit provenance.** Because a backend acting for a user is otherwise
+indistinguishable from the user acting themselves, every organisation audit row
+written through this path also records who acted, under the reserved
+\`uoa_actor\` key of \`OrgAuditLog.metadata\`:
+
+\`\`\`json
+{ "uoa_actor": { "via": "confidential_provisioning", "product": "hugo",
+                 "source_domain": "api.hugopos.eu" } }
+\`\`\`
+
+Rows without that key were made by the user directly.
+
+**Operator note.** \`token.provision\` combined with
+\`resource = "<UOA public base URL>/org"\` grants full organisation and team
+authority over UOA's own tenancy for that source domain — not merely "token
+provisioning". Exact-string audience matching means a mapping registered for any
+other resource cannot reach \`/org\`, so the resource is the containment boundary.
 
 ### 4.7 Organisation member lifecycle — deactivate, reactivate, soft-remove
 

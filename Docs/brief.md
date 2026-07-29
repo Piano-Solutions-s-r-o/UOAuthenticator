@@ -766,7 +766,17 @@ Delegation policy is DB-backed, not process configuration. Each mapping binds
 one registered `ClientDomain` plus lowercase product identifier to one exact
 HTTPS resource and a non-empty allowlist containing only `ai.invoke`,
 `billing.read`, and/or `token.provision`. Token provisioning is a distinct,
-explicit app capability and is never implied by `ai.invoke`. The domain-hash middleware retains the authenticated
+explicit app capability and is never implied by `ai.invoke`.
+
+**What `token.provision` grants depends on the `resource` it is paired with.**
+Against a product's own HTTPS origin it authorises token provisioning for that
+product. Against `<UOA public base URL>/org` it additionally authorises the
+`/org/*` confidential provisioning path (§24 "User Identity") — full
+organisation and team authority over UOA's own tenancy for that source domain,
+bounded by the acting user's live org/team and source-domain roles. Exact-string
+audience matching plus `normalizeResource` mean a mapping registered for any
+other resource cannot reach `/org`, so the resource IS the containment boundary
+and must be reviewed when the scope is granted. The domain-hash middleware retains the authenticated
 `ClientDomain.id`, so another product's credential cannot select this mapping;
 secret rotation remains valid because policy does not bind plaintext,
 client-hash, digest, or an individual secret row. The request must name the
@@ -1303,6 +1313,50 @@ The `/org/` endpoints use a **dual-auth pattern**: domain hash token for backend
 #### User Identity
 
 For endpoints needing user context, the access token goes in `X-UOA-Access-Token` header (already redacted in Fastify logger config). The `Authorization` header carries the domain hash token.
+
+`X-UOA-Access-Token` accepts **two** token profiles on `/org/*`. The HS256 user
+access token is tried first and behaves exactly as before. **Additively**, a
+token that fails HS256 verification *and* carries the exact RS256 `at+jwt`
+protected header is retried as a **confidential provisioning token** — a
+resource token from the §22.15 confidential exchange, so a trusted product
+backend can manage organisations and teams for one of its users
+server-to-server without ever holding that user's session token.
+
+Such a token is accepted only when all of the following hold:
+
+- signed by the key published at `GET /oauth/jwks.json`, `iss` = this service's
+  public base URL;
+- `aud` is exactly `<PUBLIC_BASE_URL>/org` as a single string, matched
+  byte-for-byte — no prefix, suffix, trailing-slash or path tolerance, and a
+  multi-valued `aud` array is rejected;
+- the delegation scope contains `token.provision`, in the canonical form the
+  exchange signs;
+- `source_domain` = `azp` = the request's resolved `?domain=`, so a token minted
+  for one product domain can never act on another domain's tenant;
+- unexpired within the confidential access-token lifetime, `iat` not in the
+  future;
+- the acting user's credential epoch (`tv`) still matches the live user row
+  **and** a current `DomainRole` exists on that source domain — both re-read from
+  the database on every request, so revocation is immediate.
+
+Organisation and team role semantics are **unchanged**: the token is projected
+onto the same claims shape as a user token and evaluated by the same code. A
+confidential token is never more privileged than the same user's HS256 token —
+the acting role comes from the live `DomainRole` row and the platform-superuser
+escalation is not applied. Failures use distinct codes
+(`CONFIDENTIAL_TOKEN_INVALID` 401, `CONFIDENTIAL_TOKEN_DOMAIN_MISMATCH` 403,
+`CONFIDENTIAL_SCOPE_MISSING` 403, `CONFIDENTIAL_DOMAIN_ROLE_MISSING` 403) so
+operators can separate the two profiles in logs; production responses stay
+generic to the caller.
+
+Because a backend acting for a user is otherwise indistinguishable from the user
+acting themselves, every org audit row written on this path additionally records
+the calling product's provenance (`via`, `product`, `source_domain`, and the
+`act` chain) under the reserved `uoa_actor` key in `OrgAuditLog.metadata`. Rows
+without that key are user-initiated.
+
+This path requires `MCP_OAUTH_ACCESS_TOKEN_PRIVATE_JWK`; without it the verifier
+returns 5xx (never 401), and `GET /oauth/jwks.json` 404s.
 
 #### Middleware Chain
 

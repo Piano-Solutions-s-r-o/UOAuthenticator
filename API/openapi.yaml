@@ -74,7 +74,58 @@ components:
       in: header
       name: X-UOA-Access-Token
       description: |
-        UOA access token (HS256 JWT). May be prefixed with `Bearer ` or sent raw.
+        UOA access token. May be prefixed with `Bearer ` or sent raw.
+
+        Two token profiles are accepted. The HS256 profile is tried first and its
+        behaviour is unchanged; the RS256 profile is additive and is only reached
+        by a token that fails HS256 verification **and** carries the exact RS256
+        `at+jwt` protected header.
+
+        **1. User access token (HS256 JWT).** The interactive user's own session
+        token, issued by the login flow. Accepted on every route documented with
+        this scheme.
+
+        **2. Confidential provisioning token (RS256 `at+jwt`)** — `/org/*` only.
+        A resource token from the RFC 8693 confidential exchange (`POST
+        /auth/token`), letting a trusted product backend act on `/org/*` for one
+        of its users server-to-server, without ever holding that user's session
+        token. To be accepted it must:
+
+        - be signed with the key published at `GET /oauth/jwks.json`, with `iss`
+          equal to this service's public base URL;
+        - carry `aud` exactly `<PUBLIC_BASE_URL>/org` — a single string, matched
+          byte-for-byte. No prefix, suffix, trailing-slash, or path tolerance,
+          and a multi-valued `aud` is rejected outright;
+        - include the `token.provision` delegation scope, in the canonical
+          (sorted, de-duplicated, allowlisted) form the exchange signs;
+        - bind `source_domain` = `azp` = the request's resolved `?domain=`
+          (a token minted for one product domain can never act on another's
+          tenant);
+        - be unexpired within the confidential access-token lifetime, with `iat`
+          not in the future;
+        - match the acting user's live credential epoch (`tv`) **and** a current
+          `DomainRole` row on that source domain — both re-read from the database
+          on every request, so revocation takes effect immediately.
+
+        Organisation and team role rules are entirely unchanged: the token is
+        projected onto the same claims shape as a user token and evaluated by the
+        same code. A confidential token is never more privileged than the same
+        user's HS256 token — the acting role comes from the live `DomainRole` row
+        and the platform-superuser escalation is not applied.
+
+        Failures use distinct codes so operators can separate the two profiles in
+        logs: `CONFIDENTIAL_TOKEN_INVALID` (401),
+        `CONFIDENTIAL_TOKEN_DOMAIN_MISMATCH` (403),
+        `CONFIDENTIAL_SCOPE_MISSING` (403),
+        `CONFIDENTIAL_DOMAIN_ROLE_MISSING` (403). In production these are not
+        echoed to the caller — `buildPublicErrorBody` returns the generic body
+        unless `DEBUG_ENABLED` is set — so the distinction is an operator signal,
+        not a new oracle.
+
+        **Prerequisite:** this profile requires
+        `MCP_OAUTH_ACCESS_TOKEN_PRIVATE_JWK` to be provisioned. Without it the
+        service cannot verify these tokens and returns 5xx (never 401). Confirm
+        with `GET /oauth/jwks.json` returning 200.
     configJwt:
       type: apiKey
       in: header
