@@ -186,8 +186,28 @@ When resolution lands on the provider URL, UOA fetches it server-side and stream
 bytes back so the caller still receives an image:
 
 - HTTPS only; destination passes the existing SSRF safeguards (`utils/ssrf.ts`).
-- Timeout ~5s, response capped at 5 MiB, response content type must sniff as a raster
-  image.
+- **One ~5s wall-clock deadline bounds how long a caller can be held** — DNS resolution,
+  every sequential resolved-address attempt, the fetch, and the streamed read all share it
+  (`AVATAR_PROVIDER_DEADLINE_MS`). It is not a per-leg timeout: the URL is
+  attacker-supplied, so a per-leg bound would let a host multiply the legs and occupy the
+  request for a multiple of the stated budget. An `AbortController` is plumbed through
+  every leg so an expired attempt unwinds itself, and the deadline is additionally raced
+  so a leg that ignores its signal still cannot outlast it.
+  It bounds the *caller*, not every resource: `resolvePublicDestinations` uses
+  `dns.lookup`, which takes no `AbortSignal` and runs `getaddrinfo` on the libuv
+  threadpool, so a stalling resolver still occupies a pool thread until the OS timeout.
+  Past the deadline the abandoned attempt also keeps running (untracked) purely to close
+  its own agent. Both are strictly better than the previous behaviour, where the caller
+  was held too, but neither is a resource cap.
+- Response capped at 5 MiB, response content type must sniff as a raster image.
+- **The response body is always released.** Every exit from the request — non-2xx,
+  oversized declared `Content-Length`, oversized streamed body, non-raster bytes, or a
+  throw — cancels/destroys the body before returning. An abandoned body keeps its request
+  active on the pinned agent, and `closeSsrfAgent` waits on exactly that; leaving one
+  behind used to make the whole avatar request hang indefinitely.
+- `closeSsrfAgent` is itself bounded: the graceful `Agent.close()` gets a short grace
+  window and is then forced down with `destroy()`, so a stalled peer can never strand the
+  `finally` that every SSRF-guarded fetch runs.
 - **Any failure falls back to the generated avatar** — the endpoint still returns 200
   with an image, and `X-UOA-Avatar-Source: generated`.
 - No provider bytes are persisted (keeps brief §22.7's no-caching spirit).
@@ -224,6 +244,61 @@ bytes back so the caller still receives an image:
   can already list those users.
 - The per-domain hash bearer, access tokens, and admin bearers follow the existing
   middleware; no new credential types.
+- **Authentication precedes any `config_url` work.** The optional signed-config hook on
+  the avatar GETs runs *after* the route's bearer check, never before, so an anonymous
+  caller cannot aim UOA's DNS/HTTPS/JWKS work at a host of its choosing and collect a 401
+  afterwards. Its only contribution is the cosmetic `avatars.default_style`, read in the
+  handler, so nothing needs it earlier.
+- **Every `/domain/*` avatar mutation is audit-logged** (`domain.user_avatar_updated`,
+  `domain.user_avatar_deleted`, `domain.team_avatar_updated`,
+  `domain.team_avatar_deleted` in `AdminAuditLog`), matching the `/internal/admin/*`
+  avatar routes. `actorEmail` on those rows is a `client:<domain>#<clientDomainId>` machine
+  principal, never an address — the domain-hash bearer identifies a backend, not a person.
+  `clientDomainId` is the `ClientDomain` row id. It must never be
+  `request.domainAuthClientId`, which despite its name is the caller's **live bearer
+  token**; persisting that would put a full-system-trust credential in an operator-readable
+  table, and it would rotate with the domain secret so the trail would not even correlate.
+  The audit write is awaited and propagates, matching the `/internal/admin/*` avatar
+  routes; it is not yet atomic with the mutation (the billing services get that by writing
+  their row inside the same `$transaction`), so a failing insert means a 500 on an avatar
+  that did change.
+
+### Accepted risks
+
+Recorded here rather than silently patched. Revisit these if the threat model changes.
+
+- **A `global`-scope user has one avatar, shared by every domain.** `user_avatars` is
+  keyed on `user_id` alone, and a `global`-scope user is a single `User` row shared by
+  every domain they belong to, so a `PUT /domain/users/:userId/avatar` from domain A
+  replaces the image domain B renders for the same person. This follows from the shared
+  identity itself — one email, one password, one 2FA secret, one profile — and per-domain
+  avatars would be a schema and brief change (scoped key, scope selector on the API,
+  resolution fallback), not a route guard. The write is not open: it needs the
+  domain-hash bearer (full system trust for that domain, brief §24.10) *and* the target
+  user must hold a `DomainRole` in that same domain, so only a domain the user actually
+  joined can write. The audit rows above make a cross-tenant overwrite attributable,
+  which is what was actually missing.
+- **The avatar GETs have no rate limiter, so an authenticated caller keeps the
+  outbound-fetch primitive.** Moving the config hook behind the bearer check narrows the
+  attacker population from "anyone" to "any domain holding a valid domain-hash bearer"; it
+  does not remove the primitive. A holder can still drive the config fetch (5s, up to 3
+  redirects) and the provider fetch (~5s) at request rate, since only the *mutations* are
+  limited (30/hour). Accepted for now because these GETs are the hot path for rendering
+  avatars and a limiter risks throttling legitimate high-volume reads; if it becomes a
+  problem the limiter belongs on the GETs keyed per domain.
+  Two non-avatar routes have the sharper version of the same gap and should get a
+  **pre-auth** limiter (the `auth/token-exchange.ts` pattern): `auth/revoke.ts` and
+  `domain/signatures.ts` run `configVerifier` first — structurally, since
+  `requireDomainHashAuth` derives the domain from the verified config — with their rate
+  limiters behind it, so an anonymous caller can still aim a config fetch through them.
+- **No storage quota on avatar bytes.** Avatars are 1 MiB `BYTEA` in the primary auth
+  database with no per-domain or global cap. Growth is bounded by construction rather
+  than by a quota: one row per user and one per team, replaced rather than appended, so
+  a domain cannot grow storage by uploading repeatedly — only by creating more users or
+  teams, which the org/member limits already govern. The mutation rate limiter (30/hour
+  per domain+target) is an in-process `Map`, so it is per-instance and resets on deploy;
+  it is a churn brake, not a storage control. A real quota belongs with the org-features
+  limits if avatar bytes ever need one.
 
 ## 9. Avatar URLs in identity payloads
 

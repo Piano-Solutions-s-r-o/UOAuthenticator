@@ -58,7 +58,9 @@ export async function listOrganisationsForDomain(
 
   const rows = await prisma.organisation.findMany({
     where,
-    orderBy: { createdAt: 'desc' },
+    // Total order — see the note in team.service.teams.ts: a cursor walk on a
+    // non-unique `createdAt` silently drops rows that share a millisecond.
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: limit + 1,
     cursor: cursor ? { id: cursor } : undefined,
     skip: cursor ? 1 : 0,

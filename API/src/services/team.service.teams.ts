@@ -84,7 +84,12 @@ export async function listTeams(
         { members: { some: { userId: actorUserId, status: 'ACTIVE' } } },
       ],
     },
-    orderBy: { createdAt: 'desc' },
+    // Total order: `createdAt` alone is not unique (TIMESTAMP(3) ties are
+    // routine for bulk creation, restores and backfills), and Prisma resolves a
+    // cursor by comparing the ordering columns of the cursor row. A partial
+    // order therefore lets `skip: 1` step over every tied sibling, silently
+    // dropping rows from a cursor walk. `id` makes the sort total.
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: limit + 1,
     cursor: cursor ? { id: cursor } : undefined,
     skip: cursor ? 1 : 0,

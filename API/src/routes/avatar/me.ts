@@ -57,7 +57,9 @@ function actingUserId(request: FastifyRequest): string {
 export function registerAvatarMeRoutes(app: FastifyInstance): void {
   app.get(
     '/avatar/me',
-    { preHandler: [optionalConfigVerifier, ...dualAuth] },
+    // Auth first, config second: `optionalConfigVerifier` does attacker-directed outbound work, so
+    // it must never run for a caller that is about to get a 401. See `optionalConfigVerifier`.
+    { preHandler: [...dualAuth, optionalConfigVerifier] },
     async (request, reply) => {
       const query = ImageQuerySchema.parse(request.query);
       const domain = normalizeDomain(query.domain);

@@ -1,6 +1,7 @@
 import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
+import type { AccessTokenActor } from '../../services/access-token.service.js';
 import { AppError } from '../../utils/errors.js';
 import { assertVerifiedDomainMatchesQuery, normalizeDomain } from './domain-context.js';
 
@@ -132,6 +133,18 @@ export function getActorUserId(request: RequestWithClaims): string {
     throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
   }
   return userId;
+}
+
+/**
+ * Provenance of a backend acting for the user, or `undefined` when the user is
+ * acting themselves.
+ *
+ * Pair this with `getActorUserId` wherever a mutation writes an org audit row, so
+ * the row records WHO acted as well as FOR WHOM. `requireOrgRole` populates it
+ * only on the confidential provisioning path.
+ */
+export function getActorProvenance(request: FastifyRequest): AccessTokenActor | undefined {
+  return request.accessTokenClaims?.actor;
 }
 
 export function getOrgIdFromParams(params: unknown): string {

@@ -1,7 +1,7 @@
 import { fetch as undiciFetch } from 'undici';
 
 import {
-  AVATAR_PROVIDER_FETCH_TIMEOUT_MS,
+  AVATAR_PROVIDER_DEADLINE_MS,
   AVATAR_PROVIDER_MAX_BYTES,
 } from '../config/constants.js';
 import { parseIconUrl } from '../utils/http-url.js';
@@ -30,6 +30,12 @@ type ProviderFetch = (
   init: Record<string, unknown>,
 ) => Promise<ProviderFetchResponse>;
 
+export type ProviderFetchDeps = {
+  fetch?: ProviderFetch;
+  /** Overall wall-clock budget for the whole operation. Tests inject a short one. */
+  deadlineMs?: number;
+};
+
 /**
  * Fetch a social provider's avatar URL server-side (Docs/Auth/avatars.md §6).
  *
@@ -38,26 +44,80 @@ type ProviderFetch = (
  * bytes do not sniff as a raster image. The caller then serves the generated avatar with
  * `X-UOA-Avatar-Source: generated`, so an avatar GET is always a 200 with an image. Nothing here
  * is persisted — brief §22.7's "no caching of provider images" still holds.
+ *
+ * The URL is attacker-supplied (a user's provider profile, a manager's team `iconUrl`), so the
+ * whole operation — DNS resolution, every sequential address attempt, the fetch, and the streamed
+ * read — runs under one wall-clock deadline. No combination of slow steps can outlast it.
  */
 export async function fetchProviderAvatar(
   avatarUrl: string | null | undefined,
-  deps?: { fetch?: ProviderFetch },
+  deps?: ProviderFetchDeps,
 ): Promise<ProviderAvatarImage | null> {
+  const url = safeProviderUrl(avatarUrl);
+  if (!url) return null;
+
+  const doFetch = deps?.fetch ?? (undiciFetch as unknown as ProviderFetch);
+  const deadlineMs =
+    typeof deps?.deadlineMs === 'number' && deps.deadlineMs > 0
+      ? deps.deadlineMs
+      : AVATAR_PROVIDER_DEADLINE_MS;
+
+  return withDeadline((signal) => fetchImage(url, doFetch, signal), deadlineMs);
+}
+
+/** https-only and length-bounded, same policy as team/org icon URLs. */
+function safeProviderUrl(avatarUrl: string | null | undefined): URL | null {
   if (typeof avatarUrl !== 'string') return null;
 
-  // https-only and length-bounded, same policy as team/org icon URLs.
   const safeUrl = parseIconUrl(avatarUrl);
   if (!safeUrl) return null;
 
-  let url: URL;
   try {
-    url = parseHttpsUrl(safeUrl);
+    return parseHttpsUrl(safeUrl);
   } catch {
     return null;
   }
+}
 
-  const doFetch = deps?.fetch ?? (undiciFetch as unknown as ProviderFetch);
+/**
+ * Bound the whole operation on the wall clock rather than per leg.
+ *
+ * The signal is plumbed through every leg so an aborted attempt unwinds itself (releasing sockets
+ * and closing agents) instead of lingering. The race is what makes the bound a *guarantee*: a leg
+ * that ignores its signal — an unabortable DNS lookup, a hostile socket, an injected fetch — still
+ * cannot hold the caller past the deadline.
+ */
+async function withDeadline(
+  run: (signal: AbortSignal) => Promise<ProviderAvatarImage | null>,
+  deadlineMs: number,
+): Promise<ProviderAvatarImage | null> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
 
+  const expired = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(null);
+    }, deadlineMs);
+  });
+
+  // Never rejects: every failure in here is a `null` and the caller falls back to the generated
+  // avatar. Past the deadline this promise keeps running only to unwind its own agent.
+  const attempt = run(controller.signal).catch(() => null);
+
+  try {
+    return await Promise.race([attempt, expired]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    controller.abort();
+  }
+}
+
+async function fetchImage(
+  url: URL,
+  doFetch: ProviderFetch,
+  signal: AbortSignal,
+): Promise<ProviderAvatarImage | null> {
   let destinations;
   try {
     destinations = await resolvePublicDestinations(url);
@@ -66,9 +126,11 @@ export async function fetchProviderAvatar(
   }
 
   for (const destination of destinations) {
+    if (signal.aborted) return null;
+
     const agent = createPinnedAgent(url, destination);
     try {
-      const image = await requestImage(doFetch, url, agent);
+      const image = await requestImage(doFetch, url, agent, signal);
       if (image) return image;
     } catch {
       // Try the next resolved address; a total failure ends as `null` below.
@@ -84,19 +146,21 @@ async function requestImage(
   doFetch: ProviderFetch,
   url: URL,
   agent: unknown,
+  signal: AbortSignal,
 ): Promise<ProviderAvatarImage | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), AVATAR_PROVIDER_FETCH_TIMEOUT_MS);
+  const res = await doFetch(url.toString(), {
+    method: 'GET',
+    headers: { accept: 'image/*' },
+    redirect: 'error',
+    signal,
+    dispatcher: agent,
+  });
 
+  // Every exit below — non-2xx, oversized, not-an-image, or a throw — has to leave the response
+  // body released. An abandoned body keeps its request active on the pinned agent, and
+  // `closeSsrfAgent` waits on exactly that, which is how a peer stalling its body used to hang the
+  // caller. One `finally` covers every path, including the ones added later.
   try {
-    const res = await doFetch(url.toString(), {
-      method: 'GET',
-      headers: { accept: 'image/*' },
-      redirect: 'error',
-      signal: controller.signal,
-      dispatcher: agent,
-    });
-
     if (!res.ok) return null;
 
     const body = await readCappedBody(res, AVATAR_PROVIDER_MAX_BYTES);
@@ -107,17 +171,42 @@ async function requestImage(
     if (!contentType) return null;
 
     return { contentType, body };
-  } catch {
-    return null;
   } finally {
-    clearTimeout(timer);
+    await releaseResponseBody(res);
+  }
+}
+
+/**
+ * Release whatever is left of a response body. A WHATWG `ReadableStream` (undici's `fetch`) is
+ * cancelled; a Node stream is destroyed.
+ *
+ * Two cases are deliberately no-ops. A body already drained by `readCappedBody` has nothing left to
+ * release. A body still `locked` — undici leaves `arrayBuffer()`-consumed bodies locked, and
+ * `cancel()` on a locked stream throws — is skipped here and cleaned up by the abort signal plus
+ * `closeSsrfAgent`. Neither can strand a request: both mean the read already finished.
+ */
+async function releaseResponseBody(res: ProviderFetchResponse): Promise<void> {
+  const body = res.body as
+    | { cancel?: () => Promise<unknown>; destroy?: () => unknown; locked?: boolean }
+    | null
+    | undefined;
+  if (!body || typeof body !== 'object') return;
+
+  try {
+    if (typeof body.cancel === 'function' && body.locked !== true) {
+      await body.cancel();
+      return;
+    }
+    if (typeof body.destroy === 'function') body.destroy();
+  } catch {
+    // Nothing left to release.
   }
 }
 
 /**
  * Read the response body, refusing anything over `max` bytes. Streams when the runtime gives us an
  * async-iterable body so an oversized response is abandoned mid-flight rather than fully buffered;
- * falls back to a buffered read (still size-checked) otherwise.
+ * falls back to a buffered read (still size-checked) otherwise. Callers release the body.
  */
 async function readCappedBody(res: ProviderFetchResponse, max: number): Promise<Buffer | null> {
   const declared = Number(res.headers.get('content-length'));

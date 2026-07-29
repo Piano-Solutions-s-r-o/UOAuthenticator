@@ -4,10 +4,9 @@ import { asPrismaClient } from '../../db/tenant-context.js';
 import { configVerifier } from '../../middleware/config-verifier.js';
 import requireDomainHashAuthForDomainQuery from '../../middleware/domain-hash-auth.js';
 import { requireOrgFeatures } from '../../middleware/org-features.js';
-import { parseBearerOrRawToken } from '../../middleware/org-role-guard.js';
+import { parseBearerOrRawToken, resolveActingUserClaims } from '../../middleware/org-role-guard.js';
 import { createRateLimiter } from '../../middleware/rate-limiter.js';
 import { setTenantContextFromRequest } from '../../plugins/tenant-context.plugin.js';
-import { verifyAccessToken } from '../../services/access-token.service.js';
 import {
   createMemberInvite,
   createTeamInvites,
@@ -60,7 +59,11 @@ export function registerTeamInvitationRoutes(app: FastifyInstance): void {
       // single-invite, member-initiated path — same path/method, alongside the backend contract.
       const accessToken = parseBearerOrRawToken(request.headers['x-uoa-access-token']);
       if (accessToken) {
-        const claims = await verifyAccessToken(accessToken);
+        // Same resolver as `requireOrgRole`, so this member-initiated path accepts
+        // exactly the tokens every other `/org/*` route accepts. Calling the HS256
+        // verifier directly used to 401 a valid confidential provisioning token
+        // here while the sibling org routes accepted it.
+        const claims = await resolveActingUserClaims(accessToken, domain);
         if (normalizeDomain(claims.domain) !== domain) {
           throw new AppError('FORBIDDEN', 403, 'ACCESS_TOKEN_DOMAIN_MISMATCH');
         }
@@ -78,6 +81,7 @@ export function registerTeamInvitationRoutes(app: FastifyInstance): void {
               config,
               configUrl,
               actorUserId,
+              actor: claims.actor,
               redirectUrl: body.redirectUrl,
               invite: { email: body.email, name: body.name, teamRole: body.teamRole },
             },

@@ -441,7 +441,15 @@ const ORG_CONTRACT_NOTE =
   'also require the X-UOA-Access-Token header — the acting user is its `userId` claim, and a ' +
   'new organisation is owned by that user (the body never carries owner_id). Non-superusers can ' +
   'only create an organisation when org_features.allow_user_create_org=true, else 403 ' +
-  'ORG_CREATION_NOT_ALLOWED. ' +
+  'ORG_CREATION_NOT_ALLOWED. The same header additionally accepts a confidential RS256 at+jwt ' +
+  'resource token from /auth/token when it carries the token.provision scope and is bound to ' +
+  'aud=<UOA public base URL>/org, letting a trusted product backend act for one of its users ' +
+  'server-to-server; its source_domain must match the request domain, its credential epoch and ' +
+  'the acting user\'s source-domain role are re-checked in the database, and the org/team role ' +
+  'rules above apply unchanged. That path requires MCP_OAUTH_ACCESS_TOKEN_PRIVATE_JWK (check ' +
+  'GET /oauth/jwks.json returns 200); a missing key or a database outage surfaces as 5xx, never ' +
+  'as a 401. Org mutations made this way record the calling product under the uoa_actor key of ' +
+  'the org audit row metadata. ' +
   IDENTITY_AVATAR_URL_NOTE;
 
 function withOrgContract(list: EndpointSchema[]): EndpointSchema[] {

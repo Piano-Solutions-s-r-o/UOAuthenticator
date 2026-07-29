@@ -8,6 +8,7 @@ import { runInTransaction } from '../db/tenant-context.js';
 import { createKeyedRateLimiter } from '../middleware/rate-limiter.js';
 import { normalizeDomain } from '../utils/domain.js';
 import { AppError } from '../utils/errors.js';
+import { hasOwnKey } from '../utils/untrusted-record.js';
 import type { ClientConfig } from './config.service.js';
 import {
   parseConfidentialDelegationScope,
@@ -185,7 +186,10 @@ export async function verifyChainedSubjectAccessToken(
       parsed.org.org_id !== parsed.active.orgId ||
       uniqueTeams.size !== parsed.org.teams.length ||
       !uniqueTeams.has(parsed.active.teamId) ||
-      !parsed.org.team_roles[parsed.active.teamId] ||
+      // Own-property lookup: a bare `team_roles[teamId]` would resolve
+      // `Object.prototype` members, so `teamId: "constructor"` would satisfy this
+      // check without the token ever carrying that team.
+      !hasOwnKey(parsed.org.team_roles, parsed.active.teamId) ||
       scopes.join(' ') !== parsed.scope
     ) {
       throw invalidSubjectToken();

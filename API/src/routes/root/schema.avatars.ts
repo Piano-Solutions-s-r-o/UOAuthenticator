@@ -84,7 +84,7 @@ export const avatarEndpoints: EndpointSchema[] = [
     query: {
       domain: 'string (required)',
       'config_url?':
-        'string — optional; when supplied the signed config is fetched and verified and its avatars.default_style is applied. Its domain claim must match ?domain=.',
+        'string — optional; when supplied the signed config is fetched and verified AFTER the bearer check and its avatars.default_style is applied. Its domain claim must match ?domain=. An unauthenticated request is rejected before any fetch is attempted.',
       ...IMAGE_QUERY,
     },
     response: IMAGE_RESPONSE,
@@ -94,7 +94,7 @@ export const avatarEndpoints: EndpointSchema[] = [
     method: 'PUT',
     path: '/domain/users/:userId/avatar',
     description:
-      "Set a user's uploaded avatar from a multipart upload. Replaces any existing upload. Rate-limited per domain+user (30/hour).",
+      "Set a user's uploaded avatar from a multipart upload. Replaces any existing upload. Audit-logged as domain.user_avatar_updated against the acting domain. Rate-limited per domain+user (30/hour).",
     auth: 'domain hash bearer token',
     query: { domain: 'string (required)' },
     body: UPLOAD_BODY,
@@ -104,7 +104,7 @@ export const avatarEndpoints: EndpointSchema[] = [
     method: 'DELETE',
     path: '/domain/users/:userId/avatar',
     description:
-      "Remove a user's uploaded avatar; resolution falls back to the provider URL or the generated image. Idempotent. Rate-limited per domain+user (30/hour).",
+      "Remove a user's uploaded avatar; resolution falls back to the provider URL or the generated image. Idempotent. Audit-logged as domain.user_avatar_deleted against the acting domain. Rate-limited per domain+user (30/hour).",
     auth: 'domain hash bearer token',
     query: { domain: 'string (required)' },
     response: { ok: 'true' },
@@ -117,7 +117,8 @@ export const avatarEndpoints: EndpointSchema[] = [
     auth: 'domain hash bearer token + access token (X-UOA-Access-Token header)',
     query: {
       domain: 'string (required) — must equal the access token\'s domain claim',
-      'config_url?': 'string — optional; applies the domain\'s avatars.default_style',
+      'config_url?':
+        'string — optional; applies the domain\'s avatars.default_style. Fetched and verified only AFTER both bearers check out; an unauthenticated request is rejected before any fetch is attempted.',
       ...IMAGE_QUERY,
     },
     response: IMAGE_RESPONSE,
@@ -212,7 +213,7 @@ export const avatarEndpoints: EndpointSchema[] = [
     query: {
       domain: 'string (required)',
       'config_url?':
-        'string — optional; when supplied the signed config is fetched and verified and its avatars.default_style is applied. Its domain claim must match ?domain=.',
+        'string — optional; when supplied the signed config is fetched and verified AFTER the bearer check and its avatars.default_style is applied. Its domain claim must match ?domain=. An unauthenticated request is rejected before any fetch is attempted.',
       ...IMAGE_QUERY,
     },
     response: IMAGE_RESPONSE,
@@ -222,7 +223,7 @@ export const avatarEndpoints: EndpointSchema[] = [
     method: 'PUT',
     path: '/domain/teams/:teamId/avatar',
     description:
-      "Set a team's uploaded avatar from a multipart upload, with no end-user context — the management path for product backends. No role check: per brief §24.10 the domain hash token is full system trust for that domain, and your backend enforces its own owner/admin gating before relaying. Rate-limited per domain+team (30/hour).",
+      "Set a team's uploaded avatar from a multipart upload, with no end-user context — the management path for product backends. No role check: per brief §24.10 the domain hash token is full system trust for that domain, and your backend enforces its own owner/admin gating before relaying. Audit-logged as domain.team_avatar_updated against the acting domain. Rate-limited per domain+team (30/hour).",
     auth: 'domain hash bearer token',
     query: { domain: 'string (required)' },
     body: UPLOAD_BODY,
@@ -233,7 +234,7 @@ export const avatarEndpoints: EndpointSchema[] = [
     method: 'DELETE',
     path: '/domain/teams/:teamId/avatar',
     description:
-      "Remove a team's uploaded avatar; resolution falls back to the team icon_url or the generated image. Idempotent. Same full-trust domain-hash semantics as the PUT. Rate-limited per domain+team (30/hour).",
+      "Remove a team's uploaded avatar; resolution falls back to the team icon_url or the generated image. Idempotent. Same full-trust domain-hash semantics as the PUT. Audit-logged as domain.team_avatar_deleted against the acting domain. Rate-limited per domain+team (30/hour).",
     auth: 'domain hash bearer token',
     query: { domain: 'string (required)' },
     response: { ok: 'true' },

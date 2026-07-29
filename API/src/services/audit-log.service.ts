@@ -39,9 +39,35 @@ export type AdminAuditAction =
   | 'team.avatar_deleted'
   | 'user.avatar_updated'
   | 'user.avatar_deleted'
-  | 'user.twofa_reset';
+  | 'user.twofa_reset'
+  // `domain.*` = taken by an authenticated product backend over `/domain/*`, not by an operator.
+  // `actorEmail` on these rows is a `client:` principal (see `machineActor`), never an address.
+  | 'domain.user_avatar_updated'
+  | 'domain.user_avatar_deleted'
+  | 'domain.team_avatar_updated'
+  | 'domain.team_avatar_deleted';
 
 export type AuditLogPrisma = Pick<PrismaClient, 'adminAuditLog'>;
+
+/**
+ * The `actorEmail` value for an action taken by an authenticated machine rather than a person.
+ *
+ * `/internal/admin/*` rows name the operator who acted. `/domain/*` is authenticated by the
+ * domain-hash bearer, which identifies a client backend and not a user, so there is no address to
+ * record. The `client:` prefix keeps those rows unmistakable and unmatchable against any real
+ * address, so a reader never mistakes a machine action for a human one.
+ *
+ * `clientDomainId` is `ClientDomain.id` — a plain row cuid. It must NEVER be
+ * `request.domainAuthClientId`, which despite its name is the caller's **live domain-hash bearer**
+ * (`verifyDomainAuthToken` returns `clientId: clientHash`, the token exactly as presented). Writing
+ * that here would persist a full-system-trust credential in plaintext, in an operator-readable
+ * table, under a column nobody would think to check for a secret — and it rotates with the domain
+ * secret, so it would not even correlate the trail it exists to build.
+ */
+export function machineActor(params: { domain: string; clientDomainId?: string | null }): string {
+  const client = params.clientDomainId ? `#${params.clientDomainId}` : '';
+  return `client:${params.domain}${client}`;
+}
 
 function prismaClient(deps?: { prisma?: AuditLogPrisma }): AuditLogPrisma {
   return deps?.prisma ?? (getAdminPrisma() as unknown as AuditLogPrisma);

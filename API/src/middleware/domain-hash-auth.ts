@@ -43,7 +43,17 @@ type RequestWithConfig = FastifyRequest & {
 
 declare module 'fastify' {
   interface FastifyRequest {
+    /**
+     * **This is the caller's live domain-hash bearer token, not an identifier.**
+     * `verifyDomainAuthToken` returns `clientId: clientHash` — the 64-hex credential exactly as it
+     * arrived in `Authorization`. It is full system trust for that domain (brief §24.10), so it
+     * must never be persisted, logged, put in an audit row, or returned in a response. The database
+     * itself only ever stores its digest plus a 12-char prefix, and every operator-facing surface
+     * masks it as `sha256:<12 chars>…`. Use `domainAuthClientDomainId` whenever you want to *name*
+     * the calling backend.
+     */
     domainAuthClientId?: string;
+    /** `ClientDomain.id` — a plain row cuid, stable across secret rotation and safe to record. */
     domainAuthClientDomainId?: string;
   }
 }

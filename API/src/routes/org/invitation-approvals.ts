@@ -14,7 +14,12 @@ import {
 } from '../../services/team-invite.service.js';
 import { AppError } from '../../utils/errors.js';
 import { assertVerifiedDomainMatchesQuery, normalizeDomain } from './domain-context.js';
-import { type RequestWithClaims, getActorUserId, getOrgIdFromParams } from './organisation-route.shared.js';
+import {
+  type RequestWithClaims,
+  getActorProvenance,
+  getActorUserId,
+  getOrgIdFromParams,
+} from './organisation-route.shared.js';
 
 const ListQuerySchema = z
   .object({
@@ -48,8 +53,17 @@ function parseDomainQuery(request: FastifyRequest) {
   return parsed;
 }
 
+// preValidation runs before the handler's own strict query parse, so this hook
+// must tolerate the route-specific key (approval) that the strict
+// DomainQuerySchema would reject — the GET handler *requires* `?approval=pending`,
+// so the strict hook rejected the only call shape that endpoint accepts.
+// Validate only the shared domain context here (the domain gate below still
+// runs); each handler still strict-parses its full query schema.
+const DomainContextHookSchema = DomainQuerySchema.passthrough();
+
 async function parseDomainQueryHook(request: FastifyRequest): Promise<void> {
-  parseDomainQuery(request);
+  const parsed = DomainContextHookSchema.parse(request.query);
+  assertVerifiedDomainMatchesQuery(request, parsed.domain);
 }
 
 /**
@@ -107,7 +121,15 @@ export function registerInvitationApprovalRoutes(app: FastifyInstance): void {
       setTenantContextFromRequest(request, { orgId, userId: reviewerUserId });
       const invite = await request.withTenantTx((tx) =>
         approveInvite(
-          { orgId, domain, inviteId, config, configUrl, reviewerUserId },
+          {
+            orgId,
+            domain,
+            inviteId,
+            config,
+            configUrl,
+            reviewerUserId,
+            actor: getActorProvenance(request),
+          },
           { prisma: asPrismaClient(tx) },
         ),
       );
@@ -134,7 +156,10 @@ export function registerInvitationApprovalRoutes(app: FastifyInstance): void {
 
       setTenantContextFromRequest(request, { orgId, userId: reviewerUserId });
       const invite = await request.withTenantTx((tx) =>
-        denyInvite({ orgId, domain, inviteId, reviewerUserId }, { prisma: asPrismaClient(tx) }),
+        denyInvite(
+          { orgId, domain, inviteId, reviewerUserId, actor: getActorProvenance(request) },
+          { prisma: asPrismaClient(tx) },
+        ),
       );
 
       reply.status(200).send(invite);

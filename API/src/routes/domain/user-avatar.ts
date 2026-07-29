@@ -17,8 +17,30 @@ import {
   configDefaultAvatarStyle,
   optionalConfigVerifier,
   readAvatarUpload,
+  recordDomainAvatarAudit,
   sendAvatar,
 } from '../avatar/shared.js';
+
+/**
+ * `/domain/users/:userId/avatar` — a product backend managing one of its users' avatars.
+ *
+ * ### Accepted risk: a `global`-scope user has ONE avatar, shared by every domain
+ *
+ * `user_avatars` is keyed on `user_id` alone, and a `global`-scope user (`User.domain === null`,
+ * `user_key` = email) is a single row shared by every domain that user belongs to. So a `PUT` here
+ * from domain A replaces the image that domain B renders for the same person. This is deliberate
+ * and not a bug to patch here: the shared identity IS the product — a global user has one email,
+ * one password, one 2FA secret and one profile across every integration, and per-domain avatars
+ * would be a schema/brief change (a scoped key, a scope selector on the API, resolution fallback),
+ * not a route fix. It is also not open: the caller must hold the domain-hash bearer, which is full
+ * system trust for its domain (brief §24.10), AND `requireDomainUserId` requires the target user to
+ * hold a `DomainRole` in that same domain — so only a domain the user actually joined can write.
+ *
+ * What was genuinely missing is traceability, and that is fixed: every mutation below writes an
+ * `AdminAuditLog` row naming the acting domain, so a cross-tenant overwrite is attributable rather
+ * than anonymous. If per-domain avatars are ever wanted, that belongs in `Docs/Auth/avatars.md`
+ * and a migration, not in a guard bolted onto this route.
+ */
 
 const ParamsSchema = z.object({ userId: z.string().trim().min(1).max(200) }).strict();
 
@@ -50,7 +72,9 @@ const uploadResponseSchema = { type: 'object', additionalProperties: true } as c
 export function registerDomainUserAvatarRoutes(app: FastifyInstance): void {
   app.get(
     '/domain/users/:userId/avatar',
-    { preHandler: [optionalConfigVerifier, requireDomainHashAuthForDomainQuery] },
+    // Auth first, config second: `optionalConfigVerifier` does attacker-directed outbound work, so
+    // it must never run for a caller that is about to get a 401. See `optionalConfigVerifier`.
+    { preHandler: [requireDomainHashAuthForDomainQuery, optionalConfigVerifier] },
     async (request, reply) => {
       const { userId } = ParamsSchema.parse(request.params);
       const query = ImageQuerySchema.parse(request.query);
@@ -81,8 +105,19 @@ export function registerDomainUserAvatarRoutes(app: FastifyInstance): void {
 
       const resolvedUserId = await requireDomainUserId({ domain, userId });
       const data = await readAvatarUpload(request);
+      const result = await uploadAvatar({ userId: resolvedUserId, data });
 
-      return avatarUploadResponse(await uploadAvatar({ userId: resolvedUserId, data }));
+      await recordDomainAvatarAudit(request, {
+        action: 'domain.user_avatar_updated',
+        domain,
+        metadata: {
+          userId: resolvedUserId,
+          contentType: result.contentType,
+          sizeBytes: result.sizeBytes,
+        },
+      });
+
+      return avatarUploadResponse(result);
     },
   );
 
@@ -98,6 +133,12 @@ export function registerDomainUserAvatarRoutes(app: FastifyInstance): void {
 
       const resolvedUserId = await requireDomainUserId({ domain, userId });
       await deleteAvatar({ userId: resolvedUserId });
+
+      await recordDomainAvatarAudit(request, {
+        action: 'domain.user_avatar_deleted',
+        domain,
+        metadata: { userId: resolvedUserId },
+      });
 
       return { ok: true };
     },

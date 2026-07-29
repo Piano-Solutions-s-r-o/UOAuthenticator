@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Prisma, PrismaClient, type MembershipStatus } from '@prisma/client';
 
+import type { AccessTokenActor } from './access-token.service.js';
 import type { ClientConfig } from './config.service.js';
 import { getEnv } from '../config/env.js';
 import {
@@ -359,6 +360,11 @@ export async function auditOrg(
   params: {
     orgId: string;
     actorUserId: string;
+    /**
+     * Backend that acted for `actorUserId`, when the request arrived on the
+     * confidential provisioning path. Undefined for user-initiated mutations.
+     */
+    actor?: AccessTokenActor;
     action: OrgAuditAction;
     targetType: OrgAuditTargetType;
     targetId: string;
@@ -371,6 +377,7 @@ export async function auditOrg(
       {
         orgId: params.orgId,
         actorUserId: params.actorUserId,
+        ...(params.actor ? { actor: params.actor } : {}),
         action: params.action,
         targetType: params.targetType,
         targetId: params.targetId,
@@ -391,4 +398,4 @@ export function parseOrgFeatureRoles(config: ClientConfig): string[] {
   return resolveOrgRoles(config);
 }
 
-export type { OrgServicePrisma, OrgServiceDeps };
+export type { AccessTokenActor, OrgServicePrisma, OrgServiceDeps };
