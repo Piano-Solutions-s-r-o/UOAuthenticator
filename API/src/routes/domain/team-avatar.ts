@@ -17,6 +17,7 @@ import {
   configDefaultAvatarStyle,
   optionalConfigVerifier,
   readAvatarUpload,
+  recordDomainAvatarAudit,
   sendAvatar,
 } from '../avatar/shared.js';
 
@@ -30,6 +31,10 @@ import {
  * product backend. Brief §24.10 — the domain hash token represents full system trust for that
  * domain, and the backend enforces its own owner/admin gating before relaying here. The team's
  * organisation must still belong to the authenticated domain; anything else is the generic 404.
+ *
+ * Because the backend's own gating is the only role check, every mutation writes an `AdminAuditLog`
+ * row naming the acting domain — the same traceability the `/internal/admin/*` avatar routes have
+ * always had, and the record that makes an unexpected workspace-logo change attributable.
  */
 
 const ParamsSchema = z.object({ teamId: z.string().trim().min(1).max(200) }).strict();
@@ -95,8 +100,19 @@ export function registerDomainTeamAvatarRoutes(app: FastifyInstance): void {
 
       const resolvedTeamId = await requireDomainTeamId({ domain, teamId });
       const data = await readAvatarUpload(request);
+      const result = await uploadTeamAvatar({ teamId: resolvedTeamId, data });
 
-      return avatarUploadResponse(await uploadTeamAvatar({ teamId: resolvedTeamId, data }));
+      await recordDomainAvatarAudit(request, {
+        action: 'domain.team_avatar_updated',
+        domain,
+        metadata: {
+          teamId: resolvedTeamId,
+          contentType: result.contentType,
+          sizeBytes: result.sizeBytes,
+        },
+      });
+
+      return avatarUploadResponse(result);
     },
   );
 
@@ -112,6 +128,12 @@ export function registerDomainTeamAvatarRoutes(app: FastifyInstance): void {
 
       const resolvedTeamId = await requireDomainTeamId({ domain, teamId });
       await deleteTeamAvatar({ teamId: resolvedTeamId });
+
+      await recordDomainAvatarAudit(request, {
+        action: 'domain.team_avatar_deleted',
+        domain,
+        metadata: { teamId: resolvedTeamId },
+      });
 
       return { ok: true };
     },

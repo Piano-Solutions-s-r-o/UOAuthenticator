@@ -238,6 +238,40 @@ bytes back so the caller still receives an image:
   can already list those users.
 - The per-domain hash bearer, access tokens, and admin bearers follow the existing
   middleware; no new credential types.
+- **Authentication precedes any `config_url` work.** The optional signed-config hook on
+  the avatar GETs runs *after* the route's bearer check, never before, so an anonymous
+  caller cannot aim UOA's DNS/HTTPS/JWKS work at a host of its choosing and collect a 401
+  afterwards. Its only contribution is the cosmetic `avatars.default_style`, read in the
+  handler, so nothing needs it earlier.
+- **Every `/domain/*` avatar mutation is audit-logged** (`domain.user_avatar_updated`,
+  `domain.user_avatar_deleted`, `domain.team_avatar_updated`,
+  `domain.team_avatar_deleted` in `AdminAuditLog`), matching the `/internal/admin/*`
+  avatar routes. `actorEmail` on those rows is a `client:<domain>#<clientId>` machine
+  principal, never an address — the domain-hash bearer identifies a backend, not a person.
+
+### Accepted risks
+
+Recorded here rather than silently patched. Revisit these if the threat model changes.
+
+- **A `global`-scope user has one avatar, shared by every domain.** `user_avatars` is
+  keyed on `user_id` alone, and a `global`-scope user is a single `User` row shared by
+  every domain they belong to, so a `PUT /domain/users/:userId/avatar` from domain A
+  replaces the image domain B renders for the same person. This follows from the shared
+  identity itself — one email, one password, one 2FA secret, one profile — and per-domain
+  avatars would be a schema and brief change (scoped key, scope selector on the API,
+  resolution fallback), not a route guard. The write is not open: it needs the
+  domain-hash bearer (full system trust for that domain, brief §24.10) *and* the target
+  user must hold a `DomainRole` in that same domain, so only a domain the user actually
+  joined can write. The audit rows above make a cross-tenant overwrite attributable,
+  which is what was actually missing.
+- **No storage quota on avatar bytes.** Avatars are 1 MiB `BYTEA` in the primary auth
+  database with no per-domain or global cap. Growth is bounded by construction rather
+  than by a quota: one row per user and one per team, replaced rather than appended, so
+  a domain cannot grow storage by uploading repeatedly — only by creating more users or
+  teams, which the org/member limits already govern. The mutation rate limiter (30/hour
+  per domain+target) is an in-process `Map`, so it is per-instance and resets on deploy;
+  it is a churn brake, not a storage control. A real quota belongs with the org-features
+  limits if avatar bytes ever need one.
 
 ## 9. Avatar URLs in identity payloads
 

@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
@@ -6,6 +7,11 @@ import { configVerifier } from '../../middleware/config-verifier.js';
 import { AVATAR_STYLES, isAvatarStyle, type AvatarStyle } from '../../utils/avatar-svg.js';
 import { normalizeDomain } from '../../utils/domain.js';
 import { AppError } from '../../utils/errors.js';
+import {
+  machineActor,
+  writeAuditLog,
+  type AdminAuditAction,
+} from '../../services/audit-log.service.js';
 import type { AvatarUploadResult, ResolvedAvatar } from '../../services/avatar.service.js';
 
 /** Shared `?style=` / `?size=` parsing for every avatar GET (Docs/Auth/avatars.md §2). */
@@ -113,6 +119,37 @@ export async function optionalConfigVerifier(
   if (typeof configUrl !== 'string' || !configUrl.trim()) return;
 
   await configVerifier(request, reply);
+}
+
+/**
+ * Record a `/domain/*` avatar mutation against the acting domain.
+ *
+ * `/internal/admin/*` avatar mutations have always been audited; the `/domain/*` ones were not, so
+ * a product backend could replace a user's or a workspace's image leaving no trace anywhere. That
+ * matters more here than on the operator side, because a `global`-scope user is ONE identity shared
+ * by every domain they belong to: the row this writes is the only record of which tenant changed an
+ * image that the others then render. See the header note on `registerDomainUserAvatarRoutes`.
+ *
+ * The actor is a client, not a person, so `actorEmail` carries a `client:` principal. The write is
+ * awaited and its failure propagates, matching every other audited mutation in the codebase — an
+ * unrecorded change to shared state is not an acceptable success.
+ */
+export async function recordDomainAvatarAudit(
+  request: FastifyRequest,
+  params: {
+    action: Extract<AdminAuditAction, `domain.${string}`>;
+    domain: string;
+    metadata: Prisma.InputJsonObject;
+  },
+): Promise<void> {
+  const domain = normalizeDomain(params.domain);
+
+  await writeAuditLog({
+    actorEmail: machineActor({ domain, clientId: request.domainAuthClientId }),
+    action: params.action,
+    targetDomain: domain,
+    metadata: params.metadata,
+  });
 }
 
 /**

@@ -414,6 +414,44 @@ describe.skipIf(!hasDatabase)('team avatar routes', () => {
       expect(await handle!.prisma.teamAvatar.count()).toBe(0);
     });
 
+    it('audit-logs the backend upload and delete against the acting domain', async () => {
+      // The backend route enforces no role of its own, so the audit row is the only record of
+      // which tenant changed a workspace logo. `/internal/admin/*` has always had one.
+      const { domainHash, team } = await seedWorkspace();
+      const url = `/domain/teams/${team.id}/avatar?domain=${encodeURIComponent(DOMAIN)}`;
+      const headers = { authorization: `Bearer ${domainHash}` };
+      const upload = multipartFile(png(0x44));
+
+      const put = await app!.inject({
+        method: 'PUT',
+        url,
+        headers: { ...headers, 'content-type': upload.contentType },
+        payload: upload.body,
+      });
+      expect(put.statusCode).toBe(200);
+
+      const del = await app!.inject({ method: 'DELETE', url, headers });
+      expect(del.statusCode).toBe(200);
+
+      const updated = await handle!.prisma.adminAuditLog.findMany({
+        where: { action: 'domain.team_avatar_updated' },
+      });
+      const deleted = await handle!.prisma.adminAuditLog.findMany({
+        where: { action: 'domain.team_avatar_deleted' },
+      });
+
+      expect(updated).toHaveLength(1);
+      expect(deleted).toHaveLength(1);
+      expect(updated[0].targetDomain).toBe(DOMAIN);
+      expect(updated[0].metadata).toMatchObject({ teamId: team.id, contentType: 'image/png' });
+      expect(deleted[0].metadata).toMatchObject({ teamId: team.id });
+
+      // The actor is a client backend, not a person: the row must never read as an address.
+      for (const row of [...updated, ...deleted]) {
+        expect(row.actorEmail.startsWith(`client:${DOMAIN}`)).toBe(true);
+      }
+    });
+
     it('rejects an SVG upload on the backend path with a generic error', async () => {
       const { domainHash, team } = await seedWorkspace();
       const upload = multipartFile(
