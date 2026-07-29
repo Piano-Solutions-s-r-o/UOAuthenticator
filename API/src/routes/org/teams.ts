@@ -24,6 +24,7 @@ import {
   TeamBodySchema,
   TeamUpdateBodySchema,
   type RequestWithClaims,
+  getActorProvenance,
   getActorUserId,
   getMemberUserIdFromParams,
   getOrgIdFromParams,
@@ -243,7 +244,16 @@ export function registerTeamRoutes(app: FastifyInstance): void {
       setTenantContextFromRequest(request, { orgId, userId: actorUserId });
       const member = await request.withTenantTx((tx) =>
         addTeamMember(
-          { orgId, teamId, domain, actorUserId, userId, teamRole, config },
+          {
+            orgId,
+            teamId,
+            domain,
+            actorUserId,
+            actor: getActorProvenance(request),
+            userId,
+            teamRole,
+            config,
+          },
           { prisma: asPrismaClient(tx) },
         ),
       );
@@ -274,7 +284,15 @@ export function registerTeamRoutes(app: FastifyInstance): void {
       setTenantContextFromRequest(request, { orgId, userId: actorUserId });
       const member = await request.withTenantTx((tx) =>
         changeTeamMemberRole(
-          { orgId, teamId, domain, actorUserId, userId, teamRole },
+          {
+            orgId,
+            teamId,
+            domain,
+            actorUserId,
+            actor: getActorProvenance(request),
+            userId,
+            teamRole,
+          },
           { prisma: asPrismaClient(tx) },
         ),
       );
@@ -302,7 +320,14 @@ export function registerTeamRoutes(app: FastifyInstance): void {
       const actorUserId = getActorUserId(request as RequestWithClaims);
 
       await removeTeamMember(
-        { orgId, teamId, domain, actorUserId, userId },
+        {
+          orgId,
+          teamId,
+          domain,
+          actorUserId,
+          actor: getActorProvenance(request),
+          userId,
+        },
         { prisma: request.adminDb },
       );
 
