@@ -159,6 +159,7 @@ describe('Organisation service: organisation CRUD', () => {
         name: 'Acme Inc',
         ownerId: 'u-owner',
         config: makeConfig(),
+        actorUserId: 'u-owner',
       },
       { prisma },
     );
@@ -221,6 +222,7 @@ describe('Organisation service: organisation CRUD', () => {
         name: 'Second org',
         ownerId: 'u-owner',
         config: makeConfig(),
+        actorUserId: 'u-owner',
       },
       { prisma },
     );

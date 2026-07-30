@@ -9,6 +9,7 @@ import {
   domainAvatarImageUrl,
   domainTeamAvatarImageUrl,
 } from '../utils/avatar-url.js';
+import { getAppLogger } from '../utils/app-logger.js';
 import { normalizeDomain } from '../utils/domain.js';
 import { AppError } from '../utils/errors.js';
 import { parseIconUrl } from '../utils/http-url.js';
@@ -439,19 +440,25 @@ export async function auditOrg(
     // In backend mode this row is the ONLY record that the domain backend acted
     // (there is no acting user to attribute it to), so treat a failure here as
     // an operational incident, not noise.
-    console.error(
-      JSON.stringify({
-        event: 'org_audit_log_write_failed',
-        orgId: params.orgId,
-        action: params.action,
-        targetType: params.targetType,
-        targetId: params.targetId,
-        actorUserId: params.actorUserId ?? null,
-        actorVia: params.actor?.via ?? null,
-        actorSourceDomain: params.actor?.sourceDomain ?? null,
-        error: err instanceof Error ? err.message : String(err),
-      }),
-    );
+    try {
+      getAppLogger().error(
+        {
+          err,
+          orgId: params.orgId,
+          action: params.action,
+          targetType: params.targetType,
+          targetId: params.targetId,
+          actorUserId: params.actorUserId ?? null,
+          actorVia: params.actor?.via ?? null,
+          actorSourceDomain: params.actor?.sourceDomain ?? null,
+        },
+        'org_audit_log_write_failed',
+      );
+    } catch {
+      // `getAppLogger` throws when there is no running server to log through —
+      // a unit test or a CLI entry point. There is no operator to alert in that
+      // case, and the audit row is not the artefact under test.
+    }
   }
 }
 

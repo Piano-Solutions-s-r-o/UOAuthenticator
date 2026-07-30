@@ -26,8 +26,19 @@ describe('resolveOrgActor', () => {
     expect(resolveOrgActor({ actorUserId: '  user_1  ' })).toBe('user_1');
   });
 
-  it('prefers the acting user even when backend provenance is also present', () => {
-    expect(resolveOrgActor({ actorUserId: 'user_1', actor: backendActor })).toBe('user_1');
+  // Both set describes two mutually exclusive callers. Silently preferring one
+  // would let `writeOrgAuditLog` record a row claiming a user AND the domain
+  // backend performed the same mutation — a self-contradictory audit trail on a
+  // production auth service. `orgCaller` never produces this shape, so it is a
+  // programming error and gets the same loud 500 as neither-set.
+  it('raises a 500 when an acting user and backend provenance are both present', () => {
+    expect(() => resolveOrgActor({ actorUserId: 'user_1', actor: backendActor })).toThrowError(
+      expect.objectContaining({
+        code: 'INTERNAL',
+        statusCode: 500,
+        message: 'ORG_ACTOR_AMBIGUOUS',
+      }),
+    );
   });
 
   it('returns undefined for a backend call', () => {
@@ -58,8 +69,11 @@ describe('resolveOrgActor', () => {
   });
 
   it('does not treat an empty acting user as backend mode even with provenance', () => {
+    // Ambiguity is decided before the value is inspected, so this is the
+    // both-set error rather than the empty-value one. Either way it is never
+    // backend mode.
     expect(() => resolveOrgActor({ actorUserId: '', actor: backendActor })).toThrowError(
-      expect.objectContaining({ code: 'BAD_REQUEST', statusCode: 400 }),
+      expect.objectContaining({ code: 'INTERNAL', statusCode: 500 }),
     );
   });
 });
