@@ -39,6 +39,41 @@ function makeRequest(token: string | null, domain: string, params?: { orgId?: st
   } as unknown as FastifyRequest;
 }
 
+/**
+ * A request shaped exactly as the `/org/*` preValidation chain leaves it just
+ * before `requireOrgRole` runs on a backend-mode call: domain-hash guard passed,
+ * config verified, no user token.
+ */
+function makeBackendRequest(
+  overrides: {
+    domainAuthClientDomainId?: string | undefined;
+    configDomain?: string | undefined;
+    queryDomain?: string;
+    backendOrgManagement?: boolean;
+    params?: { orgId?: string };
+  } = {},
+) {
+  const configDomain =
+    'configDomain' in overrides ? overrides.configDomain : 'client.example.com';
+
+  return {
+    headers: {},
+    domainAuthClientDomainId:
+      'domainAuthClientDomainId' in overrides
+        ? overrides.domainAuthClientDomainId
+        : 'cd_1',
+    query: { domain: overrides.queryDomain ?? 'client.example.com' },
+    config: {
+      ...(configDomain === undefined ? {} : { domain: configDomain }),
+      org_features: {
+        enabled: true,
+        backend_org_management: overrides.backendOrgManagement ?? true,
+      },
+    },
+    ...(overrides.params ? { params: overrides.params } : {}),
+  } as unknown as FastifyRequest;
+}
+
 describe('requireOrgRole middleware', () => {
   afterEach(() => {
     verifyAccessTokenMock.mockReset();
@@ -167,5 +202,182 @@ describe('requireOrgRole — checks that must not be deletable', () => {
     const request = makeRequest('user-token', 'client.example.com');
 
     await expect(middleware(request, {} as FastifyReply)).rejects.toBe(outage);
+  });
+});
+
+/**
+ * Backend mode: no `x-uoa-access-token` at all. The domain pairing that already
+ * ran on the route is the authorisation, and there is deliberately no acting
+ * user. `request.orgBackendCaller` is the only signal downstream code has for
+ * that, so these pin exactly when it is and is not set.
+ */
+describe('requireOrgRole — domain-pairing backend mode', () => {
+  afterEach(() => {
+    verifyAccessTokenMock.mockReset();
+  });
+
+  it('accepts a call with no user token when the domain opted in', async () => {
+    const middleware = requireOrgRole();
+    const request = makeBackendRequest();
+
+    await middleware(request, {} as FastifyReply);
+
+    expect(request.orgBackendCaller).toEqual({ domain: 'client.example.com' });
+    expect(request.accessTokenClaims).toBeUndefined();
+    // Backend mode must not consult the user-token verifier at all.
+    expect(verifyAccessTokenMock).not.toHaveBeenCalled();
+  });
+
+  // Required roles are a statement about a USER's standing in an org. A backend
+  // call has no user, so the guard admits it and the service layer's non-actor
+  // invariants remain the only gate — see the per-route table in /llm §4.6b.
+  it('accepts a backend call on a route that requires an org role', async () => {
+    const middleware = requireOrgRole('owner', 'admin');
+    const request = makeBackendRequest({ params: { orgId: 'org_1' } });
+
+    await middleware(request, {} as FastifyReply);
+
+    expect(request.orgBackendCaller).toEqual({ domain: 'client.example.com' });
+  });
+
+  // The opt-in is what separates this from the historical behaviour. Without it
+  // the response must be byte-identical to what a missing token always produced.
+  it('rejects a call with no user token when the domain has not opted in', async () => {
+    const middleware = requireOrgRole('admin');
+    const request = makeBackendRequest({ backendOrgManagement: false });
+
+    await expect(middleware(request, {} as FastifyReply)).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      statusCode: 401,
+      message: 'MISSING_ACCESS_TOKEN',
+    });
+    expect(request.orgBackendCaller).toBeUndefined();
+  });
+
+  it('rejects a call with no user token when org_features carries no flag at all', async () => {
+    const middleware = requireOrgRole();
+    const request = makeBackendRequest();
+    (request.config as { org_features?: unknown }).org_features = { enabled: true };
+
+    await expect(middleware(request, {} as FastifyReply)).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      statusCode: 401,
+      message: 'MISSING_ACCESS_TOKEN',
+    });
+    expect(request.orgBackendCaller).toBeUndefined();
+  });
+
+  // The guard must not depend on its position in the preValidation array. If the
+  // domain-hash guard never ran, half the pairing is missing and there is no
+  // proof of who the caller is.
+  it('rejects backend mode when the domain-hash guard did not run', async () => {
+    const middleware = requireOrgRole();
+    const request = makeBackendRequest({ domainAuthClientDomainId: undefined });
+
+    await expect(middleware(request, {} as FastifyReply)).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      statusCode: 401,
+      message: 'MISSING_ACCESS_TOKEN',
+    });
+    expect(request.orgBackendCaller).toBeUndefined();
+  });
+
+  it('rejects backend mode when no config was verified', async () => {
+    const middleware = requireOrgRole();
+    const request = makeBackendRequest({ configDomain: undefined });
+
+    await expect(middleware(request, {} as FastifyReply)).rejects.toMatchObject({
+      code: 'INTERNAL',
+      statusCode: 500,
+      message: 'CONFIG_NOT_VERIFIED',
+    });
+    expect(request.orgBackendCaller).toBeUndefined();
+  });
+
+  // The tenant a backend call acts on must never be steerable by the query
+  // string. Only the signed config's `domain` decides.
+  it('rejects a query domain that differs from the verified config domain', async () => {
+    const middleware = requireOrgRole();
+    const request = makeBackendRequest({ queryDomain: 'other.example.com' });
+
+    await expect(middleware(request, {} as FastifyReply)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      statusCode: 400,
+      message: 'DOMAIN_MISMATCH',
+    });
+    expect(request.orgBackendCaller).toBeUndefined();
+  });
+
+  it('binds to the verified config domain, not the query value', async () => {
+    const middleware = requireOrgRole();
+    const request = makeBackendRequest({
+      configDomain: 'CLIENT.example.com',
+      queryDomain: 'client.example.com',
+    });
+
+    await middleware(request, {} as FastifyReply);
+
+    expect(request.orgBackendCaller).toEqual({ domain: 'client.example.com' });
+  });
+
+  // A present-but-unusable header is NOT backend mode. It is a bad token, and it
+  // must keep failing as one — otherwise a caller whose token expired would
+  // silently be upgraded to unauthenticated-but-authorised.
+  it('does not fall back to backend mode when a user token is present but invalid', async () => {
+    verifyAccessTokenMock.mockRejectedValueOnce(
+      new AppError('UNAUTHORIZED', 401, 'INVALID_ACCESS_TOKEN'),
+    );
+    const middleware = requireOrgRole();
+    const request = makeBackendRequest();
+    (request.headers as Record<string, string>)['x-uoa-access-token'] = 'expired-token';
+
+    await expect(middleware(request, {} as FastifyReply)).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      statusCode: 401,
+      message: 'INVALID_ACCESS_TOKEN',
+    });
+    expect(request.orgBackendCaller).toBeUndefined();
+  });
+
+  // An RS256 `at+jwt` confidential resource token is exactly what PR #19 used to
+  // accept here. It must now be just another invalid user token.
+  it('rejects a confidential RS256 at+jwt resource token like any other bad token', async () => {
+    verifyAccessTokenMock.mockRejectedValueOnce(
+      new AppError('UNAUTHORIZED', 401, 'INVALID_ACCESS_TOKEN'),
+    );
+    const middleware = requireOrgRole();
+    const confidentialToken = [
+      Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'at+jwt', kid: 'uoa-1' })).toString(
+        'base64url',
+      ),
+      Buffer.from(JSON.stringify({ scope: 'token.provision', sub: 'user_1' })).toString(
+        'base64url',
+      ),
+      'c2ln',
+    ].join('.');
+    const request = makeBackendRequest();
+    (request.headers as Record<string, string>)['x-uoa-access-token'] = confidentialToken;
+
+    await expect(middleware(request, {} as FastifyReply)).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      statusCode: 401,
+      message: 'INVALID_ACCESS_TOKEN',
+    });
+    expect(request.orgBackendCaller).toBeUndefined();
+    // Exactly one verifier was consulted — there is no second acceptance path.
+    expect(verifyAccessTokenMock).toHaveBeenCalledTimes(1);
+  });
+
+  // An empty/whitespace header is treated as absent by `parseBearerOrRawToken`,
+  // so it lands in backend mode. Pin it: the alternative (a 401) would be a
+  // behaviour difference between "omit the header" and "send it empty".
+  it('treats a whitespace-only header as no token', async () => {
+    const middleware = requireOrgRole();
+    const request = makeBackendRequest();
+    (request.headers as Record<string, string>)['x-uoa-access-token'] = '   ';
+
+    await middleware(request, {} as FastifyReply);
+
+    expect(request.orgBackendCaller).toEqual({ domain: 'client.example.com' });
   });
 });

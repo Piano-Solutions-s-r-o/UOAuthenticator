@@ -246,7 +246,8 @@ export async function changeOrganisationMemberRole(
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
   const org = await resolveOrganisationByDomain(prisma, params);
-  if (org.ownerId !== actorUserId) throw new AppError('FORBIDDEN', 403);
+  // "Must be the org owner" is a check on the acting user; backend mode has none.
+  if (actorUserId && org.ownerId !== actorUserId) throw new AppError('FORBIDDEN', 403);
 
   // A non-ACTIVE (DEACTIVATED/REMOVED) member has no role to change (design §4.9: membership
   // checks require ACTIVE).
