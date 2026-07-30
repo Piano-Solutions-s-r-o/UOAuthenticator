@@ -444,6 +444,41 @@ Request → Route → Middleware → Service → Database (Prisma)
   entry point for that decision: `/org/me` and the member-initiated branch of
   `team-invitations.ts` call it rather than `verifyAccessToken` directly, so
   every `/org/*` surface accepts the same tokens.
+
+  **The guard applies only when `X-UOA-Access-Token` is actually presented.**
+  With no user token, `acceptDomainBackendCaller` authorises the call on the
+  domain pairing that already ran on the route (`domain-hash-auth` +
+  `config-verifier`), and records `request.orgBackendCaller = { domain }`. It
+  re-checks all three preconditions itself — `domainAuthClientDomainId` present,
+  a verified config whose `domain` (not the raw query value) is what the call
+  binds to, and `org_features.backend_org_management === true` — so registering
+  `requireOrgRole` without its sibling middlewares fails closed rather than
+  opening a hole. Without the opt-in the behaviour is the historical
+  `401 MISSING_ACCESS_TOKEN`.
+
+  `request.orgBackendCaller` is the ONLY proof that "there is deliberately no
+  acting user" rather than "the acting user went missing", and `requireOrgRole`
+  is its only writer. Routes read it through `orgCaller(request)` in
+  `routes/org/organisation-route.shared.ts`, which returns either
+  `{ actorUserId }` or `{ actor }` — never anything between — and is spread into
+  service params as a single unit. In the services, `resolveOrgActor`
+  (`organisation.service.base.ts`) rejects params carrying neither with
+  `500 ORG_ACTOR_UNRESOLVED`, so a dropped parameter is a loud failure and can
+  never degrade into unauthenticated access. An explicitly empty `actorUserId`
+  keeps its historical `BAD_REQUEST`.
+
+  Every service check that `actorUserId` gated is now explicitly a check on the
+  ACTING USER and is skipped when there is none. Invariants that are not actor
+  checks — org-belongs-to-domain, the last-owner guard, membership/team caps,
+  one-org-per-domain, "cannot leave your last team" — are untouched and apply to
+  both modes.
+
+  Actor provenance (`OrgActorProvenance`, `org-audit-log.service.ts`) is derived
+  from `orgBackendCaller` by `getActorProvenance(request)` and written by
+  `writeOrgAuditLog` under the reserved `uoa_actor` key in
+  `OrgAuditLog.metadata` (`{ via: 'domain_backend', source_domain }`), alongside
+  `actorUserId: null`. It is `undefined` for every user-initiated request, so
+  those rows are unchanged.
 - **error-handler** — catches all errors. Returns a generic public body via `utils/error-response.ts` to the caller and logs specifics internally.
 - **rate-limiter** — request rate limiting; keyed helpers for auth routes live in `routes/auth/rate-limit-keys.ts`.
 

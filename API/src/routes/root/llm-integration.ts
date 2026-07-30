@@ -323,6 +323,101 @@ The confidential grant is rate-limited per authenticated source domain
 (600/minute) and per verified source-domain user (60/minute), so users behind
 one Nessie egress IP do not consume a shared 10/minute bucket.
 
+### 4.6b Server-to-server organisation/team management (backend mode)
+
+Every \`/org/*\` route already authenticates the **domain pairing**: the
+per-domain hash bearer in \`Authorization\`, plus the partner's signed config JWT
+fetched from \`?config_url=\` and tied to \`?domain=\`. That pairing proves *"this
+is the backend for domain X"*, and it is the only authentication several \`/org\`
+routes have ever needed (\`GET /org/organisations\`, the bulk branch of
+\`POST .../invitations\`, the access-request family).
+
+**Backend mode simply omits \`X-UOA-Access-Token\`.** There is no second
+credential, no token exchange, and no extra header.
+
+\`\`\`text
+POST /org/organisations/<orgId>/teams?domain=<d>&config_url=<u>
+Authorization: Bearer <client_hash>
+Content-Type: application/json
+
+{ "name": "Kitchen" }
+\`\`\`
+
+**Opt in first.** Set \`org_features.backend_org_management: true\` in the signed
+config for that domain. It defaults to \`false\`, and while it is \`false\` a
+missing \`X-UOA-Access-Token\` is still \`401 MISSING_ACCESS_TOKEN\` exactly as
+before. The flag is not a new credential — it is a second secret in the path: an
+attacker who steals only the domain-hash bearer still cannot turn the flag on,
+because the config JWT is signed with the partner's own private key.
+
+**There is no acting user.** That is the whole point, and it has consequences:
+
+- Per-user org/team role checks (owner/admin, team manager, "must be a member")
+  do not apply — there is no user to check them against, and the pairing already
+  proves authority over the entire tenant, which outranks any single member's
+  role.
+- Every check that is NOT about the acting user is unchanged and applies to both
+  modes: the organisation must belong to the verified domain, the last owner
+  cannot be removed, membership and team caps still hold, one-org-per-domain
+  still holds, a user cannot be removed from their last team.
+- Where a route needs to name a user, name it explicitly. \`POST
+  /org/organisations\` takes \`owner_user_id\`; the member routes already take
+  \`userId\`. Nothing is inferred.
+
+**Domain isolation is absolute.** The call binds to the domain in the VERIFIED
+config, never the raw query string — a \`?domain=\` that differs is
+\`400 DOMAIN_MISMATCH\`. Every handler then resolves the organisation as
+\`(orgId, verified domain)\`, so an \`:orgId\` that belongs to another domain is a
+plain \`404\`. A backend for domain X cannot see or touch domain Y.
+
+**Per route, in backend mode:**
+
+| Route | Backend mode |
+|---|---|
+| \`GET /org/me\` | **No** — 401. It answers "who am I", which has no meaning without a caller. |
+| \`GET /org/organisations\` | Yes (already was). |
+| \`POST /org/organisations\` | Yes. Body **must** carry \`owner_user_id\`; \`allow_user_create_org\` does not apply. |
+| \`GET|PUT|DELETE /org/organisations/:orgId\` | Yes. |
+| \`GET|POST /org/organisations/:orgId/members\` | Yes. \`POST\` takes \`userId\` as today. |
+| \`PUT|DELETE .../members/:userId\` | Yes. |
+| \`POST .../members/:userId/deactivate|reactivate\` | Yes. |
+| \`POST .../transfer-ownership\` | Yes. Demotes the org's **current owner** to admin. |
+| \`GET .../groups\`, \`GET .../groups/:groupId\` | Yes. |
+| \`GET .../teams\` | Yes — and lists \`HIDDEN\` teams too; that filter is member-to-member discovery. |
+| \`POST .../teams\` | Yes. |
+| \`GET .../teams/:teamId\` | Yes, including \`?include=invited\`. |
+| \`PUT|DELETE .../teams/:teamId\` | Yes. |
+| \`POST .../teams/:teamId/members\` | Yes. Takes \`userId\` as today. |
+| \`PUT|DELETE .../teams/:teamId/members/:userId\` | Yes. |
+| \`GET|PUT|DELETE .../teams/:teamId/avatar\` | Yes. |
+| \`POST .../teams/:teamId/join\` | **No** — 401. Self-join's subject IS the acting user. |
+| \`POST|GET .../teams/:teamId/invitations\`, \`.../resend\` | Yes (already was — this is the bulk-invite contract). |
+| \`POST|GET|DELETE .../teams/:teamId/invite-links\` | Yes. A link created this way has \`created_by_user_id: null\`. |
+| \`GET .../invitations?approval=pending\` | Yes. |
+| \`POST .../invitations/:inviteId/approve|deny\` | Yes. No reviewer is recorded. |
+| \`GET|POST .../access-requests…\` | Yes (already was). Optional \`reviewedByUserId\` in the body, unchanged. |
+
+**Errors specific to this mode:**
+
+| Status | Code | Meaning |
+|---|---|---|
+| 401 | \`MISSING_ACCESS_TOKEN\` | No user token and \`backend_org_management\` is not \`true\` (or the domain-hash guard did not pass). |
+| 400 | \`DOMAIN_MISMATCH\` | \`?domain=\` does not equal the verified config \`domain\`. |
+| 400 | \`OWNER_REQUIRED\` | \`POST /org/organisations\` in backend mode without \`owner_user_id\`. |
+| 400 | \`OWNER_NOT_ALLOWED\` | \`POST /org/organisations\` with a user token AND \`owner_user_id\` — ambiguous. |
+| 404 | \`ORG_FEATURES_DISABLED\` | \`org_features.enabled\` is false. |
+| 404 | (generic) | The \`:orgId\` is not on this domain. |
+
+**Audit attribution.** A backend-initiated mutation writes
+\`actor_user_id: null\` and records who acted under the reserved \`uoa_actor\` key
+of \`OrgAuditLog.metadata\`:
+
+\`\`\`json
+{ "uoa_actor": { "via": "domain_backend", "source_domain": "api.hugopos.eu" } }
+\`\`\`
+
+Rows without that key were made by a user directly.
+
 ### 4.7 Organisation member lifecycle — deactivate, reactivate, soft-remove
 
 Membership rows carry a \`status\`: \`ACTIVE\` | \`DEACTIVATED\` | \`REMOVED\`. Deactivation suspends access without deleting history (Slack's "deactivate", not "kick"); removal is a tombstone, not a hard delete, so audit history survives.

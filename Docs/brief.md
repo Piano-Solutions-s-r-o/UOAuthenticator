@@ -1316,6 +1316,55 @@ For endpoints needing user context, the access token goes in `X-UOA-Access-Token
 `X-UOA-Access-Token` carries exactly one token profile: the HS256 user access
 token issued by the login flow. There is no second credential shape on `/org/*`.
 
+#### Backend mode — no user token at all
+
+The header is **optional**. When it is absent, the domain pairing above (items
+1–3: `?domain=`, `?config_url=` with a verified signed config, and the
+domain-hash bearer) is the authorisation on its own — it already proves "this is
+the backend for domain X", and it is the only authentication `GET
+/org/organisations`, the bulk branch of `POST .../teams/:teamId/invitations`, and
+the access-request family have ever had.
+
+Backend mode is **opt-in per domain** via `org_features.backend_org_management`
+(default `false`). While the flag is `false`, a missing `X-UOA-Access-Token` is
+`401 MISSING_ACCESS_TOKEN` exactly as before. The flag is not a new credential:
+it is a second secret in the path, because the config JWT that carries it is
+signed with the partner's own private key, which is distinct from the domain-hash
+bearer.
+
+`requireOrgRole` grants backend mode only when all three hold, each re-checked
+inside the guard rather than inferred from the order of the preValidation array:
+
+1. the domain-hash guard ran and passed (`request.domainAuthClientDomainId`);
+2. a config JWT was verified, and its `domain` — never the raw `?domain=` — is
+   what the call binds to (a differing `?domain=` is `400 DOMAIN_MISMATCH`);
+3. that verified config sets `org_features.backend_org_management: true`.
+
+**There is no acting user in backend mode.** Checks that are about the acting
+user (org owner/admin, team manager, "must be an ACTIVE member") therefore do not
+apply — the pairing already proves authority over the whole tenant, which
+outranks any one member's role. Checks that are *not* about the acting user are
+unchanged and apply to both modes: org-belongs-to-domain, the last-owner guard,
+membership and team caps, one-org-per-domain, and "cannot leave your last team".
+
+Where a route needs to name a user it takes one explicitly — `owner_user_id` on
+`POST /org/organisations`, `userId` on the member routes. Nothing is inferred.
+`GET /org/me` and `POST /org/organisations/:orgId/teams/:teamId/join` are *about*
+the acting user, so they remain user-mode only and still return
+`401 MISSING_ACCESS_TOKEN`.
+
+Domain isolation is absolute in both modes: every handler resolves the
+organisation as `(orgId, verified domain)` through `resolveOrganisationByDomain`,
+so another domain's `:orgId` is a plain 404, and every transaction still sets the
+RLS `app.domain` / `app.org_id` GUCs. `app.user_id` is simply empty in backend
+mode, which only narrows the RLS predicates (it appears solely as an additive
+owner-of / member-of branch on every `/org` table).
+
+Because a backend-initiated mutation has no user to attribute, it is recorded in
+`OrgAuditLog` with `actorUserId: null` plus the reserved `uoa_actor` metadata key
+`{ "via": "domain_backend", "source_domain": "…" }`. Rows without that key were
+made by a user directly.
+
 #### Middleware Chain
 
 ```

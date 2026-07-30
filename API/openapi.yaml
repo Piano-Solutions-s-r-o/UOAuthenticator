@@ -79,8 +79,19 @@ components:
         Exactly one token profile is accepted: the HS256 user access token
         issued by the login flow, verified by `verifyAccessToken`.
 
-        A product backend driving `/org/*` server-to-server does not send this
-        header at all — see the `/org/*` route descriptions.
+        On `/org/*` the header is OPTIONAL. Omitting it selects backend mode:
+        the domain pairing that every `/org/*` route already runs (the
+        `domainHashBearer` plus the verified signed config bound to `?domain=`)
+        is the authorisation, and there is no acting user, so per-user org/team
+        role checks do not apply. Backend mode requires
+        `org_features.backend_org_management: true` in that domain's signed
+        config; without it a missing token is `401 MISSING_ACCESS_TOKEN`, the
+        historical behaviour. It never crosses domains — the call binds to the
+        verified config `domain`, a differing `?domain=` is `400
+        DOMAIN_MISMATCH`, and an `:orgId` on another domain is `404`.
+
+        `GET /org/me` and `POST /org/organisations/{orgId}/teams/{teamId}/join`
+        are about the acting user and always require this header.
     configJwt:
       type: apiKey
       in: header
@@ -3938,12 +3949,24 @@ paths:
       summary: Create organisation
       operationId: createOrg
       description: |
-        Creates a new organisation. The authenticated user becomes the owner.
-        Rate limited: 5/hour per domain+actor. Requires domain hash auth and
-        either superuser role or `allow_user_create_org` config flag.
+        Creates a new organisation.
+
+        USER MODE (`X-UOA-Access-Token` present): the authenticated user becomes
+        the owner, `owner_user_id` must be omitted (else `400
+        OWNER_NOT_ALLOWED`), and the caller needs either the superuser role or
+        `org_features.allow_user_create_org`.
+
+        BACKEND MODE (header omitted, `org_features.backend_org_management:
+        true`): `owner_user_id` is REQUIRED (else `400 OWNER_REQUIRED`) and names
+        the user who will own the new organisation. `allow_user_create_org` does
+        not apply — that flag governs end users, not the domain's own backend.
+
+        Rate limited 5/hour per domain+actor; backend mode shares one bucket per
+        domain.
       security:
         - domainHashBearer: []
           accessToken: []
+        - domainHashBearer: []
       parameters:
         - $ref: '#/components/parameters/domainQuery'
         - $ref: '#/components/parameters/configUrl'
@@ -3960,6 +3983,13 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 100
+                owner_user_id:
+                  type: string
+                  minLength: 1
+                  description: |
+                    Backend mode only, and required there. The UOA user id that
+                    will own the new organisation. Rejected when a user access
+                    token is presented.
       responses:
         '200':
           description: Organisation created.
