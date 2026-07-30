@@ -202,9 +202,10 @@ describe('setTenantContextFromRequest', () => {
     );
   });
 
-  // The flag is derived from the guard's decision, never from a user-supplied
-  // value: `requireOrgRole` is the only writer of `request.orgBackendCaller`.
-  it('marks domain-backend context when requireOrgRole accepted the domain pairing', () => {
+  // The flag is derived from the guard's decision and from nothing else:
+  // `requireOrgRole` and `requireOrgBackendOnly` are the only writers of
+  // `request.orgBackendCaller`, and both go through `acceptDomainBackendCaller`.
+  it('marks domain-backend context when the guard accepted the domain pairing', () => {
     const request = makeRequest({
       orgBackendCaller: { domain: 'app.example.com' },
     } as never);
@@ -219,18 +220,20 @@ describe('setTenantContextFromRequest', () => {
     });
   });
 
-  // The one documented override, for routes that are backend-to-backend by
-  // construction and therefore never run `requireOrgRole` (GET /org/organisations).
-  it('allows a route to declare domain-backend context explicitly', () => {
+  // There is no override. A route cannot hand itself domain-wide visibility;
+  // the only way to `app.domain_backend = 'on'` is through a guard that ran the
+  // pairing checks. `GET /org/organisations` used to assert the flag directly,
+  // and that is exactly how a blank forwarded token read the whole domain.
+  it('leaves domain-backend context off when no guard set orgBackendCaller', () => {
     const request = makeRequest();
 
-    setTenantContextFromRequest(request, { orgId: null, domainBackend: true });
+    setTenantContextFromRequest(request, { orgId: null });
 
     expect(request.tenantContext).toEqual({
       domain: 'app.example.com',
       orgId: null,
       userId: null,
-      domainBackend: true,
+      domainBackend: false,
     });
   });
 });

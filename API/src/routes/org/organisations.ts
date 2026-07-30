@@ -13,7 +13,7 @@ import {
 } from '../../services/organisation.service.organisation.js';
 import { createRateLimiter } from '../../middleware/rate-limiter.js';
 import { requireOrgFeatures } from '../../middleware/org-features.js';
-import { requireOrgRole } from '../../middleware/org-role-guard.js';
+import { requireOrgBackendOnly, requireOrgRole } from '../../middleware/org-role-guard.js';
 import { AppError } from '../../utils/errors.js';
 import {
   CreateOrgBodySchema,
@@ -38,6 +38,12 @@ const BACKEND_ORG_CREATE_LIMIT_PER_HOUR = 300;
 export function registerOrganisationRoutes(app: FastifyInstance) {
   // VM2: this list endpoint is intentionally backend-to-backend. The domain hash
   // bearer token is the authorization boundary; user-scoped reads use /org/me.
+  //
+  // `requireOrgBackendOnly` is what makes "no user mode" real rather than
+  // documentary: it refuses any present `X-UOA-Access-Token` instead of ignoring
+  // it. Without it, a blank forwarded session token skipped the blank-token
+  // blocker entirely and this route answered an anonymous visitor with the whole
+  // domain's organisation list.
   app.get(
     '/org/organisations',
     {
@@ -46,17 +52,17 @@ export function registerOrganisationRoutes(app: FastifyInstance) {
         configVerifier,
         parseDomainContextHook,
         requireOrgFeatures,
+        requireOrgBackendOnly(),
       ],
     },
     async (request, reply) => {
       const { domain, limit, cursor } = parseLimitCursor(request);
       // Domain-scoped, not org-scoped: `app.org_id` is deliberately empty and
       // there is no acting user, so the only predicate that can match is the
-      // domain-backend branch of `organisations_select`. This route's
-      // authorization boundary IS the domain pairing, which the preValidation
-      // chain above already enforced, so the flag is set explicitly rather than
-      // derived from `requireOrgRole` (which this route does not run).
-      setTenantContextFromRequest(request, { orgId: null, domainBackend: true });
+      // domain-backend branch of `organisations_select`. `app.domain_backend` is
+      // derived from `request.orgBackendCaller`, which the guard above set — the
+      // GUC has no other way to be asserted.
+      setTenantContextFromRequest(request, { orgId: null });
       const page = await request.withTenantTx((tx) =>
         listOrganisationsForDomain(
           { domain, limit, cursor },

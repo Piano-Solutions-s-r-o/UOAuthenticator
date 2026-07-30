@@ -551,9 +551,11 @@ describe.skipIf(!hasDatabase)('/org/* backend mode (domain pairing, no user toke
         'x-uoa-access-token': confidentialToken,
       },
     });
-    // `GET /org/organisations` has no `requireOrgRole`, so it succeeds on the
-    // domain pairing regardless — the token is simply ignored, never verified.
-    expect(res.statusCode).toBe(200);
+    // The backend-only list route refuses ANY present `X-UOA-Access-Token`.
+    // It used to have no guard at all, so this token was ignored and the caller
+    // got the domain's organisation list — a token the route would not accept
+    // still bought the data the route protects.
+    expect(res.statusCode).toBe(401);
 
     // On a guarded route the same token is rejected as a bad USER token, not
     // silently upgraded to backend mode.

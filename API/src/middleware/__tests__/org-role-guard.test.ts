@@ -409,7 +409,38 @@ describe('requireOrgRole — domain-pairing backend mode', () => {
     expect(request.orgBackendCaller).toBeUndefined();
   });
 
-  it('rejects a repeated access token header rather than picking one', async () => {
+  // Repeating the header is NOT delivered as an array: Node's HTTP/1.1 and
+  // HTTP/2 parsers collapse duplicates of a custom header into one comma-joined
+  // string, verified against a real socket —
+  //   X-UOA-Access-Token: aaa.bbb.ccc
+  //   X-UOA-Access-Token: ddd.eee.fff
+  //   => req.headers['x-uoa-access-token'] === 'aaa.bbb.ccc, ddd.eee.fff'
+  // So THIS is the shape the guard actually meets, and it must not verify.
+  it('rejects the comma-joined string Node produces for a repeated header', async () => {
+    const middleware = requireOrgRole();
+    const request = makeBackendRequest();
+    (request.headers as Record<string, string>)['x-uoa-access-token'] =
+      'aaa.bbb.ccc, ddd.eee.fff';
+
+    verifyAccessTokenMock.mockRejectedValueOnce(
+      new AppError('UNAUTHORIZED', 401, 'INVALID_ACCESS_TOKEN'),
+    );
+
+    await expect(middleware(request, {} as FastifyReply)).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      statusCode: 401,
+    });
+    // The joined value went to the verifier as one opaque credential — it was
+    // never split, and it never selected backend mode.
+    expect(verifyAccessTokenMock).toHaveBeenCalledWith('aaa.bbb.ccc, ddd.eee.fff');
+    expect(request.orgBackendCaller).toBeUndefined();
+  });
+
+  // An array cannot arrive from Node, but `IncomingHttpHeaders` types it as
+  // possible, so a non-Node front end (or a direct `inject`) could still hand
+  // one over. It is not a `string`, so it falls through the same type check to
+  // the same 401 — there is no branch that could pick one of the values.
+  it('rejects a non-string header value without picking one of its parts', async () => {
     const middleware = requireOrgRole();
     const request = makeBackendRequest();
     (request.headers as Record<string, string[]>)['x-uoa-access-token'] = ['a.b.c', 'd.e.f'];
@@ -419,6 +450,7 @@ describe('requireOrgRole — domain-pairing backend mode', () => {
       statusCode: 401,
       message: 'MISSING_ACCESS_TOKEN',
     });
+    expect(verifyAccessTokenMock).not.toHaveBeenCalled();
     expect(request.orgBackendCaller).toBeUndefined();
   });
 
