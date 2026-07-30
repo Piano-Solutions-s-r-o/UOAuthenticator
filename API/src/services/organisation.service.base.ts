@@ -152,6 +152,14 @@ export function resolveOrgActor(params: {
   actorUserId?: string;
   actor?: OrgActorProvenance;
 }): string | undefined {
+  // Both set is as unresolvable as neither: the two describe mutually exclusive
+  // callers, and letting them through would write an audit row claiming that a
+  // user AND the domain backend performed the same mutation. `orgCaller` only
+  // ever produces one of the two, so this is a programming error on the same
+  // footing as a dropped spread — and gets the same loud 500.
+  if (params.actorUserId !== undefined && params.actor) {
+    throw new AppError('INTERNAL', 500, 'ORG_ACTOR_AMBIGUOUS');
+  }
   if (params.actorUserId !== undefined) {
     const trimmed = params.actorUserId.trim();
     if (!trimmed) throw new AppError('BAD_REQUEST', 400);
@@ -420,8 +428,30 @@ export async function auditOrg(
       },
       deps,
     );
-  } catch {
-    // Auditing is non-critical; the mutation has already succeeded.
+  } catch (err) {
+    // The mutation has already committed, so throwing here would report failure
+    // for work that actually happened — worse than a missing audit row. But a
+    // silent `catch {}` also makes "no audit row" indistinguishable from "no
+    // mutation", which is exactly the wrong answer for an authentication
+    // service. Log loudly and distinctly instead, so a dropped row is
+    // greppable and alertable rather than invisible.
+    //
+    // In backend mode this row is the ONLY record that the domain backend acted
+    // (there is no acting user to attribute it to), so treat a failure here as
+    // an operational incident, not noise.
+    console.error(
+      JSON.stringify({
+        event: 'org_audit_log_write_failed',
+        orgId: params.orgId,
+        action: params.action,
+        targetType: params.targetType,
+        targetId: params.targetId,
+        actorUserId: params.actorUserId ?? null,
+        actorVia: params.actor?.via ?? null,
+        actorSourceDomain: params.actor?.sourceDomain ?? null,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
   }
 }
 

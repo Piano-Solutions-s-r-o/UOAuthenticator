@@ -27,6 +27,7 @@ import {
   type TeamWithMembersRecord,
   isP2002Error,
 } from './team.service.base.js';
+import { auditOrg } from './organisation.service.base.js';
 import { getTeamInvitedEntries, type TeamInvitedEntry } from './team-invite.service.invited.js';
 import {
   lockWorkspaceMembershipRows,
@@ -141,7 +142,7 @@ export async function createTeam(
 
   await requireTeamManager(prisma, org.id, actorUserId);
 
-  return await runInTransaction(prisma, async (tx) => {
+  const createdTeam = await runInTransaction(prisma, async (tx) => {
     const teamCount = await tx.team.count({ where: { orgId: org.id } });
     if (teamCount >= maxTeams) {
       throw new AppError('BAD_REQUEST', 400);
@@ -178,6 +179,18 @@ export async function createTeam(
       throw err;
     }
   });
+
+  await auditOrg({
+    orgId: org.id,
+    actorUserId,
+    actor: params.actor,
+    action: 'team.created',
+    targetType: 'team',
+    targetId: createdTeam.id,
+    metadata: { name: createdTeam.name, slug: createdTeam.slug },
+  });
+
+  return createdTeam;
 }
 
 export async function getTeam(
@@ -334,6 +347,16 @@ export async function updateTeam(
       select: TEAM_SELECT,
     });
 
+    await auditOrg({
+      orgId: org.id,
+      actorUserId,
+      actor: params.actor,
+      action: 'team.updated',
+      targetType: 'team',
+      targetId: updated.id,
+      metadata: { name: updated.name, slug: updated.slug },
+    });
+
     return toTeamRecord(updated, org.domain);
   } catch (err) {
     if (isP2002Error(err)) {
@@ -440,6 +463,17 @@ export async function deleteTeam(
     }
 
     await tx.team.delete({ where: { id: team.id } });
+  });
+
+  await auditOrg({
+    orgId: org.id,
+    actorUserId,
+    actor: params.actor,
+    action: 'team.deleted',
+    targetType: 'team',
+    // The row is gone by now, so the id is the only durable identifier — the
+    // `team.created` row carries the name/slug this id refers to.
+    targetId: params.teamId,
   });
 
   return { deleted: true };

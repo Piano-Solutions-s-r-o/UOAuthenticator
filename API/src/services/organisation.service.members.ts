@@ -451,7 +451,18 @@ export async function transferOrganisationOwnership(
   const outgoingOwnerId = actorUserId ?? org.ownerId;
   if (outgoingOwnerId === newOwnerId) throw new AppError('BAD_REQUEST', 400);
 
-  const newOwnerMembership = await getOrganisationMember(prisma, { orgId: org.id, userId: newOwnerId });
+  // `activeOnly` matters here: without it the helper deliberately returns
+  // DEACTIVATED/REMOVED rows (target lookups need tombstones so a removed member
+  // can still be found and re-removed). The transfer only changes the ROLE, not
+  // the status, while demoting the live owner — so handing ownership to a
+  // tombstoned row would leave the organisation owned by a removed member with
+  // no owner able to act. Design §4.9: a non-ACTIVE membership has no powers, so
+  // it cannot receive the highest one.
+  const newOwnerMembership = await getOrganisationMember(
+    prisma,
+    { orgId: org.id, userId: newOwnerId },
+    { activeOnly: true },
+  );
   if (!newOwnerMembership) throw new AppError('NOT_FOUND', 404);
 
   const updated = await runInTransaction(prisma, async (tx) => {
@@ -488,6 +499,16 @@ export async function transferOrganisationOwnership(
         updatedAt: true,
       },
     });
+  });
+
+  await auditOrg({
+    orgId: org.id,
+    actorUserId,
+    actor: params.actor,
+    action: 'org.ownership_transferred',
+    targetType: 'organisation',
+    targetId: org.id,
+    metadata: { newOwnerId, previousOwnerId: outgoingOwnerId },
   });
 
   return toOrganisationRecord(updated);

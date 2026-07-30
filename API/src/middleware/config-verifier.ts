@@ -119,6 +119,12 @@ const safeConfigJwtNestedKeys = new Map<string, ReadonlySet<string>>([
       'max_flags_per_app',
       'scim_override_retention',
       'global_missing_flag_default',
+      // Non-secret boolean opt-in, and the single field that decides whether a
+      // call may be accepted on the domain pairing alone. Without it here the
+      // handshake log shows `[redacted_unrecognized]` for the exact value an
+      // operator is debugging when backend mode misbehaves.
+      'allow_user_create_org',
+      'backend_org_management',
     ]),
   ],
 ]);

@@ -22,7 +22,8 @@ export type OrgAuditTargetType =
   | 'invite'
   | 'invite_link'
   | 'team'
-  | 'organisation';
+  | 'organisation'
+  | 'access_request';
 
 export type OrgAuditAction =
   // Membership lifecycle (§4.5)
@@ -46,7 +47,19 @@ export type OrgAuditAction =
   | 'invite_link.revoked'
   // Policy / settings (§4.6)
   | 'team.join_policy_changed'
-  | 'org.member_invites_changed';
+  | 'org.member_invites_changed'
+  // Organisation, team and access-request lifecycle. Every one of these is
+  // reachable in backend mode (brief §24.8), where there is no acting user and
+  // the audit row's `uoa_actor` provenance is the ONLY record of who acted.
+  | 'org.created'
+  | 'org.updated'
+  | 'org.deleted'
+  | 'org.ownership_transferred'
+  | 'team.created'
+  | 'team.updated'
+  | 'team.deleted'
+  | 'access_request.approved'
+  | 'access_request.rejected';
 
 export type OrgAuditLogPrisma = Pick<PrismaClient, 'orgAuditLog'>;
 
