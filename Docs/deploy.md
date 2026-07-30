@@ -25,6 +25,67 @@
 
 The production root `https://authentication.unlikeotherai.com/` is a Tailwind holding page with links to Admin, `/llm`, and `/api`. The Admin UI is served by the same Cloud Run API service at `https://authentication.unlikeotherai.com/admin`.
 
+### Migrations run at container boot — what that costs
+
+`docker/start-production.sh` runs `prisma migrate deploy` when a revision starts,
+**while the previous revision is still serving traffic**. Two consequences that
+are easy to miss:
+
+- **Locks are shared with live traffic.** A migration that `DROP`s/`CREATE`s a
+  policy, adds a trigger, or alters a table takes `ACCESS EXCLUSIVE`. PostgreSQL
+  queues every later request behind a *waiting* `ACCESS EXCLUSIVE`, so a single
+  in-flight read is enough to stall all auth queries on that table for as long as
+  that read runs — measured at **10,110 ms** for a plain
+  `SELECT count(*) FROM org_members` behind a 12 s reader.
+  **Every migration that touches a live table must open with**
+  ```sql
+  SET lock_timeout = '5s';
+  SET statement_timeout = '120s';
+  ```
+  so it aborts instead of parking the service behind a lock queue. See
+  `API/prisma/migrations/20260730180000_org_member_active_org_domain_constraint/migration.sql`.
+
+- **A half-applied migration crash-loops the service.** See below.
+
+### Recovering from a failed migration
+
+Prisma runs each migration in one transaction, so the *schema* rolls back
+cleanly. The **bookkeeping does not**: `_prisma_migrations` is left with
+`finished_at NULL, rolled_back_at NULL`, and every subsequent boot then fails
+with **P3009**. `start-production.sh` runs under `set -eu`, so the container
+exits — a crash loop and a total auth outage until an operator intervenes. The
+script detects P3009 specifically and prints this runbook to the container log
+rather than dying silently.
+
+Recover, connected as `DATABASE_ADMIN_URL`:
+
+```sql
+-- 1. Identify it and read WHY it failed. `logs` holds the database error.
+SELECT migration_name, started_at, finished_at, rolled_back_at, logs
+  FROM _prisma_migrations
+ WHERE finished_at IS NULL;
+```
+
+```bash
+# 2. Fix the underlying cause first (see `logs`). For
+#    20260730180000_org_member_active_org_domain_constraint that means resolving
+#    pre-existing one-active-organisation-per-user-per-domain violations — the
+#    migration's pre-flight names every offending (user, domain) pair and gives
+#    the remediation query in its HINT.
+
+# 3. Clear the wedged row. The schema already rolled back, so `--rolled-back`
+#    (never `--applied`) is correct.
+DATABASE_URL="$DATABASE_ADMIN_URL" \
+  npx prisma migrate resolve --rolled-back <migration_name>
+
+# 4. Redeploy. The migration re-runs from scratch.
+```
+
+**Do not trust a failed deploy's status alone.** Killing the `prisma` process
+does not kill its schema-engine child, which can keep working for ~20 s after the
+CI step reports failure — so the workflow result and the actual database state
+can disagree. Always read `_prisma_migrations` before acting.
+
 ### GitHub Actions configuration
 
 Configured as GitHub repository variables:
