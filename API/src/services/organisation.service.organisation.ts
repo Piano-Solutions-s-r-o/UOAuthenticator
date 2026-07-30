@@ -15,10 +15,12 @@ import {
   normalizeIconUrl,
   normalizeMemberInvitesSetting,
   parseOrgFeatureRoles,
+  resolveOrgActor,
   resolveOrganisationByDomain,
   toListLimit,
   toOrganisationRecord,
   type CursorList,
+  type OrgActorProvenance,
   type OrgServiceDeps,
   type OrgServicePrisma,
   type OrganisationRecord,
@@ -165,25 +167,34 @@ export async function createOrganisation(
 }
 
 export async function getOrganisation(
-  params: { orgId: string; domain: string; actorUserId: string },
+  params: {
+    orgId: string;
+    domain: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
+  },
   deps?: OrgServiceDeps,
 ): Promise<OrganisationRecord> {
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
-  if (!actorUserId) throw new AppError('BAD_REQUEST', 400);
+  const actorUserId = resolveOrgActor(params);
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
+  // Domain ownership is checked for BOTH callers: an org on another domain is a
+  // 404 here regardless of who asks.
   const row = await resolveOrganisationByDomain(prisma, params);
 
   // Defence-in-depth: even though the route layer enforces `requireOrgRole`,
   // re-verify actor membership here so the service contract matches
   // updateOrganisation/deleteOrganisation and cannot leak org data if a future
-  // route refactor omits the role guard.
-  const actorMembership = await getOrganisationMember(prisma, { orgId: row.id, userId: actorUserId }, { activeOnly: true });
-  if (!actorMembership) {
-    throw new AppError('FORBIDDEN', 403);
+  // route refactor omits the role guard. There is no membership to check in
+  // backend mode — the caller is the domain, not a member of it.
+  if (actorUserId) {
+    const actorMembership = await getOrganisationMember(prisma, { orgId: row.id, userId: actorUserId }, { activeOnly: true });
+    if (!actorMembership) {
+      throw new AppError('FORBIDDEN', 403);
+    }
   }
 
   return toOrganisationRecord(row);
@@ -194,7 +205,8 @@ export async function updateOrganisation(
     orgId: string;
     domain: string;
     name: string;
-    actorUserId: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     config: ClientConfig;
     memberInvites?: string;
     iconUrl?: string | null;
@@ -204,15 +216,19 @@ export async function updateOrganisation(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
-  if (!actorUserId) throw new AppError('BAD_REQUEST', 400);
+  const actorUserId = resolveOrgActor(params);
   const name = ensureOrgName(params.name);
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
   const org = await resolveOrganisationByDomain(prisma, params);
 
-  const actorMembership = await getOrganisationMember(prisma, { orgId: org.id, userId: actorUserId }, { activeOnly: true });
-  if (!actorMembership || (actorMembership.role !== 'owner' && actorMembership.role !== 'admin')) {
-    throw new AppError('FORBIDDEN', 403);
+  // Owner/admin is a check on the ACTING USER. In backend mode there is none —
+  // the domain pairing already proved the caller owns this whole tenant, which is
+  // strictly more authority than any single member's role.
+  if (actorUserId) {
+    const actorMembership = await getOrganisationMember(prisma, { orgId: org.id, userId: actorUserId }, { activeOnly: true });
+    if (!actorMembership || (actorMembership.role !== 'owner' && actorMembership.role !== 'admin')) {
+      throw new AppError('FORBIDDEN', 403);
+    }
   }
 
   const slug = await deriveSlugWithValidation(org.domain, prisma, name, org.slug);
@@ -240,19 +256,20 @@ export async function deleteOrganisation(
   params: {
     orgId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
   },
   deps?: OrgServiceDeps,
 ): Promise<{ deleted: boolean }> {
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
-  if (!actorUserId) throw new AppError('BAD_REQUEST', 400);
+  const actorUserId = resolveOrgActor(params);
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
   const org = await resolveOrganisationByDomain(prisma, params);
-  if (org.ownerId !== actorUserId) {
+  // "Must be the owner" is a check on the acting user; backend mode has none.
+  if (actorUserId && org.ownerId !== actorUserId) {
     throw new AppError('FORBIDDEN', 403);
   }
 

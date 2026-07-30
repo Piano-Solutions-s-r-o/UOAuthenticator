@@ -127,6 +127,40 @@ const SLUG_ALLOWED_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const SLUG_RANDOM_SUFFIX_MAX_ATTEMPTS = 10;
 const SLUG_SUFFIX_LENGTH = 4;
 
+/**
+ * Resolve who is calling an `/org/*` service, and refuse to guess.
+ *
+ * Exactly one of two things is true on every `/org/*` call:
+ *
+ *   1. A signed-in user is acting. `actorUserId` is their id, and every per-user
+ *      org/team role check in the service applies to them.
+ *   2. The product backend for this domain is acting. `requireOrgRole` accepted
+ *      the request on the domain pairing alone (domain-hash bearer + verified
+ *      config JWT, no `X-UOA-Access-Token`), so there is NO acting user and the
+ *      per-user role checks have no subject. `actorUserId` is `undefined` and
+ *      `actor` names the backend.
+ *
+ * Anything else is a programming error — an `actorUserId` that went missing on a
+ * user-initiated path would otherwise skip every actor check silently. That case
+ * raises a 500 rather than degrading into unauthenticated access, so a future
+ * refactor that drops the parameter fails loudly instead of opening a hole.
+ *
+ * An explicitly-empty `actorUserId` keeps its historical `BAD_REQUEST` — it is a
+ * malformed value, not an absent one.
+ */
+export function resolveOrgActor(params: {
+  actorUserId?: string;
+  actor?: OrgActorProvenance;
+}): string | undefined {
+  if (params.actorUserId !== undefined) {
+    const trimmed = params.actorUserId.trim();
+    if (!trimmed) throw new AppError('BAD_REQUEST', 400);
+    return trimmed;
+  }
+  if (params.actor) return undefined;
+  throw new AppError('INTERNAL', 500, 'ORG_ACTOR_UNRESOLVED');
+}
+
 export function assertDatabaseEnabled(env: ReturnType<typeof getEnv>): void {
   if (!env.DATABASE_URL) {
     throw new AppError('INTERNAL', 500, 'DATABASE_DISABLED');
@@ -359,10 +393,11 @@ export async function getOrganisationMember(
 export async function auditOrg(
   params: {
     orgId: string;
-    actorUserId: string;
+    /** The acting user, or `undefined` when the domain backend acted (see `actor`). */
+    actorUserId: string | undefined;
     /**
-     * Backend that acted for `actorUserId`, when the request arrived on the
-     * confidential provisioning path. Undefined for user-initiated mutations.
+     * The domain backend that made this mutation itself. Undefined for
+     * user-initiated mutations.
      */
     actor?: OrgActorProvenance;
     action: OrgAuditAction;

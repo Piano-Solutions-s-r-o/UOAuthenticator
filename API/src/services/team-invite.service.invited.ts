@@ -36,7 +36,7 @@ export type TeamInvitedEntry = {
  * awaiting member-invite approval, distinguished by that same field.
  */
 export async function getTeamInvitedEntries(
-  params: { orgId: string; teamId: string; domain: string; actorUserId: string },
+  params: { orgId: string; teamId: string; domain: string; actorUserId: string | undefined },
   deps?: InviteDeps,
 ): Promise<TeamInvitedEntry[]> {
   const env = deps?.env ?? getEnv();

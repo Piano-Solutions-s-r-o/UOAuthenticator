@@ -16,6 +16,7 @@ import {
   parseMaxTeamMembershipsPerUser,
   requireTeamManager,
   resolveAndAuthorizeTeamOrg,
+  resolveOrgActor,
   toTeamMemberRecord,
   type OrgServiceDeps,
   type OrgServicePrisma,
@@ -35,7 +36,7 @@ export async function addTeamMember(
     orgId: string;
     teamId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
     actor?: OrgActorProvenance;
     userId: string;
     teamRole?: string;
@@ -46,13 +47,13 @@ export async function addTeamMember(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const userId = params.userId.trim();
   const teamRole = normalizeTeamRole(params.teamRole);
   const maxMembersPerTeam = parseMaxMembersPerTeam(params.config);
   const maxTeamMembershipsPerUser = parseMaxTeamMembershipsPerUser(params.config);
 
-  if (!actorUserId || !userId) {
+  if (!userId) {
     throw new AppError('BAD_REQUEST', 400);
   }
 
@@ -181,7 +182,7 @@ export async function changeTeamMemberRole(
     orgId: string;
     teamId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
     actor?: OrgActorProvenance;
     userId: string;
     teamRole: string;
@@ -191,11 +192,11 @@ export async function changeTeamMemberRole(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const userId = params.userId.trim();
   const teamRole = normalizeTeamRole(params.teamRole);
 
-  if (!actorUserId || !userId) {
+  if (!userId) {
     throw new AppError('BAD_REQUEST', 400);
   }
 
@@ -271,7 +272,7 @@ export async function removeTeamMember(
     orgId: string;
     teamId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
     actor?: OrgActorProvenance;
     userId: string;
   },
@@ -283,10 +284,10 @@ export async function removeTeamMember(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const userId = params.userId.trim();
 
-  if (!actorUserId || !userId) {
+  if (!userId) {
     throw new AppError('BAD_REQUEST', 400);
   }
 

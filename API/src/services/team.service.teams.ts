@@ -15,10 +15,12 @@ import {
   parseMaxTeamsPerOrg,
   requireTeamManager,
   resolveAndAuthorizeTeamOrg,
+  resolveOrgActor,
   toListLimit,
   toTeamMemberRecord,
   toTeamRecord,
   type CursorList,
+  type OrgActorProvenance,
   type OrgServiceDeps,
   type OrgServicePrisma,
   type TeamRecord,
@@ -50,7 +52,8 @@ export async function listTeams(
   params: {
     orgId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     limit?: number;
     cursor?: string;
   },
@@ -59,10 +62,7 @@ export async function listTeams(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
-  if (!actorUserId) {
-    throw new AppError('BAD_REQUEST', 400);
-  }
+  const actorUserId = resolveOrgActor(params);
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
   const org = await resolveAndAuthorizeTeamOrg(prisma, {
@@ -77,12 +77,19 @@ export async function listTeams(
   const rows = await prisma.team.findMany({
     where: {
       orgId: org.id,
-      // HIDDEN teams are excluded from any org-member-visible listing unless the caller is already
+      // HIDDEN teams are excluded from any org-MEMBER-visible listing unless the caller is already
       // an ACTIVE member of that specific team (design §4.6) — invite-only discovery is preserved.
-      OR: [
-        { NOT: { joinPolicy: 'HIDDEN' } },
-        { members: { some: { userId: actorUserId, status: 'ACTIVE' } } },
-      ],
+      // That is a discovery rule between members of one workspace. In backend mode the caller is
+      // the domain itself, which already owns every row here, so there is nothing to hide from it
+      // and no `actorUserId` to key the exception on.
+      ...(actorUserId
+        ? {
+            OR: [
+              { NOT: { joinPolicy: 'HIDDEN' } },
+              { members: { some: { userId: actorUserId, status: 'ACTIVE' } } },
+            ],
+          }
+        : {}),
     },
     // Total order: `createdAt` alone is not unique (TIMESTAMP(3) ties are
     // routine for bulk creation, restores and backfills), and Prisma resolves a
@@ -108,7 +115,8 @@ export async function createTeam(
   params: {
     orgId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     name: string;
     slug?: string;
     description?: string;
@@ -119,14 +127,10 @@ export async function createTeam(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const name = normalizeTeamName(params.name);
   const description = normalizeTeamDescription(params.description);
   const maxTeams = parseMaxTeamsPerOrg(params.config);
-
-  if (!actorUserId) {
-    throw new AppError('BAD_REQUEST', 400);
-  }
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
   const org = await resolveAndAuthorizeTeamOrg(prisma, {
@@ -181,7 +185,8 @@ export async function getTeam(
     orgId: string;
     teamId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     // Task 2 (gapfix-a, design §11.4 "Invited" tab): `?include=invited` on the route. Undefined/false
     // leaves the response byte-identical to before this change (no `invited` key at all).
     includeInvited?: boolean;
@@ -191,10 +196,7 @@ export async function getTeam(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
-  if (!actorUserId) {
-    throw new AppError('BAD_REQUEST', 400);
-  }
+  const actorUserId = resolveOrgActor(params);
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
   const org = await resolveAndAuthorizeTeamOrg(prisma, {
@@ -252,7 +254,8 @@ export async function updateTeam(
     orgId: string;
     teamId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     name?: string;
     slug?: string;
     description?: string | null;
@@ -264,10 +267,7 @@ export async function updateTeam(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
-  if (!actorUserId) {
-    throw new AppError('BAD_REQUEST', 400);
-  }
+  const actorUserId = resolveOrgActor(params);
 
   const hasUpdates =
     params.name !== undefined ||
@@ -348,7 +348,8 @@ export async function deleteTeam(
     orgId: string;
     teamId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
   },
   deps?: OrgServiceDeps & {
     afterTargetTeamLock?: () => Promise<void>;
@@ -358,10 +359,7 @@ export async function deleteTeam(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
-  if (!actorUserId) {
-    throw new AppError('BAD_REQUEST', 400);
-  }
+  const actorUserId = resolveOrgActor(params);
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
   const org = await resolveAndAuthorizeTeamOrg(prisma, {

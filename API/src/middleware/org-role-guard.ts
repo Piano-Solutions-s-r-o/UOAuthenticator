@@ -71,16 +71,64 @@ export async function resolveActingUserClaims(token: string): Promise<AccessToke
   return await verifyAccessToken(token);
 }
 
+/**
+ * Accept the request on the domain pairing alone, with no acting user.
+ *
+ * The pairing — `requireDomainHashAuthForDomainQuery` (the per-domain hash
+ * bearer) plus `configVerifier` (the partner's signed config JWT, tied to
+ * `?domain=`) — already proves "this is the backend for domain X". That is the
+ * SAME authentication `/org/organisations` (list), the bulk-invite branch of
+ * `POST .../invitations`, `/domain/users`, and the `/internal/org/*` family
+ * already run on, so nothing new is being trusted here.
+ *
+ * Three things must hold, and each is re-checked here rather than assumed from
+ * the order of the preValidation array, so registering this guard without its
+ * siblings fails closed instead of opening a hole:
+ *
+ *  1. the domain-hash guard actually ran and passed (`domainAuthClientDomainId`);
+ *  2. a config JWT was verified, and its `domain` is what we bind to — never the
+ *     raw `?domain=` query value;
+ *  3. that verified domain opted in via `org_features.backend_org_management`.
+ *
+ * Without the opt-in this is exactly the old behaviour: 401 `MISSING_ACCESS_TOKEN`.
+ */
+function acceptDomainBackendCaller(request: FastifyRequest, queryDomain: string): void {
+  // (1) The pairing's first half. `verifyDomainHashAuth` sets this only after a
+  // constant-time match against the live per-domain secret.
+  if (!request.domainAuthClientDomainId) {
+    throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
+  }
+
+  // (2) The pairing's second half. Bind to the VERIFIED config domain, so the
+  // tenant a backend call acts on can never be steered by the query string.
+  const verifiedDomain = normalizeDomain(request.config?.domain ?? '');
+  if (!verifiedDomain) {
+    throw new AppError('INTERNAL', 500, 'CONFIG_NOT_VERIFIED');
+  }
+  if (queryDomain && queryDomain !== verifiedDomain) {
+    throw new AppError('BAD_REQUEST', 400, 'DOMAIN_MISMATCH');
+  }
+
+  // (3) Explicit opt-in in the partner's own signed config.
+  if (request.config?.org_features?.backend_org_management !== true) {
+    throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
+  }
+
+  request.orgBackendCaller = { domain: verifiedDomain };
+}
+
 export function requireOrgRole(...requiredRoles: string[]) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     void reply;
 
+    const domain = resolveDomainFromRequest(request);
+
     const token = parseBearerOrRawToken(request.headers['x-uoa-access-token']);
     if (!token) {
-      throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
+      acceptDomainBackendCaller(request, domain);
+      return;
     }
 
-    const domain = resolveDomainFromRequest(request);
     const claims = await resolveActingUserClaims(token);
     if (normalizeDomain(claims.domain) !== domain) {
       throw new AppError('FORBIDDEN', 403, 'ACCESS_TOKEN_DOMAIN_MISMATCH');

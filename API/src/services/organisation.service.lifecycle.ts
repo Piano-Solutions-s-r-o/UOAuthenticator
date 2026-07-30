@@ -13,6 +13,7 @@ import {
   assertDatabaseEnabled,
   auditOrg,
   getOrganisationMember,
+  resolveOrgActor,
   resolveOrganisationByDomain,
   type OrgActorProvenance,
   type OrgServiceDeps,
@@ -23,11 +24,20 @@ import {
 // to keep that file under the 500-line project limit; both files share the `auditOrg` helper and
 // tenant-resolution/actor-authorization helpers from organisation.service.base.ts.
 
+/**
+ * Require org owner/admin standing OF THE ACTING USER.
+ *
+ * `undefined` means there is no acting user because the domain pairing
+ * authorised the call (backend mode) — there is no membership to check, and the
+ * caller already holds authority over the whole tenant. `resolveOrgActor` is what
+ * proves the distinction; this helper never invents it.
+ */
 async function requireOrgManagerActor(
   prisma: OrgServicePrisma,
   orgId: string,
-  actorUserId: string,
+  actorUserId: string | undefined,
 ): Promise<void> {
+  if (!actorUserId) return;
   const actorMembership = await getOrganisationMember(prisma, { orgId, userId: actorUserId }, { activeOnly: true });
   if (!actorMembership || (actorMembership.role !== 'owner' && actorMembership.role !== 'admin')) {
     throw new AppError('FORBIDDEN', 403);
@@ -38,7 +48,7 @@ export async function deactivateOrganisationMember(
   params: {
     orgId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
     actor?: OrgActorProvenance;
     userId: string;
   },
@@ -52,9 +62,9 @@ export async function deactivateOrganisationMember(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const userId = params.userId.trim();
-  if (!actorUserId || !userId) throw new AppError('BAD_REQUEST', 400);
+  if (!userId) throw new AppError('BAD_REQUEST', 400);
 
   // Membership status and cross-product refresh-family revocation must commit together. The
   // tenant role cannot see refresh rows issued by sibling product domains, so this lifecycle
@@ -125,7 +135,7 @@ export async function reactivateOrganisationMember(
   params: {
     orgId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
     actor?: OrgActorProvenance;
     userId: string;
   },
@@ -136,9 +146,9 @@ export async function reactivateOrganisationMember(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const userId = params.userId.trim();
-  if (!actorUserId || !userId) throw new AppError('BAD_REQUEST', 400);
+  if (!userId) throw new AppError('BAD_REQUEST', 400);
 
   const prisma = deps?.prisma ?? (getAdminPrisma() as unknown as OrgServicePrisma);
   const org = await resolveOrganisationByDomain(prisma, params);

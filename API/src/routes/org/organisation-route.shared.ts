@@ -45,6 +45,19 @@ export const OrgBodySchema = z.object({
   icon_url: z.string().trim().max(2048).nullable().optional(),
 });
 
+/**
+ * `POST /org/organisations` body.
+ *
+ * The new organisation needs an owner. On the user path that is the acting user
+ * and the body must NOT name one. In backend mode there is no acting user, so
+ * the caller states the owner explicitly — the same shape `.../members` already
+ * uses for its `userId` target. Requiring exactly one of the two makes it
+ * impossible to send an ambiguous request.
+ */
+export const CreateOrgBodySchema = OrgBodySchema.extend({
+  owner_user_id: z.string().trim().min(1).optional(),
+});
+
 export const AddMemberBodySchema = z.object({
   userId: z.string().trim().min(1),
   role: z.string().trim().min(1).optional(),
@@ -127,12 +140,58 @@ export function parseMembersListQuery(request: FastifyRequest) {
   return parsed;
 }
 
+/**
+ * The acting user. Use this only on routes that are meaningless without one
+ * (`GET /org/me`, team self-join) — it throws 401 in backend mode by design.
+ */
 export function getActorUserId(request: RequestWithClaims): string {
   const userId = request.accessTokenClaims?.userId;
   if (!userId) {
     throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
   }
   return userId;
+}
+
+/**
+ * Who is making this `/org/*` call, in the exact shape the service layer takes.
+ *
+ * Returns one of two things and never anything in between:
+ *
+ *   - `{ actorUserId }` — a signed-in user is acting. Unchanged behaviour.
+ *   - `{ actor }` — the domain backend is acting: `requireOrgRole` accepted the
+ *     request on the domain pairing alone. There is deliberately NO acting user.
+ *
+ * Spread it straight into the service params (`...orgCaller(request)`) so a call
+ * site cannot pass one half without the other. `resolveOrgActor` in the service
+ * rejects params carrying neither with a 500, so a dropped spread is a loud
+ * failure rather than a silent authorization bypass.
+ *
+ * The `{ actor }` branch is reachable ONLY through `request.orgBackendCaller`,
+ * which `requireOrgRole` is the only writer of.
+ */
+export function orgCaller(
+  request: FastifyRequest,
+): { actorUserId: string } | { actor: OrgActorProvenance } {
+  const userId = request.accessTokenClaims?.userId;
+  if (userId) return { actorUserId: userId };
+
+  const backend = request.orgBackendCaller;
+  if (backend) return { actor: { via: 'domain_backend', sourceDomain: backend.domain } };
+
+  throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
+}
+
+/**
+ * The acting user's id for `setTenantContextFromRequest`, or `null` in backend
+ * mode.
+ *
+ * `app.user_id` is only ever an ADDITIVE branch in the RLS policies (owner-of /
+ * member-of predicates); every `/org/*` table is reachable through `app.org_id`
+ * alone, which these routes always set. Leaving it empty therefore narrows what
+ * the transaction can see, never widens it.
+ */
+export function tenantUserId(request: FastifyRequest): string | null {
+  return request.accessTokenClaims?.userId ?? null;
 }
 
 /**
@@ -167,7 +226,12 @@ export function getTransferOwnerId(body: Record<string, unknown>): string {
 
 export function keyCreateOrganisationRateLimit(request: FastifyRequest) {
   const domain = parseDomainFromRequest(request);
-  const actor = getActorUserId(request as RequestWithClaims);
+  // In backend mode there is no acting user to key on. One shared per-domain
+  // bucket is correct there: the backend IS the single caller, and keying on the
+  // requested owner would let it mint an unlimited number of orgs by naming a
+  // different owner each time.
+  const caller = orgCaller(request);
+  const actor = 'actorUserId' in caller ? caller.actorUserId : 'backend';
   return `org:create:${domain}:${actor}`;
 }
 
