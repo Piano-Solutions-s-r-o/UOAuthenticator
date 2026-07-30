@@ -90,6 +90,49 @@ export function assertConfiguredAccessTarget(params: {
   }
 }
 
+/**
+ * Resolve the `(orgId, teamId)` an access-request admin route was called with,
+ * and refuse anything that is not this domain's own.
+ *
+ * `assertConfiguredAccessTarget` alone is NOT a tenant boundary. It compares the
+ * path ids against `access_requests.target_org_id`/`target_team_id` — values
+ * that come from the CALLER'S OWN signed config, which the caller authors. A
+ * domain can therefore sign a perfectly valid config naming another tenant's
+ * org and team, pass that check with its own bearer and `?domain=`, and reach
+ * another tenant's rows.
+ *
+ * RLS is no backstop here either: the `access_requests` policies key on
+ * `app.org_id`, which these routes populate from the raw path `:orgId`, and
+ * (before the accompanying migration) never consulted `app.domain`.
+ *
+ * So the ids are resolved the same way every other `/org/*` route resolves
+ * them — org by `(id, domain)`, team by `(id, orgId)` — and a target on another
+ * domain is a 404, exactly as if it did not exist.
+ */
+export async function resolveConfiguredAccessTarget(params: {
+  prisma: AccessRequestPrisma;
+  config: ClientConfig;
+  orgId: string;
+  teamId: string;
+}): Promise<void> {
+  assertConfiguredAccessTarget({
+    config: params.config,
+    orgId: params.orgId,
+    teamId: params.teamId,
+  });
+
+  const org = await resolveOrganisationByDomain(
+    params.prisma as unknown as Parameters<typeof resolveOrganisationByDomain>[0],
+    { orgId: params.orgId, domain: params.config.domain },
+  );
+
+  const team = await params.prisma.team.findFirst({
+    where: { id: params.teamId, orgId: org.id },
+    select: { id: true },
+  });
+  if (!team) throw new AppError('NOT_FOUND', 404);
+}
+
 export function isAutoGrantDomain(params: { email: string; config: ClientConfig }): boolean {
   const domains = params.config.access_requests?.auto_grant_domains;
   if (!domains?.length) return false;

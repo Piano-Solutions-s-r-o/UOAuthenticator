@@ -768,15 +768,10 @@ HTTPS resource and a non-empty allowlist containing only `ai.invoke`,
 `billing.read`, and/or `token.provision`. Token provisioning is a distinct,
 explicit app capability and is never implied by `ai.invoke`.
 
-**What `token.provision` grants depends on the `resource` it is paired with.**
-Against a product's own HTTPS origin it authorises token provisioning for that
-product. Against `<UOA public base URL>/org` it additionally authorises the
-`/org/*` confidential provisioning path (§24 "User Identity") — full
-organisation and team authority over UOA's own tenancy for that source domain,
-bounded by the acting user's live org/team and source-domain roles. Exact-string
-audience matching plus `normalizeResource` mean a mapping registered for any
-other resource cannot reach `/org`, so the resource IS the containment boundary
-and must be reviewed when the scope is granted. The domain-hash middleware retains the authenticated
+`token.provision` authorises token provisioning against the product's own
+HTTPS `resource`. It does not reach UOA's own `/org/*` surface; that surface
+authenticates the domain pairing directly (§24.8) and accepts no resource
+token. The domain-hash middleware retains the authenticated
 `ClientDomain.id`, so another product's credential cannot select this mapping;
 secret rotation remains valid because policy does not bind plaintext,
 client-hash, digest, or an individual secret row. The request must name the
@@ -857,6 +852,7 @@ The claim is optional and defaults to disabled. The object shape and defaults ar
   "user_needs_team": false,
   "auto_create_personal_org_on_first_login": false,
   "allow_user_create_org": false,
+  "backend_org_management": false,
   "pending_invites_block_auto_create": true,
   "max_teams_per_org": 100,
   "max_groups_per_org": 20,
@@ -878,6 +874,7 @@ The claim is optional and defaults to disabled. The object shape and defaults ar
 | `user_needs_team`                         | boolean                     | `false`                        | On successful auth, ensure the user ends up in a team. Existing org members with zero teams get a personal team; users with no org get a new personal org plus default team.                                                           |
 | `auto_create_personal_org_on_first_login` | boolean                     | `false`                        | On **first** verified login only, if the user ends up without an org after invite/mapping resolution, create a personal org with them as owner (plus default team per 24.3). One-shot, not a self-heal. See 24.14.                     |
 | `allow_user_create_org`                   | boolean                     | `false`                        | Whether end-users may call `POST /org/organisations` with their own access token. `false` means org creation is admin-only (via Internal API or domain-hash). See 24.14.                                                               |
+| `backend_org_management`                  | boolean                     | `false`                        | Whether this domain's product backend may call `/org/*` with **no** `X-UOA-Access-Token`, authorised by the domain pairing alone (24.8). There is no acting user in that mode, so per-user org-role checks do not apply; every mutation is attributed to the backend in the org audit log. Leave `false` unless a backend genuinely needs it.                        |
 | `pending_invites_block_auto_create`       | boolean                     | `true`                         | When `true`, a pending invite matching the user's email suppresses `auto_create_personal_org_on_first_login` so the user is offered the invite choice instead of being force-placed into a fresh org.                                  |
 | `max_teams_per_org`                       | integer                     | `100`                          | Maximum teams per organisation (max 1000)                                                                                                                                                                                              |
 | `max_groups_per_org`                      | integer                     | `20`                           | Maximum groups per organisation (max 200)                                                                                                                                                                                              |
@@ -904,6 +901,7 @@ org_features: z.object({
   user_needs_team: z.boolean().default(false),
   auto_create_personal_org_on_first_login: z.boolean().default(false),
   allow_user_create_org: z.boolean().default(false),
+  backend_org_management: z.boolean().default(false),
   pending_invites_block_auto_create: z.boolean().default(true),
   max_teams_per_org: z.number().int().positive().max(1000).default(100),
   max_groups_per_org: z.number().int().positive().max(200).default(20),
@@ -926,6 +924,7 @@ org_features: z.object({
     user_needs_team: false,
     auto_create_personal_org_on_first_login: false,
     allow_user_create_org: false,
+    backend_org_management: false,
     pending_invites_block_auto_create: true,
     max_teams_per_org: 100,
     max_groups_per_org: 20,
@@ -1314,49 +1313,129 @@ The `/org/` endpoints use a **dual-auth pattern**: domain hash token for backend
 
 For endpoints needing user context, the access token goes in `X-UOA-Access-Token` header (already redacted in Fastify logger config). The `Authorization` header carries the domain hash token.
 
-`X-UOA-Access-Token` accepts **two** token profiles on `/org/*`. The HS256 user
-access token is tried first and behaves exactly as before. **Additively**, a
-token that fails HS256 verification *and* carries the exact RS256 `at+jwt`
-protected header is retried as a **confidential provisioning token** — a
-resource token from the §22.15 confidential exchange, so a trusted product
-backend can manage organisations and teams for one of its users
-server-to-server without ever holding that user's session token.
+`X-UOA-Access-Token` carries exactly one token profile: the HS256 user access
+token issued by the login flow. There is no second credential shape on `/org/*`.
 
-Such a token is accepted only when all of the following hold:
+#### Backend mode — no user token at all
 
-- signed by the key published at `GET /oauth/jwks.json`, `iss` = this service's
-  public base URL;
-- `aud` is exactly `<PUBLIC_BASE_URL>/org` as a single string, matched
-  byte-for-byte — no prefix, suffix, trailing-slash or path tolerance, and a
-  multi-valued `aud` array is rejected;
-- the delegation scope contains `token.provision`, in the canonical form the
-  exchange signs;
-- `source_domain` = `azp` = the request's resolved `?domain=`, so a token minted
-  for one product domain can never act on another domain's tenant;
-- unexpired within the confidential access-token lifetime, `iat` not in the
-  future;
-- the acting user's credential epoch (`tv`) still matches the live user row
-  **and** a current `DomainRole` exists on that source domain — both re-read from
-  the database on every request, so revocation is immediate.
+The header is **optional**. When it is absent, the domain pairing above (items
+1–3: `?domain=`, `?config_url=` with a verified signed config, and the
+domain-hash bearer) is the authorisation on its own — it already proves "this is
+the backend for domain X", and it is the only authentication `GET
+/org/organisations`, the bulk branch of `POST .../teams/:teamId/invitations`, and
+the access-request family have ever had.
 
-Organisation and team role semantics are **unchanged**: the token is projected
-onto the same claims shape as a user token and evaluated by the same code. A
-confidential token is never more privileged than the same user's HS256 token —
-the acting role comes from the live `DomainRole` row and the platform-superuser
-escalation is not applied. Failures use distinct codes
-(`CONFIDENTIAL_TOKEN_INVALID` 401, `CONFIDENTIAL_TOKEN_DOMAIN_MISMATCH` 403,
-`CONFIDENTIAL_SCOPE_MISSING` 403, `CONFIDENTIAL_DOMAIN_ROLE_MISSING` 403) so
-operators can separate the two profiles in logs; production responses stay
-generic to the caller.
+Backend mode is **opt-in per domain** via `org_features.backend_org_management`
+(default `false`). While the flag is `false`, a missing `X-UOA-Access-Token` is
+`401 MISSING_ACCESS_TOKEN` exactly as before. The flag is not a new credential:
+it is a second secret in the path, because the config JWT that carries it is
+signed with the partner's own private key, which is distinct from the domain-hash
+bearer.
 
-Because a backend acting for a user is otherwise indistinguishable from the user
-acting themselves, every org audit row written on this path additionally records
-the calling product's provenance (`via`, `product`, `source_domain`, and the
-`act` chain) under the reserved `uoa_actor` key in `OrgAuditLog.metadata`. Rows
-without that key are user-initiated.
+`requireOrgRole` grants backend mode only when all three hold, each re-checked
+inside the guard rather than inferred from the order of the preValidation array:
 
-This path requires `MCP_OAUTH_ACCESS_TOKEN_PRIVATE_JWK`; without it the verifier
-returns 5xx (never 401), and `GET /oauth/jwks.json` 404s.
+1. the domain-hash guard ran and passed (`request.domainAuthClientDomainId`);
+2. a config JWT was verified, and its `domain` — never the raw `?domain=` — is
+   what the call binds to (a differing `?domain=` is `400 DOMAIN_MISMATCH`);
+3. that verified config sets `org_features.backend_org_management: true`.
+
+The header is optional only in the sense that it may be **absent**. A header that
+is *present but blank* — `""`, spaces, a tab, a newline — is a malformed
+credential, not an omitted one, and is `401 MISSING_ACCESS_TOKEN`. This matters
+because the realistic integration is a product BFF that attaches the domain-hash
+bearer server-side and forwards the end user's session token: for an anonymous
+visitor that token is the empty string, and treating it as "omitted" would
+promote an anonymous visitor to the tenant's backend. A repeated
+`X-UOA-Access-Token` header is refused for the same reason. Only a genuinely
+missing header selects backend mode. `POST .../teams/:teamId/invitations`, whose
+dual-mode branch predates backend mode, follows the identical rule.
+
+**There is no acting user in backend mode.** Checks that are about the acting
+user (org owner/admin, team manager, "must be an ACTIVE member") therefore do not
+apply — the pairing already proves authority over the whole tenant, which
+outranks any one member's role. Checks that are *not* about the acting user are
+unchanged and apply to both modes: org-belongs-to-domain, the last-owner guard,
+membership and team caps, one-org-per-domain, and "cannot leave your last team".
+
+##### Checks deliberately dropped in backend mode
+
+"About the acting user" is easy to state and easy to under-read, so the specific
+org-level checks that **do not run** in backend mode are listed here rather than
+left to be discovered by reading the diff. Each is intentional under "the domain
+backend is the tenant authority", and each is pinned by a test:
+
+| Check (user mode) | Backend mode | Why |
+| --- | --- | --- |
+| Only the **owner** may change a member's role | not enforced | The rule protects members from each other. The backend is not a member. |
+| Only the **owner** may delete the organisation | not enforced | Same. The last-owner guard, which is not an actor check, still applies to member removal. |
+| `org_features.allow_user_create_org` gates org creation | not enforced | The flag governs whether **end users** may self-serve a workspace. It says nothing about the domain asking on its own behalf. |
+
+Everything else in the "not about the acting user" list above genuinely does
+apply to both modes.
+
+Where a route needs to name a user it takes one explicitly — `owner_user_id` on
+`POST /org/organisations`, `userId` on the member routes. Nothing is inferred.
+
+A named user must belong to the calling domain, and **existence is not that
+check**. `user_scope` defaults to `global`, so in a default deployment every
+`users` row has `domain: null` and is visible on every domain — platform
+superusers included. `owner_user_id` therefore requires the named user to hold a
+`DomainRole` on the calling domain, which is the row login itself writes. On the
+user path the owner *is* the acting user, whose access token was already proven
+to belong to this domain, so nothing extra is required there.
+`GET /org/me` and `POST /org/organisations/:orgId/teams/:teamId/join` are *about*
+the acting user, so they remain user-mode only and still return
+`401 MISSING_ACCESS_TOKEN`.
+
+Domain isolation is absolute in both modes: every handler resolves the
+organisation as `(orgId, verified domain)` through `resolveOrganisationByDomain`,
+so another domain's `:orgId` is a plain 404, and every transaction still sets the
+RLS `app.domain` / `app.org_id` GUCs. `app.user_id` is simply empty in backend
+mode, which only narrows the RLS predicates (it appears solely as an additive
+owner-of / member-of branch on every `/org` table).
+
+The access-request admin routes are part of "every handler". They were the one
+family that resolved its target from `access_requests.target_org_id` /
+`target_team_id` in the caller's **own signed config** and never re-resolved it
+against the calling domain — which is not a tenant boundary, because the caller
+authors that config. They now resolve org by `(id, domain)` and team by
+`(id, orgId)` like everything else, and the `access_requests` RLS policies
+require the row's organisation to sit on `app.domain` so the two layers are
+independent.
+
+Backend mode sets a fourth RLS GUC, `app.domain_backend`, derived **only** from
+the guard's own acceptance decision. Two policy branches are gated on it —
+"the domain's backend may see its own domain's organisations" (which is what
+makes `GET /org/organisations` return rows at all) and the equivalent for
+`org_members` (which is what lets the one-org-per-domain probes see a sibling
+org). A signed-in user never sets it, so user-mode visibility is unchanged. The
+one-org-per-user-per-domain invariant itself is additionally enforced by a
+database trigger, so it holds on every write path rather than only where a
+service probe can see far enough.
+
+Because a backend-initiated mutation has no user to attribute, it is recorded in
+`OrgAuditLog` with `actorUserId: null` plus the reserved `uoa_actor` metadata key
+`{ "via": "domain_backend", "source_domain": "…" }`. Rows without that key were
+made by a user directly. `actorUserId` and `uoa_actor` are mutually exclusive: a
+row claiming both a user and the backend performed one mutation is rejected
+before it can be written.
+
+Every backend-reachable mutation writes such a row — organisation
+create/update/delete, ownership transfer, team create/update/delete,
+access-request approve/reject, and the membership and invite actions that already
+did. On the access-request routes, `reviewedByUserId` is a caller-supplied label
+and never becomes `actorUserId`. An audit write that fails after its mutation has
+committed does not fail the request (the mutation really happened), but it is
+logged as a distinct `org_audit_log_write_failed` event rather than swallowed.
+
+> **`uoa_actor` shape change — for operators and log consumers.** Rows written by
+> the removed confidential-provisioning path carried a wider object including
+> `product` and `chain`. The current shape is exactly
+> `{ "via": "domain_backend", "source_domain": "…" }`. Historical rows keep the
+> old shape and are not backfilled, so anything reading `uoa_actor` must tolerate
+> extra keys on rows predating this change and must not require `product`/`chain`
+> to be present.
 
 #### Middleware Chain
 

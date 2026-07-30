@@ -61,6 +61,78 @@ async function withStartupRetry(run: () => void): Promise<void> {
   }
 }
 
+/**
+ * A test database whose runtime connection is the PRODUCTION RLS role.
+ *
+ * `createTestDb` connects as the Postgres superuser, which bypasses row-level
+ * security entirely — so a suite built on it proves nothing about the policies
+ * in `20260423000001_rls_enable_policies`. Several `/org/*` behaviours only
+ * exist under RLS (a tenant-scoped read returning zero rows, a sibling-org
+ * uniqueness check that cannot see its siblings), and they are invisible to a
+ * superuser-backed test.
+ *
+ * `appDatabaseUrl` connects as `uoa_app` — the same NOLOGIN-in-production,
+ * non-BYPASSRLS role the API runs as — so every policy is enforced.
+ * `adminDatabaseUrl` connects as `uoa_admin` (BYPASSRLS), matching
+ * `DATABASE_ADMIN_URL` in production: domain-hash auth, the config verifier and
+ * audit writes run there.
+ */
+export type RlsTestDbHandle = TestDbHandle & {
+  /** Connect as `uoa_app` — RLS fully enforced. Set `DATABASE_URL` to this. */
+  appDatabaseUrl: string;
+  /** Connect as `uoa_admin` — BYPASSRLS. Set `DATABASE_ADMIN_URL` to this. */
+  adminDatabaseUrl: string;
+};
+
+const RLS_TEST_ROLE_PASSWORD = 'rls-test-role-password';
+
+function withCredentials(databaseUrl: string, user: string, password: string): string {
+  const u = new URL(databaseUrl);
+  u.username = user;
+  u.password = password;
+  return u.toString();
+}
+
+/**
+ * Provision a test database and hand back connection strings for the two
+ * production database roles.
+ *
+ * The RLS migration creates `uoa_app`/`uoa_admin` as NOLOGIN (they are reached
+ * through a connection pooler in production), so this grants them LOGIN and the
+ * schema-local privileges the migration's hardcoded `IN SCHEMA public` grants
+ * cannot reach when Prisma applies migrations into an isolated test schema.
+ * Role attributes — crucially `uoa_app` having neither SUPERUSER nor BYPASSRLS —
+ * are the migration's own and are deliberately left untouched.
+ */
+export async function createRlsTestDb(): Promise<RlsTestDbHandle | null> {
+  const handle = await createTestDb();
+  if (!handle) return null;
+
+  const schema = handle.schema;
+  // Table/sequence grants are applied per-schema: the migration's GRANTs run
+  // with `search_path` narrowed to this schema for the tables that existed at
+  // that point, but `ALTER DEFAULT PRIVILEGES IN SCHEMA public` cannot cover
+  // tables added by later migrations here. Granting the full DML set to
+  // `uoa_app` is deliberately no narrower than production — RLS policies, not
+  // grants, are what these suites exercise.
+  const statements = [
+    `ALTER ROLE uoa_app WITH LOGIN PASSWORD '${RLS_TEST_ROLE_PASSWORD}'`,
+    `ALTER ROLE uoa_admin WITH LOGIN PASSWORD '${RLS_TEST_ROLE_PASSWORD}'`,
+    `GRANT USAGE ON SCHEMA "${schema}" TO uoa_app, uoa_admin`,
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "${schema}" TO uoa_app, uoa_admin`,
+    `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA "${schema}" TO uoa_app, uoa_admin`,
+  ];
+  for (const statement of statements) {
+    await handle.prisma.$executeRawUnsafe(statement);
+  }
+
+  return {
+    ...handle,
+    appDatabaseUrl: withCredentials(handle.databaseUrl, 'uoa_app', RLS_TEST_ROLE_PASSWORD),
+    adminDatabaseUrl: withCredentials(handle.databaseUrl, 'uoa_admin', RLS_TEST_ROLE_PASSWORD),
+  };
+}
+
 export async function createTestDb(): Promise<TestDbHandle | null> {
   const baseUrl = process.env.DATABASE_URL;
   if (!baseUrl) return null;

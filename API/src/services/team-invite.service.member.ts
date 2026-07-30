@@ -8,8 +8,9 @@ import { sendTeamInviteEmail } from './email.service.js';
 import {
   assertDatabaseEnabled,
   auditOrg,
-  type AccessTokenActor,
+  type OrgActorProvenance,
   getOrganisationMember,
+  resolveOrgActor,
   resolveOrganisationByDomain,
 } from './organisation.service.base.js';
 import { normalizeTeamRole } from './team.service.base.js';
@@ -64,7 +65,7 @@ export async function createMemberInvite(
     config: ClientConfig;
     configUrl: string;
     actorUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     redirectUrl?: string;
     invite: { email: string; name?: string; teamRole?: string };
   },
@@ -300,14 +301,18 @@ export async function approveInvite(
     inviteId: string;
     config: ClientConfig;
     configUrl: string;
-    reviewerUserId: string;
-    actor?: AccessTokenActor;
+    /** Absent in backend mode: nobody reviewed it, the backend decided. */
+    reviewerUserId?: string;
+    actor?: OrgActorProvenance;
   },
   deps?: InviteDeps & { sendTeamInviteEmail?: typeof sendTeamInviteEmail },
 ): Promise<TeamInviteRecord> {
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
+  // Reject a call that names neither a reviewer nor a backend rather than
+  // silently writing an unattributed approval.
+  const reviewerUserId = resolveOrgActor({ actorUserId: params.reviewerUserId, actor: params.actor });
   const prisma = deps?.prisma ?? (getPrisma() as InvitePrisma);
   const now = deps?.now ? deps.now() : new Date();
   const sendInviteEmail = deps?.sendTeamInviteEmail ?? sendTeamInviteEmail;
@@ -375,7 +380,7 @@ export async function approveInvite(
 
   await auditOrg({
     orgId: org.id,
-    actorUserId: params.reviewerUserId,
+    actorUserId: reviewerUserId,
     actor: params.actor,
     action: 'invite.approved',
     targetType: 'invite',
@@ -392,14 +397,16 @@ export async function denyInvite(
     orgId: string;
     domain: string;
     inviteId: string;
-    reviewerUserId: string;
-    actor?: AccessTokenActor;
+    /** Absent in backend mode: nobody reviewed it, the backend decided. */
+    reviewerUserId?: string;
+    actor?: OrgActorProvenance;
   },
   deps?: InviteDeps,
 ): Promise<TeamInviteRecord> {
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
+  const reviewerUserId = resolveOrgActor({ actorUserId: params.reviewerUserId, actor: params.actor });
   const prisma = deps?.prisma ?? (getPrisma() as InvitePrisma);
   const now = deps?.now ? deps.now() : new Date();
 
@@ -421,7 +428,7 @@ export async function denyInvite(
 
   await auditOrg({
     orgId: org.id,
-    actorUserId: params.reviewerUserId,
+    actorUserId: reviewerUserId,
     actor: params.actor,
     action: 'invite.denied',
     targetType: 'invite',

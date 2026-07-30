@@ -7,11 +7,18 @@ type KeyBuilder = (request: FastifyRequest) => string;
 
 type RateLimitOptions = {
   keyBuilder: KeyBuilder;
-  limit: number;
+  /**
+   * A fixed ceiling, or one resolved per request when a route's callers are not
+   * all the same kind of principal — e.g. an end user versus the tenant's own
+   * backend, whose budgets have nothing to do with each other.
+   */
+  limit: number | ((request: FastifyRequest) => number);
   windowMs: number;
 };
 
-type KeyedRateLimitOptions = Omit<RateLimitOptions, 'keyBuilder'>;
+// Keyed limiters are consumed with an explicit key by their caller, which has no
+// request to resolve a per-request ceiling from — so their limit stays fixed.
+type KeyedRateLimitOptions = { limit: number; windowMs: number };
 
 type WindowState = {
   count: number;
@@ -61,34 +68,37 @@ function ensureCapacity(now: number) {
   }
 }
 
+function consume(key: string, limit: number, windowMs: number) {
+  if (!key) {
+    return;
+  }
+
+  const now = Date.now();
+  const existing = windows.get(key);
+
+  if (!existing || existing.resetAt <= now) {
+    ensureCapacity(now);
+    windows.set(key, { count: 1, resetAt: now + windowMs });
+    return;
+  }
+
+  existing.count += 1;
+  windows.set(key, existing);
+
+  if (existing.count > limit) {
+    throw new AppError('RATE_LIMITED', 429);
+  }
+}
+
 export function createKeyedRateLimiter({ limit, windowMs }: KeyedRateLimitOptions) {
   return function keyedRateLimiter(key: string) {
-    if (!key) {
-      return;
-    }
-
-    const now = Date.now();
-    const existing = windows.get(key);
-
-    if (!existing || existing.resetAt <= now) {
-      ensureCapacity(now);
-      windows.set(key, { count: 1, resetAt: now + windowMs });
-      return;
-    }
-
-    existing.count += 1;
-    windows.set(key, existing);
-
-    if (existing.count > limit) {
-      throw new AppError('RATE_LIMITED', 429);
-    }
+    consume(key, limit, windowMs);
   };
 }
 
 export function createRateLimiter({ keyBuilder, limit, windowMs }: RateLimitOptions) {
-  const consume = createKeyedRateLimiter({ limit, windowMs });
   return async function rateLimiter(request: FastifyRequest) {
-    consume(keyBuilder(request));
+    consume(keyBuilder(request), typeof limit === 'function' ? limit(request) : limit, windowMs);
   };
 }
 

@@ -1,7 +1,6 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 
 import { getAdminPrisma } from '../db/prisma.js';
-import type { AccessTokenActor } from './access-token.service.js';
 
 /**
  * Org-scoped audit log (design §4.10). Distinct from the platform-admin `AdminAuditLog`
@@ -23,7 +22,8 @@ export type OrgAuditTargetType =
   | 'invite'
   | 'invite_link'
   | 'team'
-  | 'organisation';
+  | 'organisation'
+  | 'access_request';
 
 export type OrgAuditAction =
   // Membership lifecycle (§4.5)
@@ -47,9 +47,42 @@ export type OrgAuditAction =
   | 'invite_link.revoked'
   // Policy / settings (§4.6)
   | 'team.join_policy_changed'
-  | 'org.member_invites_changed';
+  | 'org.member_invites_changed'
+  // Organisation, team and access-request lifecycle. Every one of these is
+  // reachable in backend mode (brief §24.8), where there is no acting user and
+  // the audit row's `uoa_actor` provenance is the ONLY record of who acted.
+  | 'org.created'
+  | 'org.updated'
+  | 'org.deleted'
+  | 'org.ownership_transferred'
+  | 'team.created'
+  | 'team.updated'
+  | 'team.deleted'
+  | 'access_request.approved'
+  | 'access_request.rejected';
 
 export type OrgAuditLogPrisma = Pick<PrismaClient, 'orgAuditLog'>;
+
+/**
+ * Provenance of an `/org/*` mutation that the product backend for a domain made
+ * itself, rather than a signed-in user making it.
+ *
+ * `undefined` means user-initiated — the shape every request carrying an
+ * `x-uoa-access-token` produces, and the only shape that existed before backend
+ * mode. It is populated exactly when `requireOrgRole` accepted the request on the
+ * domain pairing alone (domain-hash bearer + verified config JWT, no user token);
+ * see `middleware/org-role-guard.ts`.
+ *
+ * There is no acting user in that mode, so an audit row written for it carries
+ * `actorUserId: null` and this provenance instead — "the backend for domain X did
+ * this", never a user who did not act.
+ */
+export type OrgActorProvenance = {
+  /** Which acceptance path produced this call. One value today, kept for forward-compat. */
+  via: 'domain_backend';
+  /** The verified config domain the calling backend was authenticated as. */
+  sourceDomain: string;
+};
 
 export type WriteOrgAuditLogParams = {
   orgId: string;
@@ -58,11 +91,11 @@ export type WriteOrgAuditLogParams = {
   targetId: string;
   actorUserId?: string | null;
   /**
-   * Provenance of a backend that acted FOR `actorUserId` rather than the user
-   * acting themselves. Undefined for every user-initiated mutation, which is
-   * every mutation on the HS256 path.
+   * Provenance of the domain backend that made this mutation itself. Undefined
+   * for every user-initiated mutation, which is every mutation that arrived with
+   * an `x-uoa-access-token`.
    */
-  actor?: AccessTokenActor;
+  actor?: OrgActorProvenance;
   metadata?: Prisma.InputJsonValue;
 };
 
@@ -79,15 +112,13 @@ export const ORG_AUDIT_ACTOR_METADATA_KEY = 'uoa_actor';
 
 /** Serialise actor provenance into the reserved metadata key. */
 function actorMetadata(
-  actor: AccessTokenActor | undefined,
+  actor: OrgActorProvenance | undefined,
 ): Record<string, Prisma.InputJsonValue> | undefined {
   if (!actor) return undefined;
   return {
     [ORG_AUDIT_ACTOR_METADATA_KEY]: {
       via: actor.via,
-      product: actor.product,
       source_domain: actor.sourceDomain,
-      ...(actor.chain?.length ? { chain: actor.chain } : {}),
     },
   };
 }

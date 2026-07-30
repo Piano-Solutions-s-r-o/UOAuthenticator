@@ -171,9 +171,10 @@ export function getActorUserId(request: RequestWithClaims): string {
   return userId;
 }
 
-// Actor provenance has exactly one definition; re-exported so team routes and
-// organisation routes cannot drift apart on what "who acted" means.
-export { getActorProvenance } from './organisation-route.shared.js';
+// Caller resolution and actor provenance have exactly one definition each;
+// re-exported so team routes and organisation routes cannot drift apart on what
+// "who is calling" means.
+export { getActorProvenance, orgCaller, tenantUserId } from './organisation-route.shared.js';
 
 export function getOrgIdFromParams(params: unknown): string {
   const parsed = OrgPathSchema.parse(params ?? {});

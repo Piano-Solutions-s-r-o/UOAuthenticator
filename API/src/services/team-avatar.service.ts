@@ -16,8 +16,10 @@ import {
 import {
   requireTeamManager,
   resolveAndAuthorizeTeamOrg,
+  resolveOrgActor,
   type OrgServicePrisma,
 } from './team.service.base.js';
+import type { OrgActorProvenance } from './org-audit-log.service.js';
 
 /**
  * Team ("company") avatars — the team mirror of `avatar.service.ts` (Docs/Auth/avatars.md §11).
@@ -85,13 +87,14 @@ export async function requireOrgTeamId(
     orgId: string;
     teamId: string;
     domain: string;
-    actorUserId: string;
+    /** Absent in backend mode — see `resolveOrgActor`. */
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     requireManager?: boolean;
   },
   deps: { prisma: OrgServicePrisma },
 ): Promise<string> {
-  const actorUserId = params.actorUserId.trim();
-  if (!actorUserId) throw new AppError('BAD_REQUEST', 400);
+  const actorUserId = resolveOrgActor(params);
 
   const org = await resolveAndAuthorizeTeamOrg(deps.prisma, {
     orgId: params.orgId,

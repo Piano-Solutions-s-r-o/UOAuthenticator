@@ -6,6 +6,7 @@ import { AppError } from '../utils/errors.js';
 
 import {
   assertDatabaseEnabled,
+  auditOrg,
   deriveSlugWithValidation,
   getOrganisationMember,
   ensureOrgName,
@@ -15,10 +16,12 @@ import {
   normalizeIconUrl,
   normalizeMemberInvitesSetting,
   parseOrgFeatureRoles,
+  resolveOrgActor,
   resolveOrganisationByDomain,
   toListLimit,
   toOrganisationRecord,
   type CursorList,
+  type OrgActorProvenance,
   type OrgServiceDeps,
   type OrgServicePrisma,
   type OrganisationRecord,
@@ -81,12 +84,15 @@ export async function createOrganisation(
     name: string;
     ownerId: string;
     config: ClientConfig;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
   },
   deps?: OrgServiceDeps,
 ): Promise<OrganisationRecord> {
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
+  const actorUserId = resolveOrgActor(params);
   const domain = normalizeDomain(params.domain);
   const ownerId = params.ownerId.trim();
   const name = ensureOrgName(params.name);
@@ -95,10 +101,11 @@ export async function createOrganisation(
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
 
-  return await runInTransaction(prisma, async (tx) => {
+  const created = await runInTransaction(prisma, async (tx) => {
     const ownerInDomainOrg = await tx.orgMember.findFirst({
       where: {
         userId: ownerId,
+        status: 'ACTIVE',
         org: { domain },
       },
       select: { id: true },
@@ -112,6 +119,24 @@ export async function createOrganisation(
       select: { id: true },
     });
     if (!userExists) throw new AppError('BAD_REQUEST', 400);
+
+    // On the user path the owner IS the acting user, and `requireOrgRole`
+    // already proved their access token was issued for this domain.
+    //
+    // In backend mode the owner is an arbitrary id chosen by the caller, and
+    // "the user exists" is NOT a tenant boundary: `user_scope` defaults to
+    // `global`, so in a default deployment every user row has `domain: null`
+    // and passes the `users_select` RLS policy on every domain — platform
+    // superusers included. Requiring a `DomainRole` on the calling domain binds
+    // the named owner to a user who has actually authenticated here, which is
+    // the same signal login uses (`ensureDomainRoleForUser`).
+    if (!actorUserId) {
+      const ownerDomainRole = await tx.domainRole.findUnique({
+        where: { domain_userId: { domain, userId: ownerId } },
+        select: { userId: true },
+      });
+      if (!ownerDomainRole) throw new AppError('BAD_REQUEST', 400);
+    }
 
     const slug = await deriveSlugWithValidation(domain, tx, name);
     const createdOrg = await tx.organisation.create({
@@ -162,28 +187,49 @@ export async function createOrganisation(
 
     return toOrganisationRecord(createdOrg);
   });
+
+  await auditOrg({
+    orgId: created.id,
+    actorUserId,
+    actor: params.actor,
+    action: 'org.created',
+    targetType: 'organisation',
+    targetId: created.id,
+    metadata: { name: created.name, slug: created.slug, ownerId },
+  });
+
+  return created;
 }
 
 export async function getOrganisation(
-  params: { orgId: string; domain: string; actorUserId: string },
+  params: {
+    orgId: string;
+    domain: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
+  },
   deps?: OrgServiceDeps,
 ): Promise<OrganisationRecord> {
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
-  if (!actorUserId) throw new AppError('BAD_REQUEST', 400);
+  const actorUserId = resolveOrgActor(params);
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
+  // Domain ownership is checked for BOTH callers: an org on another domain is a
+  // 404 here regardless of who asks.
   const row = await resolveOrganisationByDomain(prisma, params);
 
   // Defence-in-depth: even though the route layer enforces `requireOrgRole`,
   // re-verify actor membership here so the service contract matches
   // updateOrganisation/deleteOrganisation and cannot leak org data if a future
-  // route refactor omits the role guard.
-  const actorMembership = await getOrganisationMember(prisma, { orgId: row.id, userId: actorUserId }, { activeOnly: true });
-  if (!actorMembership) {
-    throw new AppError('FORBIDDEN', 403);
+  // route refactor omits the role guard. There is no membership to check in
+  // backend mode — the caller is the domain, not a member of it.
+  if (actorUserId) {
+    const actorMembership = await getOrganisationMember(prisma, { orgId: row.id, userId: actorUserId }, { activeOnly: true });
+    if (!actorMembership) {
+      throw new AppError('FORBIDDEN', 403);
+    }
   }
 
   return toOrganisationRecord(row);
@@ -194,7 +240,8 @@ export async function updateOrganisation(
     orgId: string;
     domain: string;
     name: string;
-    actorUserId: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     config: ClientConfig;
     memberInvites?: string;
     iconUrl?: string | null;
@@ -204,15 +251,19 @@ export async function updateOrganisation(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
-  if (!actorUserId) throw new AppError('BAD_REQUEST', 400);
+  const actorUserId = resolveOrgActor(params);
   const name = ensureOrgName(params.name);
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
   const org = await resolveOrganisationByDomain(prisma, params);
 
-  const actorMembership = await getOrganisationMember(prisma, { orgId: org.id, userId: actorUserId }, { activeOnly: true });
-  if (!actorMembership || (actorMembership.role !== 'owner' && actorMembership.role !== 'admin')) {
-    throw new AppError('FORBIDDEN', 403);
+  // Owner/admin is a check on the ACTING USER. In backend mode there is none —
+  // the domain pairing already proved the caller owns this whole tenant, which is
+  // strictly more authority than any single member's role.
+  if (actorUserId) {
+    const actorMembership = await getOrganisationMember(prisma, { orgId: org.id, userId: actorUserId }, { activeOnly: true });
+    if (!actorMembership || (actorMembership.role !== 'owner' && actorMembership.role !== 'admin')) {
+      throw new AppError('FORBIDDEN', 403);
+    }
   }
 
   const slug = await deriveSlugWithValidation(org.domain, prisma, name, org.slug);
@@ -233,6 +284,21 @@ export async function updateOrganisation(
     select: ORGANISATION_SELECT,
   });
 
+  await auditOrg({
+    orgId: org.id,
+    actorUserId,
+    actor: params.actor,
+    action: 'org.updated',
+    targetType: 'organisation',
+    targetId: org.id,
+    metadata: {
+      name: updated.name,
+      slug: updated.slug,
+      ...(params.memberInvites !== undefined ? { memberInvites: updated.memberInvites } : {}),
+      ...(params.iconUrl !== undefined ? { iconUrlSet: updated.iconUrl !== null } : {}),
+    },
+  });
+
   return toOrganisationRecord(updated);
 }
 
@@ -240,19 +306,20 @@ export async function deleteOrganisation(
   params: {
     orgId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
   },
   deps?: OrgServiceDeps,
 ): Promise<{ deleted: boolean }> {
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
-  if (!actorUserId) throw new AppError('BAD_REQUEST', 400);
+  const actorUserId = resolveOrgActor(params);
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
   const org = await resolveOrganisationByDomain(prisma, params);
-  if (org.ownerId !== actorUserId) {
+  // "Must be the owner" is a check on the acting user; backend mode has none.
+  if (actorUserId && org.ownerId !== actorUserId) {
     throw new AppError('FORBIDDEN', 403);
   }
 
@@ -280,6 +347,19 @@ export async function deleteOrganisation(
     }
     throw err;
   }
+
+  // Written after the delete commits. `OrgAuditLog.orgId` is not a foreign key
+  // to organisations, so the trail outlives the organisation it describes —
+  // which is the whole point for a deletion.
+  await auditOrg({
+    orgId: org.id,
+    actorUserId,
+    actor: params.actor,
+    action: 'org.deleted',
+    targetType: 'organisation',
+    targetId: org.id,
+    metadata: { name: org.name, slug: org.slug, ownerId: org.ownerId },
+  });
 
   return { deleted: true };
 }

@@ -2,10 +2,6 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { AppError } from '../utils/errors.js';
 import { verifyAccessToken, type AccessTokenClaims } from '../services/access-token.service.js';
-import {
-  isConfidentialProvisioningTokenCandidate,
-  verifyConfidentialProvisioningToken,
-} from '../services/confidential-provisioning-token.service.js';
 import { normalizeDomain } from '../utils/domain.js';
 
 function resolveDomainFromRequest(request: FastifyRequest): string {
@@ -40,9 +36,54 @@ export function parseBearerOrRawToken(value: unknown): string | null {
   return trimmed;
 }
 
+export const ORG_ACCESS_TOKEN_HEADER = 'x-uoa-access-token';
+
+/**
+ * Resolve `X-UOA-Access-Token` into either a token or "the caller deliberately
+ * sent no user credential".
+ *
+ * This distinction is load-bearing and must never be collapsed. An ABSENT
+ * header selects backend mode, which carries authority over the entire tenant.
+ * A header that is PRESENT but blank — `""`, `"   "`, a tab, a newline,
+ * `"Bearer "` — is a MALFORMED CREDENTIAL, not an absent one. The realistic
+ * source is a partner BFF that attaches the domain-hash bearer server-side and
+ * forwards the end user's session token: for an anonymous visitor that token is
+ * the empty string, and treating it as "omitted" would promote an anonymous
+ * visitor to the whole tenant's backend.
+ *
+ * So: blank-but-present is a 401, exactly like a token that fails to verify.
+ * Only a genuinely missing header returns `null`.
+ */
+export function resolveOrgAccessTokenHeader(request: FastifyRequest): string | null {
+  const raw = request.headers[ORG_ACCESS_TOKEN_HEADER];
+  if (raw === undefined) return null;
+
+  // A repeated header is ambiguous about which credential was meant; refuse to
+  // pick one rather than guess.
+  const values = Array.isArray(raw) ? raw : [raw];
+  if (values.length !== 1) {
+    throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
+  }
+
+  const token = parseBearerOrRawToken(values[0]);
+  if (!token) {
+    throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
+  }
+  return token;
+}
+
 declare module 'fastify' {
   interface FastifyRequest {
     accessTokenClaims?: AccessTokenClaims;
+    /**
+     * Set by `requireOrgRole` — and by nothing else — when it accepted the request
+     * on the domain pairing alone, with no `x-uoa-access-token` present.
+     *
+     * Its presence is the ONLY proof that "there is deliberately no acting user"
+     * rather than "the acting user is missing". Route helpers key on it before
+     * they are willing to call a service without an `actorUserId`.
+     */
+    orgBackendCaller?: { domain: string };
   }
 }
 
@@ -53,38 +94,80 @@ function normalizeOrgId(value: string): string {
 /**
  * Resolve the acting user behind `x-uoa-access-token`.
  *
- * The HS256 user access token is tried first and its behaviour — including every
- * failure mode, error code, and the DB-error passthrough that must never look
- * like a logout — is unchanged. Only a token that fails that verification AND
- * carries the exact RS256 `at+jwt` protected header of a confidential resource
- * token is re-tried on the confidential provisioning path, so a trusted product
- * backend can act for one of its users server-to-server (see
- * `confidential-provisioning-token.service.ts`). Neither path can widen the org
- * role checks below.
+ * There is exactly ONE user-token profile on `/org/*`: the HS256 access token.
+ * Every failure mode, error code, and the DB-error passthrough that must never
+ * look like a logout are `verifyAccessToken`'s own, unchanged.
+ *
+ * A product backend that wants to drive `/org/*` server-to-server does not
+ * present a token here at all — it omits the header and is authorised by the
+ * domain pairing (`requireDomainHashAuthForDomainQuery` + `configVerifier`).
+ * See `requireOrgRole` below.
  */
-export async function resolveActingUserClaims(
-  token: string,
-  domain: string,
-): Promise<AccessTokenClaims> {
-  try {
-    return await verifyAccessToken(token);
-  } catch (userTokenError) {
-    if (!isConfidentialProvisioningTokenCandidate(token)) throw userTokenError;
-    return await verifyConfidentialProvisioningToken({ token, domain });
+export async function resolveActingUserClaims(token: string): Promise<AccessTokenClaims> {
+  return await verifyAccessToken(token);
+}
+
+/**
+ * Accept the request on the domain pairing alone, with no acting user.
+ *
+ * The pairing — `requireDomainHashAuthForDomainQuery` (the per-domain hash
+ * bearer) plus `configVerifier` (the partner's signed config JWT, tied to
+ * `?domain=`) — already proves "this is the backend for domain X". That is the
+ * SAME authentication `/org/organisations` (list), the bulk-invite branch of
+ * `POST .../invitations`, `/domain/users`, and the `/internal/org/*` family
+ * already run on, so nothing new is being trusted here.
+ *
+ * Three things must hold, and each is re-checked here rather than assumed from
+ * the order of the preValidation array, so registering this guard without its
+ * siblings fails closed instead of opening a hole:
+ *
+ *  1. the domain-hash guard actually ran and passed (`domainAuthClientDomainId`);
+ *  2. a config JWT was verified, and its `domain` is what we bind to — never the
+ *     raw `?domain=` query value;
+ *  3. that verified domain opted in via `org_features.backend_org_management`.
+ *
+ * Without the opt-in this is exactly the old behaviour: 401 `MISSING_ACCESS_TOKEN`.
+ */
+function acceptDomainBackendCaller(request: FastifyRequest, queryDomain: string): void {
+  // (1) The pairing's first half. `verifyDomainHashAuth` sets this only after a
+  // constant-time match against the live per-domain secret.
+  if (!request.domainAuthClientDomainId) {
+    throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
   }
+
+  // (2) The pairing's second half. Bind to the VERIFIED config domain, so the
+  // tenant a backend call acts on can never be steered by the query string.
+  const verifiedDomain = normalizeDomain(request.config?.domain ?? '');
+  if (!verifiedDomain) {
+    throw new AppError('INTERNAL', 500, 'CONFIG_NOT_VERIFIED');
+  }
+  if (queryDomain && queryDomain !== verifiedDomain) {
+    throw new AppError('BAD_REQUEST', 400, 'DOMAIN_MISMATCH');
+  }
+
+  // (3) Explicit opt-in in the partner's own signed config.
+  if (request.config?.org_features?.backend_org_management !== true) {
+    throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
+  }
+
+  request.orgBackendCaller = { domain: verifiedDomain };
 }
 
 export function requireOrgRole(...requiredRoles: string[]) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     void reply;
 
-    const token = parseBearerOrRawToken(request.headers['x-uoa-access-token']);
+    const domain = resolveDomainFromRequest(request);
+
+    // Only a genuinely ABSENT header selects backend mode. A present-but-blank
+    // header throws inside the resolver rather than reaching this branch.
+    const token = resolveOrgAccessTokenHeader(request);
     if (!token) {
-      throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
+      acceptDomainBackendCaller(request, domain);
+      return;
     }
 
-    const domain = resolveDomainFromRequest(request);
-    const claims = await resolveActingUserClaims(token, domain);
+    const claims = await resolveActingUserClaims(token);
     if (normalizeDomain(claims.domain) !== domain) {
       throw new AppError('FORBIDDEN', 403, 'ACCESS_TOKEN_DOMAIN_MISMATCH');
     }

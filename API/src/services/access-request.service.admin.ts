@@ -3,15 +3,16 @@ import type { ClientConfig } from './config.service.js';
 import { getPrisma } from '../db/prisma.js';
 import {
   type AccessRequestPrisma,
-  assertConfiguredAccessTarget,
   getEnv,
   normalizeAccessRequestStatus,
   toAccessRequestRecord,
   ensureUserAssignedToConfiguredAccessTarget,
   assertDatabaseEnabled,
+  resolveConfiguredAccessTarget,
 } from './access-request.service.base.js';
 import { normalizeDomain } from '../utils/domain.js';
 import { AppError } from '../utils/errors.js';
+import { auditOrg } from './organisation.service.base.js';
 
 type AccessRequestAdminDeps = {
   env?: ReturnType<typeof getEnv>;
@@ -27,13 +28,15 @@ export async function listAccessRequests(params: {
 }, deps?: AccessRequestAdminDeps): Promise<{ data: ReturnType<typeof toAccessRequestRecord>[] }> {
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
-  assertConfiguredAccessTarget({
+  const prisma = deps?.prisma ?? (getPrisma() as AccessRequestPrisma);
+  // Binds the path ids to the CALLING domain — the config-only check they used
+  // to get is authored by the caller and is not a tenant boundary.
+  await resolveConfiguredAccessTarget({
+    prisma,
     config: params.config,
     orgId: params.orgId,
     teamId: params.teamId,
   });
-
-  const prisma = deps?.prisma ?? (getPrisma() as AccessRequestPrisma);
   const status = normalizeAccessRequestStatus(params.status);
   const rows = await prisma.accessRequest.findMany({
     where: {
@@ -109,13 +112,15 @@ export async function approveAccessRequest(params: {
 }, deps?: AccessRequestAdminDeps): Promise<ReturnType<typeof toAccessRequestRecord>> {
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
-  assertConfiguredAccessTarget({
+  const prisma = deps?.prisma ?? (getPrisma() as AccessRequestPrisma);
+  // Binds the path ids to the CALLING domain — the config-only check they used
+  // to get is authored by the caller and is not a tenant boundary.
+  await resolveConfiguredAccessTarget({
+    prisma,
     config: params.config,
     orgId: params.orgId,
     teamId: params.teamId,
   });
-
-  const prisma = deps?.prisma ?? (getPrisma() as AccessRequestPrisma);
   const now = deps?.now ? deps.now() : new Date();
   const row = await findRequestOrThrow({
     prisma,
@@ -163,6 +168,15 @@ export async function approveAccessRequest(params: {
     },
   });
 
+  await auditAccessRequestReview({
+    action: 'access_request.approved',
+    orgId: params.orgId,
+    config: params.config,
+    row: updated,
+    reviewedByUserId: params.reviewedByUserId,
+    prisma,
+  });
+
   return toAccessRequestRecord(updated, normalizeDomain(params.config.domain));
 }
 
@@ -176,13 +190,15 @@ export async function rejectAccessRequest(params: {
 }, deps?: AccessRequestAdminDeps): Promise<ReturnType<typeof toAccessRequestRecord>> {
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
-  assertConfiguredAccessTarget({
+  const prisma = deps?.prisma ?? (getPrisma() as AccessRequestPrisma);
+  // Binds the path ids to the CALLING domain — the config-only check they used
+  // to get is authored by the caller and is not a tenant boundary.
+  await resolveConfiguredAccessTarget({
+    prisma,
     config: params.config,
     orgId: params.orgId,
     teamId: params.teamId,
   });
-
-  const prisma = deps?.prisma ?? (getPrisma() as AccessRequestPrisma);
   const now = deps?.now ? deps.now() : new Date();
   const row = await findRequestOrThrow({
     prisma,
@@ -218,5 +234,51 @@ export async function rejectAccessRequest(params: {
     },
   });
 
+  await auditAccessRequestReview({
+    action: 'access_request.rejected',
+    orgId: params.orgId,
+    config: params.config,
+    row: updated,
+    reviewedByUserId: params.reviewedByUserId,
+    prisma,
+  });
+
   return toAccessRequestRecord(updated, normalizeDomain(params.config.domain));
+}
+
+/**
+ * Record an access-request review (brief 24.8).
+ *
+ * These routes authenticate on the domain pairing alone - domain-hash bearer
+ * plus verified config, never a user token - so the reviewer is ALWAYS the
+ * domain backend and the row carries `actorUserId: null` with `uoa_actor`
+ * provenance.
+ *
+ * `reviewedByUserId` is a caller-supplied label, not an authenticated actor, so
+ * it stays in metadata and must never be promoted to `actorUserId`.
+ */
+async function auditAccessRequestReview(params: {
+  action: 'access_request.approved' | 'access_request.rejected';
+  orgId: string;
+  config: ClientConfig;
+  row: { id: string; teamId: string; userId: string | null };
+  reviewedByUserId?: string;
+  prisma: AccessRequestPrisma;
+}): Promise<void> {
+  await auditOrg(
+    {
+      orgId: params.orgId,
+      actorUserId: undefined,
+      actor: { via: 'domain_backend', sourceDomain: normalizeDomain(params.config.domain) },
+      action: params.action,
+      targetType: 'access_request',
+      targetId: params.row.id,
+      metadata: {
+        teamId: params.row.teamId,
+        requestUserId: params.row.userId,
+        reviewedByUserId: params.reviewedByUserId?.trim() || null,
+      },
+    },
+    { prisma: params.prisma },
+  );
 }

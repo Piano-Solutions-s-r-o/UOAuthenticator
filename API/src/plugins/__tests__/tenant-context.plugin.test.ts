@@ -158,6 +158,7 @@ describe('setTenantContextFromRequest', () => {
       domain: 'app.example.com',
       orgId: 'org-7',
       userId: 'user-1',
+      domainBackend: false,
     });
   });
 
@@ -179,6 +180,7 @@ describe('setTenantContextFromRequest', () => {
       domain: 'app.example.com',
       orgId: 'org-new',
       userId: 'override',
+      domainBackend: false,
     });
   });
 
@@ -189,6 +191,7 @@ describe('setTenantContextFromRequest', () => {
       domain: 'app.example.com',
       orgId: null,
       userId: null,
+      domainBackend: false,
     });
   });
 
@@ -197,5 +200,37 @@ describe('setTenantContextFromRequest', () => {
     expect(() => setTenantContextFromRequest(request)).toThrow(
       /request\.config\.domain is not set/,
     );
+  });
+
+  // The flag is derived from the guard's decision, never from a user-supplied
+  // value: `requireOrgRole` is the only writer of `request.orgBackendCaller`.
+  it('marks domain-backend context when requireOrgRole accepted the domain pairing', () => {
+    const request = makeRequest({
+      orgBackendCaller: { domain: 'app.example.com' },
+    } as never);
+
+    setTenantContextFromRequest(request, { orgId: 'org-1' });
+
+    expect(request.tenantContext).toEqual({
+      domain: 'app.example.com',
+      orgId: 'org-1',
+      userId: null,
+      domainBackend: true,
+    });
+  });
+
+  // The one documented override, for routes that are backend-to-backend by
+  // construction and therefore never run `requireOrgRole` (GET /org/organisations).
+  it('allows a route to declare domain-backend context explicitly', () => {
+    const request = makeRequest();
+
+    setTenantContextFromRequest(request, { orgId: null, domainBackend: true });
+
+    expect(request.tenantContext).toEqual({
+      domain: 'app.example.com',
+      orgId: null,
+      userId: null,
+      domainBackend: true,
+    });
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 
-import type { AccessTokenActor } from '../../src/services/access-token.service.js';
+import type { OrgActorProvenance } from '../../src/services/org-audit-log.service.js';
 import { ORG_AUDIT_ACTOR_METADATA_KEY } from '../../src/services/org-audit-log.service.js';
 import {
   addTeamMember,
@@ -24,18 +24,17 @@ vi.mock('../../src/db/prisma.js', () => ({
   disconnectPrisma: async () => {},
 }));
 
-const actor: AccessTokenActor = {
-  via: 'confidential_provisioning',
-  product: 'hugo',
+const actor: OrgActorProvenance = {
+  via: 'domain_backend',
   sourceDomain: 'api.hugopos.eu',
 };
 
 /**
  * The three manager-driven team mutations (`addTeamMember`, `changeTeamMemberRole`,
  * `removeTeamMember`) each declared an `OrgAuditAction` but wrote no row, so an owner/admin — or a
- * product backend holding a confidential `token.provision` token — could add, re-role, or remove a
+ * product backend calling under the domain pairing — could add, re-role, or remove a
  * team member without leaving a trace. These tests pin the row each one writes and the provenance
- * that distinguishes a backend acting for a user from the user acting themselves.
+ * that distinguishes a domain backend acting from a user acting.
  */
 describe('Team service: members audit trail', () => {
   useTeamServiceTestEnv();
@@ -126,7 +125,6 @@ describe('Team service: members audit trail', () => {
           orgId: 'org-1',
           teamId: 'team-1',
           domain: 'acme.example.com',
-          actorUserId: 'u-owner',
           actor,
           userId: 'u-target',
           teamRole: 'admin',
@@ -141,8 +139,7 @@ describe('Team service: members audit trail', () => {
         teamRole: 'admin',
         via: 'manager',
         [ORG_AUDIT_ACTOR_METADATA_KEY]: {
-          via: 'confidential_provisioning',
-          product: 'hugo',
+          via: 'domain_backend',
           source_domain: 'api.hugopos.eu',
         },
       });
@@ -264,7 +261,6 @@ describe('Team service: members audit trail', () => {
           orgId: 'org-1',
           teamId: 'team-1',
           domain: 'acme.example.com',
-          actorUserId: 'u-owner',
           actor,
           userId: 'u-target',
           teamRole: 'admin',
@@ -274,8 +270,7 @@ describe('Team service: members audit trail', () => {
 
       expect(auditData().metadata).toMatchObject({
         [ORG_AUDIT_ACTOR_METADATA_KEY]: {
-          via: 'confidential_provisioning',
-          product: 'hugo',
+          via: 'domain_backend',
           source_domain: 'api.hugopos.eu',
         },
       });
@@ -351,7 +346,6 @@ describe('Team service: members audit trail', () => {
           orgId: 'org-1',
           teamId: 'team-1',
           domain: 'acme.example.com',
-          actorUserId: 'u-owner',
           actor,
           userId: 'u-target',
         },
@@ -360,8 +354,7 @@ describe('Team service: members audit trail', () => {
 
       expect(auditData().metadata).toMatchObject({
         [ORG_AUDIT_ACTOR_METADATA_KEY]: {
-          via: 'confidential_provisioning',
-          product: 'hugo',
+          via: 'domain_backend',
           source_domain: 'api.hugopos.eu',
         },
       });

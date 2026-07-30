@@ -4,7 +4,7 @@ import { getAdminPrisma, getPrisma } from '../db/prisma.js';
 import { runInTransaction } from '../db/tenant-context.js';
 import { AppError } from '../utils/errors.js';
 
-import { auditOrg, type AccessTokenActor } from './organisation.service.base.js';
+import { auditOrg, type OrgActorProvenance } from './organisation.service.base.js';
 import { revokeRefreshTokenFamiliesForUserTeam } from './refresh-token-revocation.service.js';
 import { lockRefreshSessionUser } from './refresh-session-lock.service.js';
 import { lockWorkspaceMembershipRows } from './workspace-scope.service.js';
@@ -16,6 +16,7 @@ import {
   parseMaxTeamMembershipsPerUser,
   requireTeamManager,
   resolveAndAuthorizeTeamOrg,
+  resolveOrgActor,
   toTeamMemberRecord,
   type OrgServiceDeps,
   type OrgServicePrisma,
@@ -35,8 +36,8 @@ export async function addTeamMember(
     orgId: string;
     teamId: string;
     domain: string;
-    actorUserId: string;
-    actor?: AccessTokenActor;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     userId: string;
     teamRole?: string;
     config: ClientConfig;
@@ -46,13 +47,13 @@ export async function addTeamMember(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const userId = params.userId.trim();
   const teamRole = normalizeTeamRole(params.teamRole);
   const maxMembersPerTeam = parseMaxMembersPerTeam(params.config);
   const maxTeamMembershipsPerUser = parseMaxTeamMembershipsPerUser(params.config);
 
-  if (!actorUserId || !userId) {
+  if (!userId) {
     throw new AppError('BAD_REQUEST', 400);
   }
 
@@ -181,8 +182,8 @@ export async function changeTeamMemberRole(
     orgId: string;
     teamId: string;
     domain: string;
-    actorUserId: string;
-    actor?: AccessTokenActor;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     userId: string;
     teamRole: string;
   },
@@ -191,11 +192,11 @@ export async function changeTeamMemberRole(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const userId = params.userId.trim();
   const teamRole = normalizeTeamRole(params.teamRole);
 
-  if (!actorUserId || !userId) {
+  if (!userId) {
     throw new AppError('BAD_REQUEST', 400);
   }
 
@@ -271,8 +272,8 @@ export async function removeTeamMember(
     orgId: string;
     teamId: string;
     domain: string;
-    actorUserId: string;
-    actor?: AccessTokenActor;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     userId: string;
   },
   deps?: OrgServiceDeps & {
@@ -283,10 +284,10 @@ export async function removeTeamMember(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const userId = params.userId.trim();
 
-  if (!actorUserId || !userId) {
+  if (!userId) {
     throw new AppError('BAD_REQUEST', 400);
   }
 
@@ -392,7 +393,7 @@ export async function selfJoinTeam(
     teamId: string;
     domain: string;
     actorUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     config: ClientConfig;
   },
   deps?: OrgServiceDeps,

@@ -438,37 +438,47 @@ Request → Route → Middleware → Service → Database (Prisma)
 - **groups-enabled** — rejects group endpoints when `org_features.groups_enabled` is false.
 - **org-role-guard** — validates the user access token and the user's org role for `/org/*` routes (`owner > admin > member`). Reads `OrgMember.role` for the authenticated user in the target org and returns 403 if not a member or the role is insufficient.
 
-  It resolves the acting user through `resolveActingUserClaims`, which accepts
-  **two** token profiles on `X-UOA-Access-Token`. The HS256 `verifyAccessToken`
-  path runs first and is unchanged, including the DB-error pass-through that must
-  never look like a logout. Only a token that fails it **and** carries the exact
-  RS256 `at+jwt` protected header is retried on the confidential provisioning
-  path (`confidential-provisioning-token.service.ts`), which requires this
-  service's own issuer, `aud` exactly `<PUBLIC_BASE_URL>/org` (single string,
-  byte-for-byte), the `token.provision` scope in canonical form, `source_domain`
-  = `azp` = the request domain, a live credential epoch (`tv`), and a current
-  `DomainRole`. Both profiles are projected onto the same `AccessTokenClaims`
-  shape, so the `:orgId` match and `requiredRoles` checks below are literally the
-  same code — the confidential path can never widen them, and never applies the
-  platform-superuser escalation.
+  It resolves the acting user through `resolveActingUserClaims`, which wraps the
+  single HS256 `verifyAccessToken` profile — including the DB-error pass-through
+  that must never look like a logout. `resolveActingUserClaims` is the single
+  entry point for that decision: `/org/me` and the member-initiated branch of
+  `team-invitations.ts` call it rather than `verifyAccessToken` directly, so
+  every `/org/*` surface accepts the same tokens.
 
-  `resolveActingUserClaims` is the single entry point for this decision. `/org/me`
-  and the member-initiated branch of `team-invitations.ts` call it directly rather
-  than `verifyAccessToken`, so every `/org/*` surface accepts the same tokens.
+  **The guard applies only when `X-UOA-Access-Token` is actually presented.**
+  With no user token, `acceptDomainBackendCaller` authorises the call on the
+  domain pairing that already ran on the route (`domain-hash-auth` +
+  `config-verifier`), and records `request.orgBackendCaller = { domain }`. It
+  re-checks all three preconditions itself — `domainAuthClientDomainId` present,
+  a verified config whose `domain` (not the raw query value) is what the call
+  binds to, and `org_features.backend_org_management === true` — so registering
+  `requireOrgRole` without its sibling middlewares fails closed rather than
+  opening a hole. Without the opt-in the behaviour is the historical
+  `401 MISSING_ACCESS_TOKEN`.
 
-  Claims from the confidential path carry an optional `actor` field (`via`,
-  `product`, `sourceDomain`, `chain` from `act`). Routes pass it to the services
-  via `getActorProvenance(request)`, and `writeOrgAuditLog` records it under the
-  reserved `uoa_actor` key in `OrgAuditLog.metadata` so a backend acting for a
-  user is distinguishable from the user acting themselves. It is `undefined` on
-  the HS256 path, so user-initiated rows are unchanged.
+  `request.orgBackendCaller` is the ONLY proof that "there is deliberately no
+  acting user" rather than "the acting user went missing", and `requireOrgRole`
+  is its only writer. Routes read it through `orgCaller(request)` in
+  `routes/org/organisation-route.shared.ts`, which returns either
+  `{ actorUserId }` or `{ actor }` — never anything between — and is spread into
+  service params as a single unit. In the services, `resolveOrgActor`
+  (`organisation.service.base.ts`) rejects params carrying neither with
+  `500 ORG_ACTOR_UNRESOLVED`, so a dropped parameter is a loud failure and can
+  never degrade into unauthenticated access. An explicitly empty `actorUserId`
+  keeps its historical `BAD_REQUEST`.
 
-  Verification requires `MCP_OAUTH_ACCESS_TOKEN_PRIVATE_JWK`. The JWKS load
-  happens outside the verifier's catch-all so a missing or malformed key surfaces
-  as 5xx (`MCP_OAUTH_DISABLED` / `MCP_OAUTH_KEY_INVALID`) rather than a 401 that
-  would tell callers their valid token was rejected. The path also fails closed
-  with `DATABASE_DISABLED` when no database is configured, because its DB reads
-  include an authorization gate (`DomainRole`), not merely revocation.
+  Every service check that `actorUserId` gated is now explicitly a check on the
+  ACTING USER and is skipped when there is none. Invariants that are not actor
+  checks — org-belongs-to-domain, the last-owner guard, membership/team caps,
+  one-org-per-domain, "cannot leave your last team" — are untouched and apply to
+  both modes.
+
+  Actor provenance (`OrgActorProvenance`, `org-audit-log.service.ts`) is derived
+  from `orgBackendCaller` by `getActorProvenance(request)` and written by
+  `writeOrgAuditLog` under the reserved `uoa_actor` key in
+  `OrgAuditLog.metadata` (`{ via: 'domain_backend', source_domain }`), alongside
+  `actorUserId: null`. It is `undefined` for every user-initiated request, so
+  those rows are unchanged.
 - **error-handler** — catches all errors. Returns a generic public body via `utils/error-response.ts` to the caller and logs specifics internally.
 - **rate-limiter** — request rate limiting; keyed helpers for auth routes live in `routes/auth/rate-limit-keys.ts`.
 

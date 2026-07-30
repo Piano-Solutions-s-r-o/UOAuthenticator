@@ -145,6 +145,10 @@ export async function createSignedConfigJwt(
   sharedSecret: string,
   orgFeatures: Record<string, unknown>,
   domain?: string,
+  // `access_requests` is signed by the domain itself, so a test that exercises
+  // the access-request routes must be able to choose its contents — including,
+  // for tenant-isolation tests, ids that belong to a different tenant.
+  accessRequests?: Record<string, unknown>,
 ): Promise<string> {
   void sharedSecret;
   // The config verifier requires the JWT's `domain` claim to match both the
@@ -158,6 +162,7 @@ export async function createSignedConfigJwt(
       enabled: true,
       ...orgFeatures,
     },
+    ...(accessRequests ? { access_requests: accessRequests } : {}),
   });
 
   return await signTestConfigJwt(payload);

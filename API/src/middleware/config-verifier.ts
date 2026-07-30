@@ -14,7 +14,7 @@ import { AppError } from '../utils/errors.js';
 import {
   assertConfigDomainMatchesConfigUrl,
   validateConfigFields,
-  verifyConfigJwtSignature,
+  verifyConfigJwtSignatureWithKeyDomain,
   type ClientConfig,
 } from '../services/config.service.js';
 import { applyDomainRedirectAllowlist } from '../services/domain-redirect-allowlist.service.js';
@@ -119,6 +119,12 @@ const safeConfigJwtNestedKeys = new Map<string, ReadonlySet<string>>([
       'max_flags_per_app',
       'scim_override_retention',
       'global_missing_flag_default',
+      // Non-secret boolean opt-in, and the single field that decides whether a
+      // call may be accepted on the domain pairing alone. Without it here the
+      // handshake log shows `[redacted_unrecognized]` for the exact value an
+      // operator is debugging when backend mode misbehaves.
+      'allow_user_create_org',
+      'backend_org_management',
     ]),
   ],
 ]);
@@ -186,11 +192,14 @@ export async function configVerifier(
 
   // Verify the config JWT signature using the configured JWKS.
   let payload;
+  let signingKeyDomain: string | null;
   try {
-    payload = await verifyConfigJwtSignature(
+    const verified = await verifyConfigJwtSignatureWithKeyDomain(
       request.configJwt,
       CONFIG_JWKS_URL,
     );
+    payload = verified.payload;
+    signingKeyDomain = verified.keyDomain;
   } catch (err) {
     // If the partner opted into auto-onboarding, attempt to self-register the request
     // against the JWKS they publish. Trust is still gated on superuser approval — even
@@ -260,6 +269,33 @@ export async function configVerifier(
       throw new AppError('BAD_REQUEST', 400, 'CONFIG_SCHEMA_INVALID');
     }
     throw err;
+  }
+
+  // Defence in depth: when the signature was verified against a JWK REGISTERED
+  // to a domain (`client_domain_jwks`), the config's `domain` claim must be that
+  // same domain. Without this the claim is bound only by the config_url host
+  // check below and the domain-hash bearer — and a verified config now confers
+  // authority over the whole tenant, so the signing key should say so too.
+  //
+  // A null `keyDomain` means the deployment-level `CONFIG_JWKS_URL` fallback
+  // signed it, which carries no domain to compare against; that path keeps its
+  // existing behaviour rather than being rejected here.
+  if (signingKeyDomain && normalizeDomain(signingKeyDomain) !== normalizeDomain(request.config.domain)) {
+    mergeAuthDebugInfo(request, {
+      stage: 'config_domain',
+      code: 'CONFIG_KEY_DOMAIN_MISMATCH',
+      summary: 'The config JWT was signed by a key registered to a different domain.',
+    });
+    void recordConfigVerifierError(request, {
+      configJwt: request.configJwt,
+      configUrl: config_url,
+      phase: 'config_domain',
+      statusCode: 400,
+      errorCode: 'CONFIG_KEY_DOMAIN_MISMATCH',
+      summary: 'The config JWT was signed by a key registered to a different domain.',
+      details: ['The signing JWK is registered to another domain.'],
+    });
+    throw new AppError('BAD_REQUEST', 400, 'CONFIG_KEY_DOMAIN_MISMATCH');
   }
 
   // Task 2.8: validate domain claim matches the origin (host) of the config URL.
