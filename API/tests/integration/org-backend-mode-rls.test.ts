@@ -288,6 +288,63 @@ describe.skipIf(!hasDatabase)('/org/* under production RLS roles (uoa_app)', () 
   });
 
   // ===================================================================
+  // B1 — a present-but-blank user token must never become backend authority.
+  // ===================================================================
+  describe('blank X-UOA-Access-Token', () => {
+    async function seedBlankOwner() {
+      const owner = await createTestUser(handle!, 'blank-owner@example.com');
+      await handle!.prisma.domainRole.create({
+        data: { domain: ATTACKER_DOMAIN, userId: owner.id },
+      });
+      await stubConfigs();
+      const app = await createApp();
+      await app.ready();
+      const bearer = await seedDomainSecret(handle!.prisma, ATTACKER_DOMAIN);
+      return { app, owner, bearer };
+    }
+
+    it.each([
+      ['empty string', ''],
+      ['spaces', '   '],
+      ['tab', '\t'],
+      ['newline', '\n'],
+    ])(
+      'does not grant whole-tenant authority through a real route (%s)',
+      async (_label, headerValue) => {
+        const { app, owner, bearer } = await seedBlankOwner();
+
+        const res = await app.inject({
+          method: 'POST',
+          url: url('/org/organisations'),
+          headers: {
+            authorization: `Bearer ${bearer}`,
+            'x-uoa-access-token': headerValue,
+          },
+          payload: { name: 'Anonymous Org', owner_user_id: owner.id },
+        });
+
+        expect(res.statusCode).toBe(401);
+        expect(
+          await handle!.prisma.organisation.count({ where: { domain: ATTACKER_DOMAIN } }),
+        ).toBe(0);
+      },
+    );
+
+    it('still accepts the same call when the header is omitted entirely', async () => {
+      const { app, owner, bearer } = await seedBlankOwner();
+
+      const res = await app.inject({
+        method: 'POST',
+        url: url('/org/organisations'),
+        headers: { authorization: `Bearer ${bearer}` },
+        payload: { name: 'Backend Org', owner_user_id: owner.id },
+      });
+
+      expect(res.statusCode).toBe(200);
+    });
+  });
+
+  // ===================================================================
   // C3 — the backend-only list route must actually return rows under RLS.
   // ===================================================================
   describe('GET /org/organisations', () => {
