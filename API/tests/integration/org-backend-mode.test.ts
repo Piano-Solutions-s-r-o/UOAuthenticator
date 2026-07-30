@@ -54,6 +54,7 @@ describe.skipIf(!hasDatabase)('/org/* backend mode (domain pairing, no user toke
       process.env.SHARED_SECRET ?? 'test-shared-secret-with-enough-length';
     process.env.AUTH_SERVICE_IDENTIFIER = process.env.AUTH_SERVICE_IDENTIFIER ?? 'uoa-auth-service';
     if (!handle) return;
+    await handle.prisma.domainRole.deleteMany();
     await clearOrgTestDatabase(handle);
   });
 
@@ -96,11 +97,23 @@ describe.skipIf(!hasDatabase)('/org/* backend mode (domain pairing, no user toke
     return `${path}${sep}domain=${encodeURIComponent(domain)}&config_url=${encodeURIComponent(configUrl)}`;
   }
 
+  /**
+   * A user who belongs to a domain — the user row plus the `DomainRole` that
+   * login writes (`ensureDomainRoleForUser`). Backend mode requires it before
+   * it will accept an id as `owner_user_id`, because plain existence is not a
+   * tenant boundary under the default global `user_scope`.
+   */
+  async function createDomainUser(email: string, domain = BACKEND_DOMAIN) {
+    const user = await createTestUser(handle!, email);
+    await handle!.prisma.domainRole.create({ data: { domain, userId: user.id } });
+    return user;
+  }
+
   it('drives the whole organisation lifecycle with no X-UOA-Access-Token', async () => {
     await stubConfigs({ backendOrgManagement: true });
 
-    const owner = await createTestUser(handle!, 'backend-owner@example.com');
-    const staff = await createTestUser(handle!, 'backend-staff@example.com');
+    const owner = await createDomainUser('backend-owner@example.com');
+    const staff = await createDomainUser('backend-staff@example.com');
 
     const app = await createApp();
     await app.ready();
@@ -195,8 +208,8 @@ describe.skipIf(!hasDatabase)('/org/* backend mode (domain pairing, no user toke
   it('audits a backend mutation with no actor user and domain_backend provenance', async () => {
     await stubConfigs({ backendOrgManagement: true });
 
-    const owner = await createTestUser(handle!, 'audit-owner@example.com');
-    const staff = await createTestUser(handle!, 'audit-staff@example.com');
+    const owner = await createDomainUser('audit-owner@example.com');
+    const staff = await createDomainUser('audit-staff@example.com');
 
     const app = await createApp();
     await app.ready();
@@ -240,8 +253,8 @@ describe.skipIf(!hasDatabase)('/org/* backend mode (domain pairing, no user toke
   it('cannot read or mutate another domain organisation', async () => {
     await stubConfigs({ backendOrgManagement: true });
 
-    const otherOwner = await createTestUser(handle!, 'other-owner@example.com');
-    const victim = await createTestUser(handle!, 'victim@example.com');
+    const otherOwner = await createDomainUser('other-owner@example.com', OTHER_DOMAIN);
+    const victim = await createDomainUser('victim@example.com', OTHER_DOMAIN);
 
     const app = await createApp();
     await app.ready();
@@ -468,7 +481,7 @@ describe.skipIf(!hasDatabase)('/org/* backend mode (domain pairing, no user toke
   it('keeps team self-join user-token only', async () => {
     await stubConfigs({ backendOrgManagement: true });
 
-    const owner = await createTestUser(handle!, 'selfjoin-owner@example.com');
+    const owner = await createDomainUser('selfjoin-owner@example.com');
 
     const app = await createApp();
     await app.ready();
@@ -563,8 +576,8 @@ describe.skipIf(!hasDatabase)('/org/* backend mode (domain pairing, no user toke
   it('leaves the user-token path unchanged when backend mode is enabled', async () => {
     await stubConfigs({ backendOrgManagement: true });
 
-    const owner = await createTestUser(handle!, 'user-path-owner@example.com');
-    const outsider = await createTestUser(handle!, 'outsider@example.com');
+    const owner = await createDomainUser('user-path-owner@example.com');
+    const outsider = await createDomainUser('outsider@example.com');
 
     const app = await createApp();
     await app.ready();
