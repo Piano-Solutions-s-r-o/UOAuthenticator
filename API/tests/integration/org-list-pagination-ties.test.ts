@@ -134,7 +134,16 @@ describe.skipIf(!hasDatabase)('/org list cursor pagination with created_at ties'
     await cleanClientDomains(handle.prisma);
 
     const configJwt = await signTestConfigJwt(
-      baseClientConfigPayload({ org_features: { enabled: true, groups_enabled: true } }),
+      baseClientConfigPayload({
+        org_features: {
+          enabled: true,
+          groups_enabled: true,
+          // `GET /org/organisations` lists a whole domain with no user token,
+          // which is exactly what this flag governs (brief §24.8). The route now
+          // runs the same opt-in check as every other backend-mode call.
+          backend_org_management: true,
+        },
+      }),
     );
     vi.stubGlobal('fetch', vi.fn(await createTestConfigFetchHandler(configJwt)));
 

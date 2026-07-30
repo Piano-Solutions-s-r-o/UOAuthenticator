@@ -158,6 +158,7 @@ describe('setTenantContextFromRequest', () => {
       domain: 'app.example.com',
       orgId: 'org-7',
       userId: 'user-1',
+      domainBackend: false,
     });
   });
 
@@ -179,6 +180,7 @@ describe('setTenantContextFromRequest', () => {
       domain: 'app.example.com',
       orgId: 'org-new',
       userId: 'override',
+      domainBackend: false,
     });
   });
 
@@ -189,6 +191,7 @@ describe('setTenantContextFromRequest', () => {
       domain: 'app.example.com',
       orgId: null,
       userId: null,
+      domainBackend: false,
     });
   });
 
@@ -197,5 +200,40 @@ describe('setTenantContextFromRequest', () => {
     expect(() => setTenantContextFromRequest(request)).toThrow(
       /request\.config\.domain is not set/,
     );
+  });
+
+  // The flag is derived from the guard's decision and from nothing else:
+  // `requireOrgRole` and `requireOrgBackendOnly` are the only writers of
+  // `request.orgBackendCaller`, and both go through `acceptDomainBackendCaller`.
+  it('marks domain-backend context when the guard accepted the domain pairing', () => {
+    const request = makeRequest({
+      orgBackendCaller: { domain: 'app.example.com' },
+    } as never);
+
+    setTenantContextFromRequest(request, { orgId: 'org-1' });
+
+    expect(request.tenantContext).toEqual({
+      domain: 'app.example.com',
+      orgId: 'org-1',
+      userId: null,
+      domainBackend: true,
+    });
+  });
+
+  // There is no override. A route cannot hand itself domain-wide visibility;
+  // the only way to `app.domain_backend = 'on'` is through a guard that ran the
+  // pairing checks. `GET /org/organisations` used to assert the flag directly,
+  // and that is exactly how a blank forwarded token read the whole domain.
+  it('leaves domain-backend context off when no guard set orgBackendCaller', () => {
+    const request = makeRequest();
+
+    setTenantContextFromRequest(request, { orgId: null });
+
+    expect(request.tenantContext).toEqual({
+      domain: 'app.example.com',
+      orgId: null,
+      userId: null,
+      domainBackend: false,
+    });
   });
 });

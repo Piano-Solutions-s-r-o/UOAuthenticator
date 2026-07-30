@@ -4,7 +4,7 @@ import { getAdminPrisma, getPrisma } from '../db/prisma.js';
 import { runInTransaction } from '../db/tenant-context.js';
 import { AppError } from '../utils/errors.js';
 
-import { auditOrg, type AccessTokenActor } from './organisation.service.base.js';
+import { auditOrg, type OrgActorProvenance } from './organisation.service.base.js';
 import { revokeRefreshTokenFamiliesForUserTeam } from './refresh-token-revocation.service.js';
 import { lockRefreshSessionUser } from './refresh-session-lock.service.js';
 import { lockWorkspaceMembershipRows } from './workspace-scope.service.js';
@@ -16,6 +16,7 @@ import {
   parseMaxTeamMembershipsPerUser,
   requireTeamManager,
   resolveAndAuthorizeTeamOrg,
+  resolveOrgActor,
   toTeamMemberRecord,
   type OrgServiceDeps,
   type OrgServicePrisma,
@@ -23,12 +24,20 @@ import {
   isP2002Error,
 } from './team.service.base.js';
 
+/**
+ * Manager-driven team mutations (`addTeamMember` / `changeTeamMemberRole` / `removeTeamMember`) each
+ * write an org audit row tagged with this `via`, so the audit stream distinguishes an owner/admin
+ * acting on somebody else's membership from the self-service paths (`self_join`, `invite_link`).
+ */
+const AUDIT_VIA_MANAGER = 'manager';
+
 export async function addTeamMember(
   params: {
     orgId: string;
     teamId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     userId: string;
     teamRole?: string;
     config: ClientConfig;
@@ -38,13 +47,13 @@ export async function addTeamMember(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const userId = params.userId.trim();
   const teamRole = normalizeTeamRole(params.teamRole);
   const maxMembersPerTeam = parseMaxMembersPerTeam(params.config);
   const maxTeamMembershipsPerUser = parseMaxTeamMembershipsPerUser(params.config);
 
-  if (!actorUserId || !userId) {
+  if (!userId) {
     throw new AppError('BAD_REQUEST', 400);
   }
 
@@ -75,7 +84,7 @@ export async function addTeamMember(
     throw new AppError('NOT_FOUND', 404);
   }
 
-  return await runInTransaction(prisma, async (tx) => {
+  const { member, reactivated } = await runInTransaction(prisma, async (tx) => {
     await lockWorkspaceMembershipRows(
       { userId, orgId: org.id, teamId: team.id },
       { prisma: tx },
@@ -140,7 +149,7 @@ export async function addTeamMember(
             },
           });
 
-      return toTeamMemberRecord(record, org.domain);
+      return { member: record, reactivated: Boolean(existing) };
     } catch (err) {
       if (isP2002Error(err)) {
         throw new AppError('BAD_REQUEST', 400);
@@ -148,6 +157,24 @@ export async function addTeamMember(
       throw err;
     }
   });
+
+  await auditOrg({
+    orgId: org.id,
+    actorUserId,
+    actor: params.actor,
+    action: 'team_member.added',
+    targetType: 'team_member',
+    targetId: member.id,
+    metadata: {
+      teamId: team.id,
+      userId,
+      teamRole,
+      via: AUDIT_VIA_MANAGER,
+      ...(reactivated ? { reactivated: true } : {}),
+    },
+  });
+
+  return toTeamMemberRecord(member, org.domain);
 }
 
 export async function changeTeamMemberRole(
@@ -155,7 +182,8 @@ export async function changeTeamMemberRole(
     orgId: string;
     teamId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     userId: string;
     teamRole: string;
   },
@@ -164,11 +192,11 @@ export async function changeTeamMemberRole(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const userId = params.userId.trim();
   const teamRole = normalizeTeamRole(params.teamRole);
 
-  if (!actorUserId || !userId) {
+  if (!userId) {
     throw new AppError('BAD_REQUEST', 400);
   }
 
@@ -198,12 +226,15 @@ export async function changeTeamMemberRole(
       userId,
       status: 'ACTIVE',
     },
-    select: { id: true },
+    // `teamRole` is read for the audit row's `previousTeamRole`, mirroring
+    // `changeOrganisationMemberRole`'s `previousRole`.
+    select: { id: true, teamRole: true },
   });
   if (!member) {
     throw new AppError('NOT_FOUND', 404);
   }
 
+  const previousTeamRole = member.teamRole;
   const updated = await prisma.teamMember.update({
     where: { id: member.id },
     data: { teamRole },
@@ -217,6 +248,22 @@ export async function changeTeamMemberRole(
     },
   });
 
+  await auditOrg({
+    orgId: org.id,
+    actorUserId,
+    actor: params.actor,
+    action: 'team_member.role_changed',
+    targetType: 'team_member',
+    targetId: updated.id,
+    metadata: {
+      teamId: team.id,
+      userId,
+      teamRole,
+      previousTeamRole,
+      via: AUDIT_VIA_MANAGER,
+    },
+  });
+
   return toTeamMemberRecord(updated, org.domain);
 }
 
@@ -225,7 +272,8 @@ export async function removeTeamMember(
     orgId: string;
     teamId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     userId: string;
   },
   deps?: OrgServiceDeps & {
@@ -236,10 +284,10 @@ export async function removeTeamMember(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const userId = params.userId.trim();
 
-  if (!actorUserId || !userId) {
+  if (!userId) {
     throw new AppError('BAD_REQUEST', 400);
   }
 
@@ -264,7 +312,7 @@ export async function removeTeamMember(
     throw new AppError('NOT_FOUND', 404);
   }
 
-  return await runInTransaction(prisma, async (tx) => {
+  const removedMember = await runInTransaction(prisma, async (tx) => {
     await lockRefreshSessionUser(userId, { prisma: tx });
     await lockWorkspaceMembershipRows(
       { userId, orgId: org.id },
@@ -276,7 +324,8 @@ export async function removeTeamMember(
         userId,
         status: 'ACTIVE',
       },
-      select: { id: true },
+      // `teamRole` is read for the audit row, mirroring `removeOrganisationMember`'s `role`.
+      select: { id: true, teamRole: true },
     });
     if (!lockedMembership) {
       throw new AppError('NOT_FOUND', 404);
@@ -309,8 +358,25 @@ export async function removeTeamMember(
       deps?.revokeRefreshTokenFamiliesForUserTeam ?? revokeRefreshTokenFamiliesForUserTeam
     )(userId, team.id, { now: () => now, prisma: tx });
 
-    return { removed: true };
+    return lockedMembership;
   });
+
+  await auditOrg({
+    orgId: org.id,
+    actorUserId,
+    actor: params.actor,
+    action: 'team_member.removed',
+    targetType: 'team_member',
+    targetId: removedMember.id,
+    metadata: {
+      teamId: team.id,
+      userId,
+      teamRole: removedMember.teamRole,
+      via: AUDIT_VIA_MANAGER,
+    },
+  });
+
+  return { removed: true };
 }
 
 /**
@@ -327,7 +393,7 @@ export async function selfJoinTeam(
     teamId: string;
     domain: string;
     actorUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     config: ClientConfig;
   },
   deps?: OrgServiceDeps,

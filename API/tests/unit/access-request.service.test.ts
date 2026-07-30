@@ -110,6 +110,9 @@ function makePrisma() {
       create: vi.fn(),
       update: vi.fn(),
     },
+    orgAuditLog: {
+      create: vi.fn(),
+    },
   } as unknown as PrismaClient;
 }
 
@@ -316,6 +319,18 @@ describe('access request services', () => {
 
   it('rejects a pending request without adding memberships', async () => {
     const prisma = makePrisma();
+    // The target is now resolved by (orgId, domain) / (teamId, orgId) before any
+    // review happens, so a caller naming another tenant's ids gets a 404.
+    prisma.organisation.findFirst.mockResolvedValue({
+      id: 'org-1',
+      domain: 'client.example.com',
+      name: 'Acme',
+      slug: 'acme',
+      ownerId: 'owner-1',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    prisma.team.findFirst.mockResolvedValue({ id: 'team-1', name: 'General', joinPolicy: 'open' });
     prisma.accessRequest.findFirst.mockResolvedValueOnce(makeAccessRequestRow());
     prisma.accessRequest.update.mockResolvedValue(
       makeAccessRequestRow({

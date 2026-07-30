@@ -15,15 +15,14 @@ import {
 import { AppError } from '../../utils/errors.js';
 import {
   InviteLinkCreateBodySchema,
-  type RequestWithClaims,
-  getActorProvenance,
-  getActorUserId,
   getLinkIdFromParams,
   getOrgIdFromParams,
   getTeamIdFromParams,
   keyInviteLinkRateLimit,
+  orgCaller,
   parseDomainContext,
   parseDomainContextHook,
+  tenantUserId,
 } from './team-route.shared.js';
 
 /**
@@ -56,18 +55,16 @@ export function registerTeamInviteLinkRoutes(app: FastifyInstance): void {
 
       const orgId = getOrgIdFromParams(request.params);
       const teamId = getTeamIdFromParams(request.params);
-      const actorUserId = getActorUserId(request as RequestWithClaims);
       const body = InviteLinkCreateBodySchema.parse(request.body ?? {});
 
-      setTenantContextFromRequest(request, { orgId, userId: actorUserId });
+      setTenantContextFromRequest(request, { orgId, userId: tenantUserId(request) });
       const result = await request.withTenantTx((tx) =>
         createTeamInviteLink(
           {
             orgId,
             teamId,
             domain,
-            actorUserId,
-            actor: getActorProvenance(request),
+            ...orgCaller(request),
             roleToAssign: body.roleToAssign,
             maxUses: body.maxUses,
             expiresInDays: body.expiresInDays,
@@ -96,12 +93,11 @@ export function registerTeamInviteLinkRoutes(app: FastifyInstance): void {
       const { domain } = parseDomainContext(request);
       const orgId = getOrgIdFromParams(request.params);
       const teamId = getTeamIdFromParams(request.params);
-      const actorUserId = getActorUserId(request as RequestWithClaims);
 
-      setTenantContextFromRequest(request, { orgId, userId: actorUserId });
+      setTenantContextFromRequest(request, { orgId, userId: tenantUserId(request) });
       const result = await request.withTenantTx((tx) =>
         listTeamInviteLinks(
-          { orgId, teamId, domain, actorUserId },
+          { orgId, teamId, domain, ...orgCaller(request) },
           { prisma: asPrismaClient(tx) },
         ),
       );
@@ -126,12 +122,11 @@ export function registerTeamInviteLinkRoutes(app: FastifyInstance): void {
       const orgId = getOrgIdFromParams(request.params);
       const teamId = getTeamIdFromParams(request.params);
       const linkId = getLinkIdFromParams(request.params);
-      const actorUserId = getActorUserId(request as RequestWithClaims);
 
-      setTenantContextFromRequest(request, { orgId, userId: actorUserId });
+      setTenantContextFromRequest(request, { orgId, userId: tenantUserId(request) });
       const result = await request.withTenantTx((tx) =>
         revokeTeamInviteLink(
-          { orgId, teamId, linkId, domain, actorUserId, actor: getActorProvenance(request) },
+          { orgId, teamId, linkId, domain, ...orgCaller(request) },
           { prisma: asPrismaClient(tx) },
         ),
       );

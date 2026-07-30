@@ -40,7 +40,9 @@ describe('runWithTenantContext', () => {
     expect(strings.join('?')).toContain("set_config('app.domain',");
     expect(strings.join('?')).toContain("set_config('app.org_id',");
     expect(strings.join('?')).toContain("set_config('app.user_id',");
-    expect(values).toEqual(['app.example.com', 'org-1', 'user-1']);
+    // The fourth GUC marks a domain-backend transaction; user mode sends ''.
+    expect(strings.join('?')).toContain("set_config('app.domain_backend',");
+    expect(values).toEqual(['app.example.com', 'org-1', 'user-1', '']);
   });
 
   it('coalesces missing orgId and userId to empty strings', async () => {
@@ -52,7 +54,7 @@ describe('runWithTenantContext', () => {
     );
 
     const [, ...values] = tx.$executeRaw.mock.calls[0];
-    expect(values).toEqual(['app.example.com', '', '']);
+    expect(values).toEqual(['app.example.com', '', '', '']);
   });
 
   it('passes the transaction client through to the handler', async () => {

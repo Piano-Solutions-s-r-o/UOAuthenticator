@@ -49,6 +49,21 @@ export type TenantContext = {
   domain: string;
   orgId?: string | null;
   userId?: string | null;
+  /**
+   * True when this request was accepted on the domain pairing alone — the
+   * product backend for `domain` is acting and there is no acting user.
+   *
+   * `app.org_id` and `app.user_id` are the only tenant keys a user-mode request
+   * has, and both are absent for a backend call that spans the whole domain
+   * (listing the domain's organisations). Rather than widen a policy for
+   * everyone, backend mode gets its own GUC so a domain-wide branch can be
+   * gated on it: a signed-in user never sets it, so their visibility is exactly
+   * what it was before backend mode existed.
+   *
+   * Only ever derived from `request.orgBackendCaller`, which `requireOrgRole`
+   * is the sole writer of.
+   */
+  domainBackend?: boolean;
 };
 
 export type RunWithTenantContextDeps = {
@@ -73,12 +88,16 @@ export async function runWithTenantContext<T>(
   const domain = params.context.domain;
   const orgId = params.context.orgId ?? '';
   const userId = params.context.userId ?? '';
+  // 'on' or empty — the policies read it through the same NULLIF(...,'') wrapper
+  // as every other GUC, so "absent" and "empty" both mean not-a-backend.
+  const domainBackend = params.context.domainBackend ? 'on' : '';
 
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT
       set_config('app.domain', ${domain}, true),
       set_config('app.org_id', ${orgId}, true),
-      set_config('app.user_id', ${userId}, true)`;
+      set_config('app.user_id', ${userId}, true),
+      set_config('app.domain_backend', ${domainBackend}, true)`;
     return handler(tx);
   });
 }

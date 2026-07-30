@@ -37,6 +37,7 @@ set -eu
 printf '%s' "$DATABASE_URL" > "$CAPTURE_DIR/migration-database-url"
 printf '%s' "\${DATABASE_ADMIN_URL:-}" > "$CAPTURE_DIR/migration-admin-url"
 printf '%s' "$*" > "$CAPTURE_DIR/migration-arguments"
+printf '%s\\n' "\${FAKE_MIGRATION_OUTPUT:-}"
 exit "\${FAKE_MIGRATION_EXIT:-0}"
 `,
   );
@@ -183,6 +184,47 @@ describe('production container startup database boundary', () => {
     await expect(access(join(runtime.capture, 'runtime-database-url'))).rejects.toBeDefined();
     expect(`${result.stdout}\n${result.stderr}`).not.toContain('runtime-secret');
     expect(`${result.stdout}\n${result.stderr}`).not.toContain('admin-secret');
+  });
+
+  // P3009 means a PREVIOUS migration is half-recorded, so every boot fails the
+  // same way for ever. Under `set -eu` that is an unexplained crash-loop and a
+  // total auth outage; the log must carry the recovery command instead.
+  it('prints the recovery runbook when migration bookkeeping is wedged (P3009)', async () => {
+    const runtime = await fakeRuntime();
+    const result = await runStartup(runtime, {
+      DATABASE_ADMIN_URL: 'postgresql://uoa_admin:admin-secret@db/auth',
+      DATABASE_URL: 'postgresql://uoa_app:runtime-secret@db/auth',
+      FAKE_MIGRATION_EXIT: '1',
+      FAKE_MIGRATION_OUTPUT:
+        'Error: P3009 migrate found failed migrations in the target database',
+      NODE_ENV: 'production',
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('P3009');
+    expect(result.stderr).toContain('prisma migrate resolve --rolled-back');
+    expect(result.stderr).toContain('_prisma_migrations');
+    // The API still must not start, and no DSN may reach the log.
+    await expect(access(join(runtime.capture, 'runtime-database-url'))).rejects.toBeDefined();
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain('runtime-secret');
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain('admin-secret');
+  });
+
+  // Any other migration failure keeps the old, quiet behaviour — the runbook is
+  // for the one failure mode that repeats itself, not for every red deploy.
+  it('does not print the P3009 runbook for an ordinary migration failure', async () => {
+    const runtime = await fakeRuntime();
+    const result = await runStartup(runtime, {
+      DATABASE_ADMIN_URL: 'postgresql://uoa_admin:admin-secret@db/auth',
+      DATABASE_URL: 'postgresql://uoa_app:runtime-secret@db/auth',
+      FAKE_MIGRATION_EXIT: '1',
+      FAKE_MIGRATION_OUTPUT: 'Error: P1001 Can\'t reach database server',
+      NODE_ENV: 'production',
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).not.toContain('P3009');
+    expect(result.stderr).not.toContain('prisma migrate resolve');
   });
 
   it('keeps the reviewed startup script as the Docker entrypoint', async () => {

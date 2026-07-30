@@ -265,7 +265,7 @@ const orgEndpoints: EndpointSchema[] = [
     description: 'List invitation history for a team',
     auth: 'domain hash bearer token',
     response: {
-      data: 'array — invite records with status (pending|accepted|declined|replaced|expired), approval_status (not_required|pending|approved|denied), expiresAt, inviter, send/open, accepted/declined state, plus invitedByAvatarImageUrl and acceptedAvatarImageUrl (null until the matching user id exists; the invitee email never gets one)',
+      data: 'array — invite records with status (pending|accepted|declined|replaced|expired), approvalStatus (not_required|pending|approved|denied), expiresAt, inviter, send/open, accepted/declined state, plus invitedByAvatarImageUrl and acceptedAvatarImageUrl (null until the matching user id exists; the invitee email never gets one)',
     },
   },
   {
@@ -283,21 +283,21 @@ const orgEndpoints: EndpointSchema[] = [
     auth: 'domain hash bearer token + access token (X-UOA-Access-Token header), owner/admin only',
     query: { approval: 'string (required) — must be "pending"' },
     response: {
-      data: 'array — invite records with approval_status: pending, each carrying invitedByAvatarImageUrl and acceptedAvatarImageUrl (null until the matching user id exists)',
+      data: 'array — invite records with approvalStatus: pending, each carrying invitedByAvatarImageUrl and acceptedAvatarImageUrl (null until the matching user id exists)',
     },
   },
   {
     method: 'POST',
     path: '/org/organisations/:orgId/invitations/:inviteId/approve',
     description:
-      'Approve a PENDING member-initiated invite: sets approval_status APPROVED and sends the invite email',
+      'Approve a pending member-initiated invite: sets approvalStatus to approved and sends the invite email',
     auth: 'domain hash bearer token + access token (X-UOA-Access-Token header), owner/admin only',
   },
   {
     method: 'POST',
     path: '/org/organisations/:orgId/invitations/:inviteId/deny',
     description:
-      'Deny a PENDING member-initiated invite: sets approval_status DENIED; sends nothing (silent to the invitee)',
+      'Deny a pending member-initiated invite: sets approvalStatus to denied; sends nothing (silent to the invitee)',
     auth: 'domain hash bearer token + access token (X-UOA-Access-Token header), owner/admin only',
   },
   {
@@ -437,19 +437,25 @@ const ORG_DOMAIN_QUERY: Record<string, string> = {
 };
 
 const ORG_CONTRACT_NOTE =
-  'Requires org_features.enabled=true (otherwise 404). Org/team reads and all mutations ' +
-  'also require the X-UOA-Access-Token header — the acting user is its `userId` claim, and a ' +
-  'new organisation is owned by that user (the body never carries owner_id). Non-superusers can ' +
-  'only create an organisation when org_features.allow_user_create_org=true, else 403 ' +
-  'ORG_CREATION_NOT_ALLOWED. The same header additionally accepts a confidential RS256 at+jwt ' +
-  'resource token from /auth/token when it carries the token.provision scope and is bound to ' +
-  'aud=<UOA public base URL>/org, letting a trusted product backend act for one of its users ' +
-  'server-to-server; its source_domain must match the request domain, its credential epoch and ' +
-  'the acting user\'s source-domain role are re-checked in the database, and the org/team role ' +
-  'rules above apply unchanged. That path requires MCP_OAUTH_ACCESS_TOKEN_PRIVATE_JWK (check ' +
-  'GET /oauth/jwks.json returns 200); a missing key or a database outage surfaces as 5xx, never ' +
-  'as a 401. Org mutations made this way record the calling product under the uoa_actor key of ' +
-  'the org audit row metadata. ' +
+  'Requires org_features.enabled=true (otherwise 404). Two calling modes. ' +
+  'USER MODE: send X-UOA-Access-Token — the acting user is its `userId` claim, a new ' +
+  'organisation is owned by that user (the body must not carry owner_user_id), and ' +
+  'non-superusers can only create one when org_features.allow_user_create_org=true, else 403 ' +
+  'ORG_CREATION_NOT_ALLOWED. BACKEND MODE: omit X-UOA-Access-Token entirely — the domain ' +
+  'pairing already on every /org route (domain-hash bearer + verified signed config + ?domain=) ' +
+  'authorises the call, and there is no acting user, so per-user org/team role checks do not ' +
+  'apply. Backend mode requires org_features.backend_org_management=true in the signed config; ' +
+  'without it a missing token is still 401 MISSING_ACCESS_TOKEN. Backend mode never crosses ' +
+  'domains: the call binds to the VERIFIED config domain (a differing ?domain= is 400 ' +
+  'DOMAIN_MISMATCH) and an :orgId belonging to another domain is 404. Where a route needs to ' +
+  'name a user it takes one explicitly (owner_user_id on POST /org/organisations, userId on the ' +
+  'member routes). GET /org/me and POST /org/organisations/:orgId/teams/:teamId/join are about ' +
+  'the acting user and stay user-mode only (401 without a token). Backend-mode mutations are ' +
+  'recorded in the org audit log with actor_user_id null and metadata.uoa_actor = ' +
+  '{ via: "domain_backend", source_domain }. ' +
+  'GET /org/organisations is BACKEND-ONLY: it lists a whole domain and has no user mode, so it ' +
+  'refuses any present X-UOA-Access-Token with 401 ACCESS_TOKEN_NOT_ALLOWED (valid or blank ' +
+  'alike) — omit the header, and use GET /org/me for a user\'s own workspaces. ' +
   IDENTITY_AVATAR_URL_NOTE;
 
 function withOrgContract(list: EndpointSchema[]): EndpointSchema[] {

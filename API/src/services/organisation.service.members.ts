@@ -19,11 +19,12 @@ import {
   getOrganisationMember,
   parseOrgFeatureRoles,
   parseOrgLimit,
+  resolveOrgActor,
   resolveOrganisationByDomain,
   toListLimit,
   toMemberRecord,
   toOrganisationRecord,
-  type AccessTokenActor,
+  type OrgActorProvenance,
   type CursorList,
   type OrgServiceDeps,
   type OrgServicePrisma,
@@ -82,8 +83,8 @@ export async function addOrganisationMember(
   params: {
     orgId: string;
     domain: string;
-    actorUserId: string;
-    actor?: AccessTokenActor;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     userId: string;
     role: string;
     config: ClientConfig;
@@ -93,10 +94,10 @@ export async function addOrganisationMember(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const userId = params.userId.trim();
   const role = params.role.trim();
-  if (!actorUserId || !userId) throw new AppError('BAD_REQUEST', 400);
+  if (!userId) throw new AppError('BAD_REQUEST', 400);
 
   const maxMembers = parseOrgLimit(params.config);
   const orgRoles = parseOrgFeatureRoles(params.config);
@@ -105,14 +106,20 @@ export async function addOrganisationMember(
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
   const org = await resolveOrganisationByDomain(prisma, params);
 
-  const actorMembership = await getOrganisationMember(prisma, { orgId: org.id, userId: actorUserId }, { activeOnly: true });
-  if (!actorMembership || (actorMembership.role !== 'owner' && actorMembership.role !== 'admin')) {
-    throw new AppError('FORBIDDEN', 403);
-  }
-  // Only owners may grant the `owner` role. An `admin` actor must not be able to
-  // self-elevate by adding another `owner` row.
-  if (role === 'owner' && actorMembership.role !== 'owner') {
-    throw new AppError('FORBIDDEN', 403);
+  // Both checks below are about the ACTING USER's standing inside this org. In
+  // backend mode there is no acting user: the domain pairing already proved the
+  // caller owns the whole tenant, and "an admin must not self-elevate to owner"
+  // has no subject to protect against.
+  if (actorUserId) {
+    const actorMembership = await getOrganisationMember(prisma, { orgId: org.id, userId: actorUserId }, { activeOnly: true });
+    if (!actorMembership || (actorMembership.role !== 'owner' && actorMembership.role !== 'admin')) {
+      throw new AppError('FORBIDDEN', 403);
+    }
+    // Only owners may grant the `owner` role. An `admin` actor must not be able to
+    // self-elevate by adding another `owner` row.
+    if (role === 'owner' && actorMembership.role !== 'owner') {
+      throw new AppError('FORBIDDEN', 403);
+    }
   }
 
   const { member: createdMember, reactivated } = await runInTransaction(prisma, async (tx) => {
@@ -218,8 +225,8 @@ export async function changeOrganisationMemberRole(
   params: {
     orgId: string;
     domain: string;
-    actorUserId: string;
-    actor?: AccessTokenActor;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     userId: string;
     role: string;
     config: ClientConfig;
@@ -229,17 +236,18 @@ export async function changeOrganisationMemberRole(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const userId = params.userId.trim();
   const role = params.role.trim();
-  if (!actorUserId || !userId) throw new AppError('BAD_REQUEST', 400);
+  if (!userId) throw new AppError('BAD_REQUEST', 400);
 
   const orgRoles = parseOrgFeatureRoles(params.config);
   ensureOrgRole(role, orgRoles);
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
   const org = await resolveOrganisationByDomain(prisma, params);
-  if (org.ownerId !== actorUserId) throw new AppError('FORBIDDEN', 403);
+  // "Must be the org owner" is a check on the acting user; backend mode has none.
+  if (actorUserId && org.ownerId !== actorUserId) throw new AppError('FORBIDDEN', 403);
 
   // A non-ACTIVE (DEACTIVATED/REMOVED) member has no role to change (design §4.9: membership
   // checks require ACTIVE).
@@ -276,8 +284,8 @@ export async function removeOrganisationMember(
   params: {
     orgId: string;
     domain: string;
-    actorUserId: string;
-    actor?: AccessTokenActor;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     userId: string;
   },
   deps?: OrgServiceDeps & {
@@ -290,17 +298,21 @@ export async function removeOrganisationMember(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const userId = params.userId.trim();
-  if (!actorUserId || !userId) throw new AppError('BAD_REQUEST', 400);
+  if (!userId) throw new AppError('BAD_REQUEST', 400);
 
   // This destructive lifecycle boundary must revoke scoped sessions issued by every product
   // domain in the same transaction, which requires the BYPASSRLS client.
   const prisma = deps?.prisma ?? (getAdminPrisma() as unknown as OrgServicePrisma);
   const org = await resolveOrganisationByDomain(prisma, params);
 
-  const actorMembership = await getOrganisationMember(prisma, { orgId: org.id, userId: actorUserId }, { activeOnly: true });
-  if (!actorMembership || (actorMembership.role !== 'owner' && actorMembership.role !== 'admin')) {
+  // Actor-standing checks only; backend mode has no acting user. The owner-count
+  // invariant below is NOT an actor check and still applies to both callers.
+  const actorMembership = actorUserId
+    ? await getOrganisationMember(prisma, { orgId: org.id, userId: actorUserId }, { activeOnly: true })
+    : null;
+  if (actorUserId && (!actorMembership || (actorMembership.role !== 'owner' && actorMembership.role !== 'admin'))) {
     throw new AppError('FORBIDDEN', 403);
   }
 
@@ -309,7 +321,7 @@ export async function removeOrganisationMember(
 
   // Only owners may remove another `owner` member. An `admin` actor cannot remove
   // an owner even when other owners remain.
-  if (member.role === 'owner' && actorMembership.role !== 'owner') {
+  if (member.role === 'owner' && actorMembership && actorMembership.role !== 'owner') {
     throw new AppError('FORBIDDEN', 403);
   }
 
@@ -415,7 +427,8 @@ export async function transferOrganisationOwnership(
   params: {
     orgId: string;
     domain: string;
-    actorUserId: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     newOwnerId: string;
   },
   deps?: OrgServiceDeps,
@@ -423,18 +436,33 @@ export async function transferOrganisationOwnership(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
-  const actorUserId = params.actorUserId.trim();
+  const actorUserId = resolveOrgActor(params);
   const newOwnerId = params.newOwnerId.trim();
-  if (!actorUserId || !newOwnerId) throw new AppError('BAD_REQUEST', 400);
-  if (actorUserId === newOwnerId) throw new AppError('BAD_REQUEST', 400);
+  if (!newOwnerId) throw new AppError('BAD_REQUEST', 400);
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as OrgServicePrisma);
   const org = await resolveOrganisationByDomain(prisma, params);
-  if (org.ownerId !== actorUserId) {
+  // The outgoing owner is the acting user on the user path (who must BE the
+  // owner) and simply the org's current owner in backend mode — the transfer has
+  // the same effect either way, it just is not initiated by a person.
+  if (actorUserId && org.ownerId !== actorUserId) {
     throw new AppError('FORBIDDEN', 403);
   }
+  const outgoingOwnerId = actorUserId ?? org.ownerId;
+  if (outgoingOwnerId === newOwnerId) throw new AppError('BAD_REQUEST', 400);
 
-  const newOwnerMembership = await getOrganisationMember(prisma, { orgId: org.id, userId: newOwnerId });
+  // `activeOnly` matters here: without it the helper deliberately returns
+  // DEACTIVATED/REMOVED rows (target lookups need tombstones so a removed member
+  // can still be found and re-removed). The transfer only changes the ROLE, not
+  // the status, while demoting the live owner — so handing ownership to a
+  // tombstoned row would leave the organisation owned by a removed member with
+  // no owner able to act. Design §4.9: a non-ACTIVE membership has no powers, so
+  // it cannot receive the highest one.
+  const newOwnerMembership = await getOrganisationMember(
+    prisma,
+    { orgId: org.id, userId: newOwnerId },
+    { activeOnly: true },
+  );
   if (!newOwnerMembership) throw new AppError('NOT_FOUND', 404);
 
   const updated = await runInTransaction(prisma, async (tx) => {
@@ -449,7 +477,7 @@ export async function transferOrganisationOwnership(
     });
 
     const oldOwnerMembership = await tx.orgMember.findFirst({
-      where: { orgId: org.id, userId: actorUserId },
+      where: { orgId: org.id, userId: outgoingOwnerId },
       select: { id: true },
     });
     if (oldOwnerMembership) {
@@ -471,6 +499,16 @@ export async function transferOrganisationOwnership(
         updatedAt: true,
       },
     });
+  });
+
+  await auditOrg({
+    orgId: org.id,
+    actorUserId,
+    actor: params.actor,
+    action: 'org.ownership_transferred',
+    targetType: 'organisation',
+    targetId: org.id,
+    metadata: { newOwnerId, previousOwnerId: outgoingOwnerId },
   });
 
   return toOrganisationRecord(updated);

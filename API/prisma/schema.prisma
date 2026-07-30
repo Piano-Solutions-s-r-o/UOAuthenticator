@@ -1033,6 +1033,14 @@ model OrgMember {
   id              String           @id @default(cuid())
   orgId           String           @map("org_id")
   userId          String           @map("user_id")
+  // DERIVED copy of `organisations.domain`, maintained entirely by database
+  // triggers (20260730180000). Application code must never write it — the
+  // `@default("")` exists only so Prisma omits the column from its INSERTs and
+  // the trigger fills it in. It exists because a unique index cannot reach
+  // another table, and the one-ACTIVE-organisation-per-user-per-domain invariant
+  // needs a real partial unique index on (user_id, domain): the trigger it
+  // replaced was check-then-write and lost the race.
+  domain          String           @default("")
   role            String           @default("member") // validated against org_roles config: "owner" | "admin" | "member"
   status          MembershipStatus @default(ACTIVE) // lifecycle (design §4.1); read paths filter to ACTIVE
   statusChangedAt DateTime?        @map("status_changed_at")

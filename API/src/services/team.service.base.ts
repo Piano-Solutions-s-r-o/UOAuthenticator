@@ -8,10 +8,12 @@ import {
   getOrganisationMember,
   memberAvatarImageUrl,
   normalizeIconUrl,
+  resolveOrgActor,
   resolveOrganisationByDomain,
   teamAvatarImageUrl,
   toListLimit,
   type CursorList,
+  type OrgActorProvenance,
   type OrgServiceDeps,
   type OrgServicePrisma,
   isP2002Error,
@@ -269,11 +271,19 @@ export function toTeamMemberRecord(
   };
 }
 
+/**
+ * Require org owner/admin standing OF THE ACTING USER.
+ *
+ * `undefined` means the domain pairing authorised the call and there is no
+ * acting user (backend mode); there is then no membership to check. Only
+ * `resolveOrgActor` may produce that `undefined` — this helper never invents it.
+ */
 export async function requireTeamManager(
   prisma: OrgServicePrisma,
   orgId: string,
-  userId: string,
+  userId: string | undefined,
 ): Promise<void> {
+  if (!userId) return;
   const actorMembership = await getOrganisationMember(prisma, { orgId, userId }, { activeOnly: true });
   if (!actorMembership || !isTeamManager(actorMembership.role)) {
     throw new AppError('FORBIDDEN', 403);
@@ -289,8 +299,11 @@ export async function requireTeamManager(
  */
 export async function isOrgOrTeamManager(
   prisma: OrgServicePrisma,
-  params: { orgId: string; teamId: string; actorUserId: string },
+  params: { orgId: string; teamId: string; actorUserId: string | undefined },
 ): Promise<boolean> {
+  // No acting user = backend mode. The domain pairing outranks any team role, so
+  // the manager-only surfaces this gate protects are open to it.
+  if (!params.actorUserId) return true;
   const actorOrgMembership = await getOrganisationMember(
     prisma,
     { orgId: params.orgId, userId: params.actorUserId },
@@ -346,8 +359,10 @@ export {
   memberAvatarImageUrl,
   normalizeIconUrl,
   teamAvatarImageUrl,
+  resolveOrgActor,
   toListLimit,
   type CursorList,
+  type OrgActorProvenance,
   type OrgServiceDeps,
   type OrgServicePrisma,
 };

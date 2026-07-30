@@ -49,7 +49,14 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations and members', () =
   it('performs org CRUD and list pagination', async () => {
     const domain = 'org-crud.example.com';
     const orgConfigUrl = 'https://org-crud.example.com/auth-config';
-    const configJwt = await createSignedConfigJwt(process.env.SHARED_SECRET!, { allow_user_create_org: true }, domain);
+    // The list half of this test is a BACKEND read: it pages the whole domain's
+    // organisations, which has no user mode (`GET /org/me` is the user-scoped
+    // read). Backend mode is what `backend_org_management` governs.
+    const configJwt = await createSignedConfigJwt(
+      process.env.SHARED_SECRET!,
+      { allow_user_create_org: true, backend_org_management: true },
+      domain,
+    );
     vi.stubGlobal('fetch', vi.fn(async () => new Response(configJwt, { status: 200 })));
 
     const ownerA = await createTestUser(handle!, 'owner-a@example.com');
@@ -104,12 +111,15 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations and members', () =
       expect(created.slug).toContain('acme');
     }
 
+    // No `x-uoa-access-token`: this route refuses a present one rather than
+    // ignoring it. It used to ignore it, which is how a blank forwarded session
+    // token read the whole domain — and why a token here proved nothing about
+    // pagination in the first place.
     const queryFirst = await app.inject({
       method: 'GET',
       url: `/org/organisations?domain=${encodeURIComponent(domain)}&config_url=${encodeURIComponent(orgConfigUrl)}&limit=2`,
       headers: {
         authorization: `Bearer ${domainHash}`,
-        'x-uoa-access-token': `Bearer ${tokenA}`,
       },
     });
     expect(queryFirst.statusCode).toBe(200);
@@ -124,7 +134,6 @@ describe.skipIf(!hasDatabase)('user-facing /org organisations and members', () =
       )}`,
       headers: {
         authorization: `Bearer ${domainHash}`,
-        'x-uoa-access-token': `Bearer ${tokenA}`,
       },
     });
     expect(querySecond.statusCode).toBe(200);
