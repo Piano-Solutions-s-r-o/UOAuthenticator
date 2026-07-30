@@ -13,7 +13,7 @@ import {
   auditOrg,
   normalizeDomain,
   resolveOrganisationByDomain,
-  type AccessTokenActor,
+  type OrgActorProvenance,
 } from './organisation.service.base.js';
 import { isOrgOrTeamManager } from './team.service.base.js';
 import {
@@ -126,7 +126,7 @@ export async function createTeamInviteLink(
     teamId: string;
     domain: string;
     actorUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     roleToAssign?: string;
     maxUses?: number;
     expiresInDays?: number;
@@ -232,7 +232,7 @@ export async function revokeTeamInviteLink(
     linkId: string;
     domain: string;
     actorUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
   },
   deps?: InviteLinkDeps,
 ): Promise<{ revoked: boolean }> {
@@ -370,7 +370,7 @@ export async function redeemTeamInviteLink(
   params: {
     token: string;
     userId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     domain: string;
     config: ClientConfig;
   },

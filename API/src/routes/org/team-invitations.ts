@@ -60,10 +60,8 @@ export function registerTeamInvitationRoutes(app: FastifyInstance): void {
       const accessToken = parseBearerOrRawToken(request.headers['x-uoa-access-token']);
       if (accessToken) {
         // Same resolver as `requireOrgRole`, so this member-initiated path accepts
-        // exactly the tokens every other `/org/*` route accepts. Calling the HS256
-        // verifier directly used to 401 a valid confidential provisioning token
-        // here while the sibling org routes accepted it.
-        const claims = await resolveActingUserClaims(accessToken, domain);
+        // exactly the tokens every other `/org/*` route accepts.
+        const claims = await resolveActingUserClaims(accessToken);
         if (normalizeDomain(claims.domain) !== domain) {
           throw new AppError('FORBIDDEN', 403, 'ACCESS_TOKEN_DOMAIN_MISMATCH');
         }
@@ -81,7 +79,6 @@ export function registerTeamInvitationRoutes(app: FastifyInstance): void {
               config,
               configUrl,
               actorUserId,
-              actor: claims.actor,
               redirectUrl: body.redirectUrl,
               invite: { email: body.email, name: body.name, teamRole: body.teamRole },
             },

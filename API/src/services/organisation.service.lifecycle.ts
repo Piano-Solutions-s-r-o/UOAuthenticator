@@ -14,7 +14,7 @@ import {
   auditOrg,
   getOrganisationMember,
   resolveOrganisationByDomain,
-  type AccessTokenActor,
+  type OrgActorProvenance,
   type OrgServiceDeps,
   type OrgServicePrisma,
 } from './organisation.service.base.js';
@@ -39,7 +39,7 @@ export async function deactivateOrganisationMember(
     orgId: string;
     domain: string;
     actorUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     userId: string;
   },
   deps?: OrgServiceDeps & {
@@ -126,7 +126,7 @@ export async function reactivateOrganisationMember(
     orgId: string;
     domain: string;
     actorUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     userId: string;
   },
   deps?: OrgServiceDeps & {

@@ -438,37 +438,12 @@ Request → Route → Middleware → Service → Database (Prisma)
 - **groups-enabled** — rejects group endpoints when `org_features.groups_enabled` is false.
 - **org-role-guard** — validates the user access token and the user's org role for `/org/*` routes (`owner > admin > member`). Reads `OrgMember.role` for the authenticated user in the target org and returns 403 if not a member or the role is insufficient.
 
-  It resolves the acting user through `resolveActingUserClaims`, which accepts
-  **two** token profiles on `X-UOA-Access-Token`. The HS256 `verifyAccessToken`
-  path runs first and is unchanged, including the DB-error pass-through that must
-  never look like a logout. Only a token that fails it **and** carries the exact
-  RS256 `at+jwt` protected header is retried on the confidential provisioning
-  path (`confidential-provisioning-token.service.ts`), which requires this
-  service's own issuer, `aud` exactly `<PUBLIC_BASE_URL>/org` (single string,
-  byte-for-byte), the `token.provision` scope in canonical form, `source_domain`
-  = `azp` = the request domain, a live credential epoch (`tv`), and a current
-  `DomainRole`. Both profiles are projected onto the same `AccessTokenClaims`
-  shape, so the `:orgId` match and `requiredRoles` checks below are literally the
-  same code — the confidential path can never widen them, and never applies the
-  platform-superuser escalation.
-
-  `resolveActingUserClaims` is the single entry point for this decision. `/org/me`
-  and the member-initiated branch of `team-invitations.ts` call it directly rather
-  than `verifyAccessToken`, so every `/org/*` surface accepts the same tokens.
-
-  Claims from the confidential path carry an optional `actor` field (`via`,
-  `product`, `sourceDomain`, `chain` from `act`). Routes pass it to the services
-  via `getActorProvenance(request)`, and `writeOrgAuditLog` records it under the
-  reserved `uoa_actor` key in `OrgAuditLog.metadata` so a backend acting for a
-  user is distinguishable from the user acting themselves. It is `undefined` on
-  the HS256 path, so user-initiated rows are unchanged.
-
-  Verification requires `MCP_OAUTH_ACCESS_TOKEN_PRIVATE_JWK`. The JWKS load
-  happens outside the verifier's catch-all so a missing or malformed key surfaces
-  as 5xx (`MCP_OAUTH_DISABLED` / `MCP_OAUTH_KEY_INVALID`) rather than a 401 that
-  would tell callers their valid token was rejected. The path also fails closed
-  with `DATABASE_DISABLED` when no database is configured, because its DB reads
-  include an authorization gate (`DomainRole`), not merely revocation.
+  It resolves the acting user through `resolveActingUserClaims`, which wraps the
+  single HS256 `verifyAccessToken` profile — including the DB-error pass-through
+  that must never look like a logout. `resolveActingUserClaims` is the single
+  entry point for that decision: `/org/me` and the member-initiated branch of
+  `team-invitations.ts` call it rather than `verifyAccessToken` directly, so
+  every `/org/*` surface accepts the same tokens.
 - **error-handler** — catches all errors. Returns a generic public body via `utils/error-response.ts` to the caller and logs specifics internally.
 - **rate-limiter** — request rate limiting; keyed helpers for auth routes live in `routes/auth/rate-limit-keys.ts`.
 

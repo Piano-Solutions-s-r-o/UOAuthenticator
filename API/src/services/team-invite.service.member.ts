@@ -8,7 +8,7 @@ import { sendTeamInviteEmail } from './email.service.js';
 import {
   assertDatabaseEnabled,
   auditOrg,
-  type AccessTokenActor,
+  type OrgActorProvenance,
   getOrganisationMember,
   resolveOrganisationByDomain,
 } from './organisation.service.base.js';
@@ -64,7 +64,7 @@ export async function createMemberInvite(
     config: ClientConfig;
     configUrl: string;
     actorUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     redirectUrl?: string;
     invite: { email: string; name?: string; teamRole?: string };
   },
@@ -301,7 +301,7 @@ export async function approveInvite(
     config: ClientConfig;
     configUrl: string;
     reviewerUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
   },
   deps?: InviteDeps & { sendTeamInviteEmail?: typeof sendTeamInviteEmail },
 ): Promise<TeamInviteRecord> {
@@ -393,7 +393,7 @@ export async function denyInvite(
     domain: string;
     inviteId: string;
     reviewerUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
   },
   deps?: InviteDeps,
 ): Promise<TeamInviteRecord> {

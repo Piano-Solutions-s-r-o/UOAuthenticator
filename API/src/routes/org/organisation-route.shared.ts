@@ -1,7 +1,7 @@
 import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
-import type { AccessTokenActor } from '../../services/access-token.service.js';
+import type { OrgActorProvenance } from '../../services/org-audit-log.service.js';
 import { AppError } from '../../utils/errors.js';
 import { assertVerifiedDomainMatchesQuery, normalizeDomain } from './domain-context.js';
 
@@ -136,15 +136,17 @@ export function getActorUserId(request: RequestWithClaims): string {
 }
 
 /**
- * Provenance of a backend acting for the user, or `undefined` when the user is
- * acting themselves.
+ * Provenance of the domain backend that made this call itself, or `undefined`
+ * when a signed-in user is acting.
  *
  * Pair this with `getActorUserId` wherever a mutation writes an org audit row, so
- * the row records WHO acted as well as FOR WHOM. `requireOrgRole` populates it
- * only on the confidential provisioning path.
+ * the row records WHO acted as well as FOR WHOM. `requireOrgRole` populates
+ * `request.orgBackendCaller` only when it accepted the request on the domain
+ * pairing alone.
  */
-export function getActorProvenance(request: FastifyRequest): AccessTokenActor | undefined {
-  return request.accessTokenClaims?.actor;
+export function getActorProvenance(request: FastifyRequest): OrgActorProvenance | undefined {
+  const backend = request.orgBackendCaller;
+  return backend ? { via: 'domain_backend', sourceDomain: backend.domain } : undefined;
 }
 
 export function getOrgIdFromParams(params: unknown): string {

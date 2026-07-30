@@ -51,11 +51,8 @@ export function registerOrgMeRoute(app: FastifyInstance): void {
       }
 
       // Same resolver as `requireOrgRole`, so `/org/me` accepts exactly the tokens
-      // every other `/org/*` route accepts. This route predates the confidential
-      // provisioning path and called the HS256 verifier directly, which made a
-      // valid `token.provision` token 401 here while working everywhere else — a
-      // product backend reading its own workspace context hits this route first.
-      const claims = await resolveActingUserClaims(token, normalizedDomain);
+      // every other `/org/*` route accepts.
+      const claims = await resolveActingUserClaims(token);
       if (normalizeDomain(claims.domain) !== normalizedDomain) {
         throw new AppError('FORBIDDEN', 403, 'ACCESS_TOKEN_DOMAIN_MISMATCH');
       }

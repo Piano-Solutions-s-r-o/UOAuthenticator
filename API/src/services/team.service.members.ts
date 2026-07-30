@@ -4,7 +4,7 @@ import { getAdminPrisma, getPrisma } from '../db/prisma.js';
 import { runInTransaction } from '../db/tenant-context.js';
 import { AppError } from '../utils/errors.js';
 
-import { auditOrg, type AccessTokenActor } from './organisation.service.base.js';
+import { auditOrg, type OrgActorProvenance } from './organisation.service.base.js';
 import { revokeRefreshTokenFamiliesForUserTeam } from './refresh-token-revocation.service.js';
 import { lockRefreshSessionUser } from './refresh-session-lock.service.js';
 import { lockWorkspaceMembershipRows } from './workspace-scope.service.js';
@@ -36,7 +36,7 @@ export async function addTeamMember(
     teamId: string;
     domain: string;
     actorUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     userId: string;
     teamRole?: string;
     config: ClientConfig;
@@ -182,7 +182,7 @@ export async function changeTeamMemberRole(
     teamId: string;
     domain: string;
     actorUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     userId: string;
     teamRole: string;
   },
@@ -272,7 +272,7 @@ export async function removeTeamMember(
     teamId: string;
     domain: string;
     actorUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     userId: string;
   },
   deps?: OrgServiceDeps & {
@@ -392,7 +392,7 @@ export async function selfJoinTeam(
     teamId: string;
     domain: string;
     actorUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     config: ClientConfig;
   },
   deps?: OrgServiceDeps,

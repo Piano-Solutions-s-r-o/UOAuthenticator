@@ -23,7 +23,7 @@ import {
   toListLimit,
   toMemberRecord,
   toOrganisationRecord,
-  type AccessTokenActor,
+  type OrgActorProvenance,
   type CursorList,
   type OrgServiceDeps,
   type OrgServicePrisma,
@@ -83,7 +83,7 @@ export async function addOrganisationMember(
     orgId: string;
     domain: string;
     actorUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     userId: string;
     role: string;
     config: ClientConfig;
@@ -219,7 +219,7 @@ export async function changeOrganisationMemberRole(
     orgId: string;
     domain: string;
     actorUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     userId: string;
     role: string;
     config: ClientConfig;
@@ -277,7 +277,7 @@ export async function removeOrganisationMember(
     orgId: string;
     domain: string;
     actorUserId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     userId: string;
   },
   deps?: OrgServiceDeps & {
