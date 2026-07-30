@@ -852,6 +852,7 @@ The claim is optional and defaults to disabled. The object shape and defaults ar
   "user_needs_team": false,
   "auto_create_personal_org_on_first_login": false,
   "allow_user_create_org": false,
+  "backend_org_management": false,
   "pending_invites_block_auto_create": true,
   "max_teams_per_org": 100,
   "max_groups_per_org": 20,
@@ -873,6 +874,7 @@ The claim is optional and defaults to disabled. The object shape and defaults ar
 | `user_needs_team`                         | boolean                     | `false`                        | On successful auth, ensure the user ends up in a team. Existing org members with zero teams get a personal team; users with no org get a new personal org plus default team.                                                           |
 | `auto_create_personal_org_on_first_login` | boolean                     | `false`                        | On **first** verified login only, if the user ends up without an org after invite/mapping resolution, create a personal org with them as owner (plus default team per 24.3). One-shot, not a self-heal. See 24.14.                     |
 | `allow_user_create_org`                   | boolean                     | `false`                        | Whether end-users may call `POST /org/organisations` with their own access token. `false` means org creation is admin-only (via Internal API or domain-hash). See 24.14.                                                               |
+| `backend_org_management`                  | boolean                     | `false`                        | Whether this domain's product backend may call `/org/*` with **no** `X-UOA-Access-Token`, authorised by the domain pairing alone (24.8). There is no acting user in that mode, so per-user org-role checks do not apply; every mutation is attributed to the backend in the org audit log. Leave `false` unless a backend genuinely needs it.                        |
 | `pending_invites_block_auto_create`       | boolean                     | `true`                         | When `true`, a pending invite matching the user's email suppresses `auto_create_personal_org_on_first_login` so the user is offered the invite choice instead of being force-placed into a fresh org.                                  |
 | `max_teams_per_org`                       | integer                     | `100`                          | Maximum teams per organisation (max 1000)                                                                                                                                                                                              |
 | `max_groups_per_org`                      | integer                     | `20`                           | Maximum groups per organisation (max 200)                                                                                                                                                                                              |
@@ -899,6 +901,7 @@ org_features: z.object({
   user_needs_team: z.boolean().default(false),
   auto_create_personal_org_on_first_login: z.boolean().default(false),
   allow_user_create_org: z.boolean().default(false),
+  backend_org_management: z.boolean().default(false),
   pending_invites_block_auto_create: z.boolean().default(true),
   max_teams_per_org: z.number().int().positive().max(1000).default(100),
   max_groups_per_org: z.number().int().positive().max(200).default(20),
@@ -921,6 +924,7 @@ org_features: z.object({
     user_needs_team: false,
     auto_create_personal_org_on_first_login: false,
     allow_user_create_org: false,
+    backend_org_management: false,
     pending_invites_block_auto_create: true,
     max_teams_per_org: 100,
     max_groups_per_org: 20,
