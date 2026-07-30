@@ -81,15 +81,6 @@ export function setTenantContextFromRequest(
   extras?: {
     orgId?: string | null;
     userId?: string | null;
-    /**
-     * Force domain-backend context on a route that is backend-to-backend by
-     * construction and therefore never runs `requireOrgRole` (the only writer of
-     * `request.orgBackendCaller`). `GET /org/organisations` is the case: its
-     * authorization boundary IS the domain-hash bearer plus the verified config,
-     * with no user to scope to. Everything else must leave this alone so the
-     * flag stays derived from the guard's own decision.
-     */
-    domainBackend?: boolean;
   },
 ): void {
   const domain = request.config?.domain;
@@ -101,9 +92,13 @@ export function setTenantContextFromRequest(
     domain,
     orgId: extras?.orgId ?? claims?.org?.org_id ?? null,
     userId: extras?.userId ?? claims?.userId ?? null,
-    // `requireOrgRole` sets `orgBackendCaller` only when it accepted the request
-    // on the domain pairing alone, so this is never true for a user-mode call.
-    domainBackend: extras?.domainBackend ?? Boolean(request.orgBackendCaller),
+    // ALWAYS derived, never asserted by a route. `requireOrgRole` and
+    // `requireOrgBackendOnly` are the only writers of `orgBackendCaller`, and
+    // both set it only after `acceptDomainBackendCaller` passed — so a user-mode
+    // call can never reach `app.domain_backend = 'on'`, and no route can hand
+    // itself domain-wide visibility by passing a flag. Removing that override is
+    // what closed the `GET /org/organisations` blank-token hole for good.
+    domainBackend: Boolean(request.orgBackendCaller),
   };
 }
 

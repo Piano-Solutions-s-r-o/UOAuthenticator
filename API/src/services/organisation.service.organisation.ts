@@ -125,11 +125,24 @@ export async function createOrganisation(
     //
     // In backend mode the owner is an arbitrary id chosen by the caller, and
     // "the user exists" is NOT a tenant boundary: `user_scope` defaults to
-    // `global`, so in a default deployment every user row has `domain: null`
-    // and passes the `users_select` RLS policy on every domain — platform
-    // superusers included. Requiring a `DomainRole` on the calling domain binds
-    // the named owner to a user who has actually authenticated here, which is
-    // the same signal login uses (`ensureDomainRoleForUser`).
+    // `global`, so in a default deployment EVERY user row has `domain: null`
+    // and passes the `users_select` RLS policy on every domain. Requiring a
+    // `DomainRole` on the calling domain binds the named owner to a user who has
+    // actually authenticated here, which is the same signal login uses
+    // (`ensureDomainRoleForUser`).
+    //
+    // What that does and does not exclude, precisely — `superuser` is a
+    // TOKEN CLAIM derived from a `DomainRole` row, not an attribute of the user
+    // row, so this check treats superusers like anyone else:
+    //   - a platform superuser (SUPERUSER on ADMIN_AUTH_DOMAIN) who has never
+    //     signed in on this domain has no `DomainRole` here and is REJECTED;
+    //   - one who has signed in here does have one, and is ACCEPTED, exactly
+    //     like any other user of this domain.
+    // That is intended. The check is a tenant boundary — "has this person
+    // authenticated on the domain whose backend is asking?" — not a privilege
+    // filter, and a superuser who is a real user of this domain is a legitimate
+    // organisation owner. Excluding them would need a separate rule, and none is
+    // specified.
     if (!actorUserId) {
       const ownerDomainRole = await tx.domainRole.findUnique({
         where: { domain_userId: { domain, userId: ownerId } },

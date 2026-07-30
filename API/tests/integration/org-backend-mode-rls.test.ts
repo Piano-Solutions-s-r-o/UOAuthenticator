@@ -23,6 +23,7 @@ import {
   createSignedConfigJwt,
   createTestUser,
   hasDatabase,
+  signAccessToken,
   type OrgListRecord,
   type OrgRecord,
 } from '../helpers/org-user-endpoints-helper.js';
@@ -291,6 +292,29 @@ describe.skipIf(!hasDatabase)('/org/* under production RLS roles (uoa_app)', () 
   // B1 — a present-but-blank user token must never become backend authority.
   // ===================================================================
   describe('blank X-UOA-Access-Token', () => {
+    /**
+     * A user token whose value carries no credential. Wider than plain ASCII
+     * whitespace on purpose: `trim()` also strips NBSP, form feed and vertical
+     * tab, and the `Bearer` prefix is stripped case-insensitively before the
+     * blank check, so each of those is its own way for "present" to look
+     * "absent" to a careless reader.
+     */
+    const BLANK_TOKEN_SHAPES: Array<[string, string]> = [
+      ['empty string', ''],
+      ['single space', ' '],
+      ['spaces', '   '],
+      ['tab', '\t'],
+      ['newline', '\n'],
+      ['carriage return', '\r'],
+      ['form feed', '\f'],
+      ['vertical tab', '\v'],
+      ['no-break space (U+00A0)', ' '],
+      ['Bearer + space', 'Bearer '],
+      ['Bearer + tab', 'Bearer\t'],
+      ['lowercase bearer + spaces', 'bearer   '],
+      ['uppercase BEARER + space', 'BEARER '],
+    ];
+
     async function seedBlankOwner() {
       const owner = await createTestUser(handle!, 'blank-owner@example.com');
       await handle!.prisma.domainRole.create({
@@ -303,12 +327,7 @@ describe.skipIf(!hasDatabase)('/org/* under production RLS roles (uoa_app)', () 
       return { app, owner, bearer };
     }
 
-    it.each([
-      ['empty string', ''],
-      ['spaces', '   '],
-      ['tab', '\t'],
-      ['newline', '\n'],
-    ])(
+    it.each(BLANK_TOKEN_SHAPES)(
       'does not grant whole-tenant authority through a real route (%s)',
       async (_label, headerValue) => {
         const { app, owner, bearer } = await seedBlankOwner();
@@ -341,6 +360,74 @@ describe.skipIf(!hasDatabase)('/org/* under production RLS roles (uoa_app)', () 
       });
 
       expect(res.statusCode).toBe(200);
+    });
+
+    // The route that actually LEAKED. `POST` was guarded all along; `GET
+    // /org/organisations` ran no guard, so none of the shapes above reached the
+    // blank-token blocker and every one of them answered 200 with the whole
+    // domain's organisation list — the new `app.domain_backend` RLS branch is
+    // what turned that from "zero rows in production" into live data.
+    it.each(BLANK_TOKEN_SHAPES)(
+      'does not list the domain\'s organisations for a blank token (%s)',
+      async (_label, headerValue) => {
+        await seedOrg({
+          domain: ATTACKER_DOMAIN,
+          name: 'Should Stay Hidden',
+          slug: 'should-stay-hidden',
+          ownerEmail: 'hidden-owner@example.com',
+        });
+        await stubConfigs();
+        const app = await createApp();
+        await app.ready();
+        const bearer = await seedDomainSecret(handle!.prisma, ATTACKER_DOMAIN);
+
+        const res = await app.inject({
+          method: 'GET',
+          url: url('/org/organisations'),
+          headers: {
+            authorization: `Bearer ${bearer}`,
+            'x-uoa-access-token': headerValue,
+          },
+        });
+
+        expect(res.statusCode).toBe(401);
+        expect(res.body).not.toContain('Should Stay Hidden');
+      },
+    );
+
+    // ...and a token that WOULD verify is refused just the same. The route has
+    // no user mode, so accepting one would be inventing a second principal on a
+    // domain-wide read.
+    it('does not list the domain\'s organisations for a valid user token', async () => {
+      const seeded = await seedOrg({
+        domain: ATTACKER_DOMAIN,
+        name: 'Members Only',
+        slug: 'members-only',
+        ownerEmail: 'members-only-owner@example.com',
+      });
+      await stubConfigs();
+      const app = await createApp();
+      await app.ready();
+      const bearer = await seedDomainSecret(handle!.prisma, ATTACKER_DOMAIN);
+      const token = await signAccessToken({
+        subject: seeded.ownerId,
+        domain: ATTACKER_DOMAIN,
+        secret: process.env.SHARED_SECRET!,
+        issuer: process.env.AUTH_SERVICE_IDENTIFIER!,
+        org: { orgId: seeded.orgId, orgRole: 'owner' },
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: url('/org/organisations'),
+        headers: {
+          authorization: `Bearer ${bearer}`,
+          'x-uoa-access-token': `Bearer ${token}`,
+        },
+      });
+
+      expect(res.statusCode).toBe(401);
+      expect(res.body).not.toContain('Members Only');
     });
   });
 

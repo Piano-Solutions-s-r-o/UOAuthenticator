@@ -421,7 +421,8 @@ plain \`404\`. A backend for domain X cannot see or touch domain Y.
 
 | Status | Code | Meaning |
 |---|---|---|
-| 401 | \`MISSING_ACCESS_TOKEN\` | No user token and \`backend_org_management\` is not \`true\` (or the domain-hash guard did not pass). |
+| 401 | \`MISSING_ACCESS_TOKEN\` | No user token and \`backend_org_management\` is not \`true\` (or the domain-hash guard did not pass). Also: an \`X-UOA-Access-Token\` that is present but blank (\`""\`, whitespace, \`"Bearer "\`) — a blank credential is malformed, never "omitted". |
+| 401 | \`ACCESS_TOKEN_NOT_ALLOWED\` | \`GET /org/organisations\` is backend-only and has no user mode. It refuses ANY present \`X-UOA-Access-Token\`, valid or blank — omit the header. For a user's own workspaces use \`GET /org/me\`. |
 | 400 | \`DOMAIN_MISMATCH\` | \`?domain=\` does not equal the verified config \`domain\`. |
 | 400 | \`OWNER_REQUIRED\` | \`POST /org/organisations\` in backend mode without \`owner_user_id\`. |
 | 400 | \`OWNER_NOT_ALLOWED\` | \`POST /org/organisations\` with a user token AND \`owner_user_id\` — ambiguous. |

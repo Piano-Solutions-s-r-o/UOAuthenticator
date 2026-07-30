@@ -1325,6 +1325,15 @@ the backend for domain X", and it is the only authentication `GET
 /org/organisations`, the bulk branch of `POST .../teams/:teamId/invitations`, and
 the access-request family have ever had.
 
+`GET /org/organisations` is **backend-only**: it lists a whole domain, so there is
+no acting user for it to scope to (`GET /org/me` is the user-scoped read). It
+therefore REFUSES a present `X-UOA-Access-Token` with `401
+ACCESS_TOKEN_NOT_ALLOWED` — valid, malformed or blank alike — rather than
+ignoring one. Ignoring it is what previously let a partner BFF's blank forwarded
+session token, i.e. an anonymous visitor, read the entire domain's organisation
+list. Being backend-only, it also requires `backend_org_management` like every
+other tokenless `/org/*` call.
+
 Backend mode is **opt-in per domain** via `org_features.backend_org_management`
 (default `false`). While the flag is `false`, a missing `X-UOA-Access-Token` is
 `401 MISSING_ACCESS_TOKEN` exactly as before. The flag is not a new credential:
@@ -1409,10 +1418,17 @@ the guard's own acceptance decision. Two policy branches are gated on it —
 "the domain's backend may see its own domain's organisations" (which is what
 makes `GET /org/organisations` return rows at all) and the equivalent for
 `org_members` (which is what lets the one-org-per-domain probes see a sibling
-org). A signed-in user never sets it, so user-mode visibility is unchanged. The
-one-org-per-user-per-domain invariant itself is additionally enforced by a
-database trigger, so it holds on every write path rather than only where a
-service probe can see far enough.
+org). A signed-in user never sets it, so user-mode visibility is unchanged.
+
+The one-org-per-user-per-domain invariant itself is additionally enforced in the
+database, so it holds on every write path rather than only where a service probe
+can see far enough. It is a **partial unique index**,
+`org_members_one_active_org_per_domain` on `(user_id, domain) WHERE status =
+'ACTIVE'`, over a `org_members.domain` column that database triggers keep derived
+from `organisations.domain` — application code never writes it. It was briefly a
+`BEFORE ROW` trigger that queried for a conflict; that is check-then-write, which
+at `READ COMMITTED` two concurrent transactions defeat (proven), so it was
+replaced with something the storage engine enforces.
 
 Because a backend-initiated mutation has no user to attribute, it is recorded in
 `OrgAuditLog` with `actorUserId: null` plus the reserved `uoa_actor` metadata key

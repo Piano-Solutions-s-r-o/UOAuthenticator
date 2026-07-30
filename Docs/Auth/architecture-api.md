@@ -456,9 +456,22 @@ Request → Route → Middleware → Service → Database (Prisma)
   opening a hole. Without the opt-in the behaviour is the historical
   `401 MISSING_ACCESS_TOKEN`.
 
+  `requireOrgBackendOnly` is the same guard for a route with **no user mode**.
+  `GET /org/organisations` lists a whole domain, so there is no acting user for
+  it to scope to; it therefore refuses any PRESENT `X-UOA-Access-Token` with
+  `401 ACCESS_TOKEN_NOT_ALLOWED` and then runs the identical
+  `acceptDomainBackendCaller`. It exists because the route previously ran no
+  guard at all: a present token was neither verified nor refused, so a blank one
+  forwarded by a partner BFF for an anonymous visitor returned the whole domain's
+  organisation list.
+
   `request.orgBackendCaller` is the ONLY proof that "there is deliberately no
-  acting user" rather than "the acting user went missing", and `requireOrgRole`
-  is its only writer. Routes read it through `orgCaller(request)` in
+  acting user" rather than "the acting user went missing". `requireOrgRole` and
+  `requireOrgBackendOnly` are its only writers and both set it through
+  `acceptDomainBackendCaller`, so it always implies the same three checks.
+  `setTenantContextFromRequest` derives `app.domain_backend` from it and accepts
+  no override — a route cannot grant itself domain-wide visibility. Routes read
+  it through `orgCaller(request)` in
   `routes/org/organisation-route.shared.ts`, which returns either
   `{ actorUserId }` or `{ actor }` — never anything between — and is spread into
   service params as a single unit. In the services, `resolveOrgActor`

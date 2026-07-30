@@ -428,6 +428,51 @@ describe.skipIf(!hasDatabase)('/org/* backend mode (domain pairing, no user toke
     await app.close();
   });
 
+  // M4. In backend mode `owner_user_id` is an id the CALLER chose, and "the user
+  // row exists" is not a tenant boundary: `user_scope` defaults to `global`, so
+  // in a default deployment every user row has `domain: null` and satisfies the
+  // `users_select` policy on every domain. Only the `DomainRole` — the row login
+  // writes via `ensureDomainRoleForUser` — proves the named owner ever
+  // authenticated HERE. Deleting that check let one tenant's backend mint an
+  // organisation owned by a stranger from another tenant, and the whole suite
+  // stayed green because every other test seeds the DomainRole.
+  it('refuses an owner_user_id that exists but never authenticated on this domain', async () => {
+    await stubConfigs({ backendOrgManagement: true });
+
+    // Exists, and belongs to the OTHER tenant — never logged in here.
+    const stranger = await createTestUser(handle!, 'stranger@example.com');
+    await handle!.prisma.domainRole.create({ data: { domain: OTHER_DOMAIN, userId: stranger.id } });
+
+    const app = await createApp();
+    await app.ready();
+    const bearer = await seedDomainSecret(handle!.prisma, BACKEND_DOMAIN);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: url('/org/organisations'),
+      headers: { authorization: `Bearer ${bearer}` },
+      payload: { name: 'Stranger Org', owner_user_id: stranger.id },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(await handle!.prisma.organisation.count()).toBe(0);
+
+    // The same call succeeds the moment that user has authenticated here, so the
+    // rejection is the DomainRole and nothing else.
+    await handle!.prisma.domainRole.create({
+      data: { domain: BACKEND_DOMAIN, userId: stranger.id },
+    });
+    const retry = await app.inject({
+      method: 'POST',
+      url: url('/org/organisations'),
+      headers: { authorization: `Bearer ${bearer}` },
+      payload: { name: 'Stranger Org', owner_user_id: stranger.id },
+    });
+    expect(retry.statusCode).toBe(200);
+
+    await app.close();
+  });
+
   it('rejects owner_user_id on the user path, where the actor is the owner', async () => {
     await stubConfigs({ backendOrgManagement: true });
 
@@ -551,9 +596,11 @@ describe.skipIf(!hasDatabase)('/org/* backend mode (domain pairing, no user toke
         'x-uoa-access-token': confidentialToken,
       },
     });
-    // `GET /org/organisations` has no `requireOrgRole`, so it succeeds on the
-    // domain pairing regardless — the token is simply ignored, never verified.
-    expect(res.statusCode).toBe(200);
+    // The backend-only list route refuses ANY present `X-UOA-Access-Token`.
+    // It used to have no guard at all, so this token was ignored and the caller
+    // got the domain's organisation list — a token the route would not accept
+    // still bought the data the route protects.
+    expect(res.statusCode).toBe(401);
 
     // On a guarded route the same token is rejected as a bad USER token, not
     // silently upgraded to backend mode.

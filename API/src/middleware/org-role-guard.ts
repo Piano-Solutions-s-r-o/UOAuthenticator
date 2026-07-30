@@ -58,14 +58,13 @@ export function resolveOrgAccessTokenHeader(request: FastifyRequest): string | n
   const raw = request.headers[ORG_ACCESS_TOKEN_HEADER];
   if (raw === undefined) return null;
 
-  // A repeated header is ambiguous about which credential was meant; refuse to
-  // pick one rather than guess.
-  const values = Array.isArray(raw) ? raw : [raw];
-  if (values.length !== 1) {
-    throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
-  }
-
-  const token = parseBearerOrRawToken(values[0]);
+  // A repeated header needs no special case. Node's HTTP/1.1 and HTTP/2 parsers
+  // collapse duplicates of a custom header into ONE comma-joined string
+  // (`"a.b.c, d.e.f"`), which is not a JWT and fails verification — and if some
+  // non-Node front end ever handed us an array instead, it is not a `string`, so
+  // `parseBearerOrRawToken` returns null and this throws. Both shapes end at the
+  // same 401; neither can pick a credential.
+  const token = parseBearerOrRawToken(raw);
   if (!token) {
     throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
   }
@@ -76,12 +75,17 @@ declare module 'fastify' {
   interface FastifyRequest {
     accessTokenClaims?: AccessTokenClaims;
     /**
-     * Set by `requireOrgRole` — and by nothing else — when it accepted the request
-     * on the domain pairing alone, with no `x-uoa-access-token` present.
+     * Set by `requireOrgRole` and `requireOrgBackendOnly` — and by nothing else —
+     * when the request was accepted on the domain pairing alone, with no
+     * `x-uoa-access-token` present. Both writers go through the single
+     * `acceptDomainBackendCaller` below, so both ran the same three checks
+     * including the `backend_org_management` opt-in.
      *
      * Its presence is the ONLY proof that "there is deliberately no acting user"
      * rather than "the acting user is missing". Route helpers key on it before
-     * they are willing to call a service without an `actorUserId`.
+     * they are willing to call a service without an `actorUserId`, and
+     * `setTenantContextFromRequest` derives `app.domain_backend` from it — there
+     * is no way to assert that GUC without having passed through here.
      */
     orgBackendCaller?: { domain: string };
   }
@@ -151,6 +155,40 @@ function acceptDomainBackendCaller(request: FastifyRequest, queryDomain: string)
   }
 
   request.orgBackendCaller = { domain: verifiedDomain };
+}
+
+/**
+ * Guard a route that has NO user mode at all.
+ *
+ * `GET /org/organisations` is domain-scoped by construction: it lists a whole
+ * domain's organisations, there is no `:orgId` to scope to and no membership to
+ * check, and user-scoped reads live on `/org/me`. Its authorization boundary IS
+ * the domain pairing.
+ *
+ * Such a route must REFUSE a user credential, not ignore one. Ignoring it is
+ * what made a blank `X-UOA-Access-Token` — the shape a partner BFF forwards for
+ * an anonymous visitor — return the entire domain's organisation list: the
+ * header never reached `resolveOrgAccessTokenHeader`, so the blank-token blocker
+ * never ran. Any PRESENT header is therefore a 401 here, whether it is blank,
+ * malformed, or a perfectly valid access token; there is nothing on this route
+ * for a user token to mean.
+ *
+ * After that, the same `acceptDomainBackendCaller` every other backend-mode call
+ * runs: domain-hash guard passed, verified config domain bound (never the raw
+ * `?domain=`), and `org_features.backend_org_management` opted in. Listing a
+ * domain's organisations with no user token is exactly what that flag governs
+ * (brief §24.8), so the route no longer sits outside the opt-in.
+ */
+export function requireOrgBackendOnly() {
+  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    void reply;
+
+    if (request.headers[ORG_ACCESS_TOKEN_HEADER] !== undefined) {
+      throw new AppError('UNAUTHORIZED', 401, 'ACCESS_TOKEN_NOT_ALLOWED');
+    }
+
+    acceptDomainBackendCaller(request, resolveDomainFromRequest(request));
+  };
 }
 
 export function requireOrgRole(...requiredRoles: string[]) {
