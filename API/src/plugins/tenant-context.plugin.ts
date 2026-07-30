@@ -78,7 +78,19 @@ export default fp(plugin, { name: 'tenant-context' });
  */
 export function setTenantContextFromRequest(
   request: FastifyRequest,
-  extras?: { orgId?: string | null; userId?: string | null },
+  extras?: {
+    orgId?: string | null;
+    userId?: string | null;
+    /**
+     * Force domain-backend context on a route that is backend-to-backend by
+     * construction and therefore never runs `requireOrgRole` (the only writer of
+     * `request.orgBackendCaller`). `GET /org/organisations` is the case: its
+     * authorization boundary IS the domain-hash bearer plus the verified config,
+     * with no user to scope to. Everything else must leave this alone so the
+     * flag stays derived from the guard's own decision.
+     */
+    domainBackend?: boolean;
+  },
 ): void {
   const domain = request.config?.domain;
   if (!domain) {
@@ -89,6 +101,9 @@ export function setTenantContextFromRequest(
     domain,
     orgId: extras?.orgId ?? claims?.org?.org_id ?? null,
     userId: extras?.userId ?? claims?.userId ?? null,
+    // `requireOrgRole` sets `orgBackendCaller` only when it accepted the request
+    // on the domain pairing alone, so this is never true for a user-mode call.
+    domainBackend: extras?.domainBackend ?? Boolean(request.orgBackendCaller),
   };
 }
 

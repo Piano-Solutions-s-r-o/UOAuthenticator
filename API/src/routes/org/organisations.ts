@@ -43,9 +43,13 @@ export function registerOrganisationRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const { domain, limit, cursor } = parseLimitCursor(request);
-      // /org/organisations list uses organisations bootstrap predicate
-      // (domain + membership); app.org_id left empty intentionally.
-      setTenantContextFromRequest(request, { orgId: null });
+      // Domain-scoped, not org-scoped: `app.org_id` is deliberately empty and
+      // there is no acting user, so the only predicate that can match is the
+      // domain-backend branch of `organisations_select`. This route's
+      // authorization boundary IS the domain pairing, which the preValidation
+      // chain above already enforced, so the flag is set explicitly rather than
+      // derived from `requireOrgRole` (which this route does not run).
+      setTenantContextFromRequest(request, { orgId: null, domainBackend: true });
       const page = await request.withTenantTx((tx) =>
         listOrganisationsForDomain(
           { domain, limit, cursor },
@@ -107,7 +111,7 @@ export function registerOrganisationRoutes(app: FastifyInstance) {
       setTenantContextFromRequest(request, { orgId: null, userId: ownerId });
       const org = await request.withTenantTx((tx) =>
         createOrganisation(
-          { domain, name, ownerId, config },
+          { domain, name, ownerId, config, ...caller },
           { prisma: asPrismaClient(tx) },
         ),
       );
