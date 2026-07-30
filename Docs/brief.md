@@ -1340,6 +1340,17 @@ inside the guard rather than inferred from the order of the preValidation array:
    what the call binds to (a differing `?domain=` is `400 DOMAIN_MISMATCH`);
 3. that verified config sets `org_features.backend_org_management: true`.
 
+The header is optional only in the sense that it may be **absent**. A header that
+is *present but blank* — `""`, spaces, a tab, a newline — is a malformed
+credential, not an omitted one, and is `401 MISSING_ACCESS_TOKEN`. This matters
+because the realistic integration is a product BFF that attaches the domain-hash
+bearer server-side and forwards the end user's session token: for an anonymous
+visitor that token is the empty string, and treating it as "omitted" would
+promote an anonymous visitor to the tenant's backend. A repeated
+`X-UOA-Access-Token` header is refused for the same reason. Only a genuinely
+missing header selects backend mode. `POST .../teams/:teamId/invitations`, whose
+dual-mode branch predates backend mode, follows the identical rule.
+
 **There is no acting user in backend mode.** Checks that are about the acting
 user (org owner/admin, team manager, "must be an ACTIVE member") therefore do not
 apply — the pairing already proves authority over the whole tenant, which
@@ -1347,8 +1358,32 @@ outranks any one member's role. Checks that are *not* about the acting user are
 unchanged and apply to both modes: org-belongs-to-domain, the last-owner guard,
 membership and team caps, one-org-per-domain, and "cannot leave your last team".
 
+##### Checks deliberately dropped in backend mode
+
+"About the acting user" is easy to state and easy to under-read, so the specific
+org-level checks that **do not run** in backend mode are listed here rather than
+left to be discovered by reading the diff. Each is intentional under "the domain
+backend is the tenant authority", and each is pinned by a test:
+
+| Check (user mode) | Backend mode | Why |
+| --- | --- | --- |
+| Only the **owner** may change a member's role | not enforced | The rule protects members from each other. The backend is not a member. |
+| Only the **owner** may delete the organisation | not enforced | Same. The last-owner guard, which is not an actor check, still applies to member removal. |
+| `org_features.allow_user_create_org` gates org creation | not enforced | The flag governs whether **end users** may self-serve a workspace. It says nothing about the domain asking on its own behalf. |
+
+Everything else in the "not about the acting user" list above genuinely does
+apply to both modes.
+
 Where a route needs to name a user it takes one explicitly — `owner_user_id` on
 `POST /org/organisations`, `userId` on the member routes. Nothing is inferred.
+
+A named user must belong to the calling domain, and **existence is not that
+check**. `user_scope` defaults to `global`, so in a default deployment every
+`users` row has `domain: null` and is visible on every domain — platform
+superusers included. `owner_user_id` therefore requires the named user to hold a
+`DomainRole` on the calling domain, which is the row login itself writes. On the
+user path the owner *is* the acting user, whose access token was already proven
+to belong to this domain, so nothing extra is required there.
 `GET /org/me` and `POST /org/organisations/:orgId/teams/:teamId/join` are *about*
 the acting user, so they remain user-mode only and still return
 `401 MISSING_ACCESS_TOKEN`.
@@ -1360,10 +1395,47 @@ RLS `app.domain` / `app.org_id` GUCs. `app.user_id` is simply empty in backend
 mode, which only narrows the RLS predicates (it appears solely as an additive
 owner-of / member-of branch on every `/org` table).
 
+The access-request admin routes are part of "every handler". They were the one
+family that resolved its target from `access_requests.target_org_id` /
+`target_team_id` in the caller's **own signed config** and never re-resolved it
+against the calling domain — which is not a tenant boundary, because the caller
+authors that config. They now resolve org by `(id, domain)` and team by
+`(id, orgId)` like everything else, and the `access_requests` RLS policies
+require the row's organisation to sit on `app.domain` so the two layers are
+independent.
+
+Backend mode sets a fourth RLS GUC, `app.domain_backend`, derived **only** from
+the guard's own acceptance decision. Two policy branches are gated on it —
+"the domain's backend may see its own domain's organisations" (which is what
+makes `GET /org/organisations` return rows at all) and the equivalent for
+`org_members` (which is what lets the one-org-per-domain probes see a sibling
+org). A signed-in user never sets it, so user-mode visibility is unchanged. The
+one-org-per-user-per-domain invariant itself is additionally enforced by a
+database trigger, so it holds on every write path rather than only where a
+service probe can see far enough.
+
 Because a backend-initiated mutation has no user to attribute, it is recorded in
 `OrgAuditLog` with `actorUserId: null` plus the reserved `uoa_actor` metadata key
 `{ "via": "domain_backend", "source_domain": "…" }`. Rows without that key were
-made by a user directly.
+made by a user directly. `actorUserId` and `uoa_actor` are mutually exclusive: a
+row claiming both a user and the backend performed one mutation is rejected
+before it can be written.
+
+Every backend-reachable mutation writes such a row — organisation
+create/update/delete, ownership transfer, team create/update/delete,
+access-request approve/reject, and the membership and invite actions that already
+did. On the access-request routes, `reviewedByUserId` is a caller-supplied label
+and never becomes `actorUserId`. An audit write that fails after its mutation has
+committed does not fail the request (the mutation really happened), but it is
+logged as a distinct `org_audit_log_write_failed` event rather than swallowed.
+
+> **`uoa_actor` shape change — for operators and log consumers.** Rows written by
+> the removed confidential-provisioning path carried a wider object including
+> `product` and `chain`. The current shape is exactly
+> `{ "via": "domain_backend", "source_domain": "…" }`. Historical rows keep the
+> old shape and are not backfilled, so anything reading `uoa_actor` must tolerate
+> extra keys on rows predating this change and must not require `product`/`chain`
+> to be present.
 
 #### Middleware Chain
 

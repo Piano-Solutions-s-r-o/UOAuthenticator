@@ -320,6 +320,23 @@ describe('requireOrgRole — domain-pairing backend mode', () => {
     expect(request.orgBackendCaller).toEqual({ domain: 'client.example.com' });
   });
 
+  // The case above cannot tell "verified config domain" from "the raw ?domain=
+  // value" — both normalise to the same string. Flipping which side carries the
+  // odd casing does: a provenance taken from the raw query would keep the
+  // uppercase form here. The recorded source domain must always be the value
+  // the signature covered.
+  it('records the verified domain even when the query value is differently cased', async () => {
+    const middleware = requireOrgRole();
+    const request = makeBackendRequest({
+      configDomain: 'client.example.com',
+      queryDomain: 'CLIENT.Example.COM',
+    });
+
+    await middleware(request, {} as FastifyReply);
+
+    expect(request.orgBackendCaller).toEqual({ domain: 'client.example.com' });
+  });
+
   // A present-but-unusable header is NOT backend mode. It is a bad token, and it
   // must keep failing as one — otherwise a caller whose token expired would
   // silently be upgraded to unauthenticated-but-authorised.

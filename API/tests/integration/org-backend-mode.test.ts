@@ -389,8 +389,9 @@ describe.skipIf(!hasDatabase)('/org/* backend mode (domain pairing, no user toke
       url: url('/org/organisations'),
       headers: { authorization: `Bearer ${bearer}` },
     });
-    expect(res.statusCode).toBeGreaterThanOrEqual(400);
-    expect(res.statusCode).toBeLessThan(500);
+    // AGENTS.md: exact status only. An unfetchable config_url is a client-side
+    // input problem, never a server fault.
+    expect(res.statusCode).toBe(400);
 
     await app.close();
   });
