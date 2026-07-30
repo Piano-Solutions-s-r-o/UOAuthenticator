@@ -22,16 +22,15 @@ import { AppError } from '../../utils/errors.js';
 import {
   AddMemberBodySchema,
   SetRoleBodySchema,
-  type RequestWithClaims,
-  getActorProvenance,
-  getActorUserId,
   getOrgIdFromParams,
   getTransferOwnerId,
   getUserIdFromParams,
   keyAddMemberRateLimit,
+  orgCaller,
   parseDomainContext,
   parseDomainContextHook,
   parseMembersListQuery,
+  tenantUserId,
 } from './organisation-route.shared.js';
 
 // Organisation member management routes, split out of organisations.ts (which covers org
@@ -86,17 +85,15 @@ export function registerOrganisationMemberRoutes(app: FastifyInstance) {
       if (!config) throw new AppError('UNAUTHORIZED', 401, 'MISSING_CONFIG');
 
       const orgId = getOrgIdFromParams(request.params);
-      const actorUserId = getActorUserId(request as RequestWithClaims);
       const { userId, role } = AddMemberBodySchema.parse(request.body ?? {});
 
-      setTenantContextFromRequest(request, { orgId, userId: actorUserId });
+      setTenantContextFromRequest(request, { orgId, userId: tenantUserId(request) });
       const member = await request.withTenantTx((tx) =>
         addOrganisationMember(
           {
             orgId,
             domain,
-            actorUserId,
-            actor: getActorProvenance(request),
+            ...orgCaller(request),
             userId,
             role: role ?? 'member',
             config,
@@ -127,17 +124,15 @@ export function registerOrganisationMemberRoutes(app: FastifyInstance) {
 
       const orgId = getOrgIdFromParams(request.params);
       const userId = getUserIdFromParams(request.params);
-      const actorUserId = getActorUserId(request as RequestWithClaims);
       const { role } = SetRoleBodySchema.parse(request.body ?? {});
 
-      setTenantContextFromRequest(request, { orgId, userId: actorUserId });
+      setTenantContextFromRequest(request, { orgId, userId: tenantUserId(request) });
       const member = await request.withTenantTx((tx) =>
         changeOrganisationMemberRole(
           {
             orgId,
             domain,
-            actorUserId,
-            actor: getActorProvenance(request),
+            ...orgCaller(request),
             userId,
             role,
             config,
@@ -165,10 +160,9 @@ export function registerOrganisationMemberRoutes(app: FastifyInstance) {
       const { domain } = parseDomainContext(request);
       const orgId = getOrgIdFromParams(request.params);
       const userId = getUserIdFromParams(request.params);
-      const actorUserId = getActorUserId(request as RequestWithClaims);
 
       await removeOrganisationMember(
-        { orgId, domain, actorUserId, actor: getActorProvenance(request), userId },
+        { orgId, domain, ...orgCaller(request), userId },
         { prisma: request.adminDb },
       );
 
@@ -191,10 +185,9 @@ export function registerOrganisationMemberRoutes(app: FastifyInstance) {
       const { domain } = parseDomainContext(request);
       const orgId = getOrgIdFromParams(request.params);
       const userId = getUserIdFromParams(request.params);
-      const actorUserId = getActorUserId(request as RequestWithClaims);
 
       await deactivateOrganisationMember(
-        { orgId, domain, actorUserId, actor: getActorProvenance(request), userId },
+        { orgId, domain, ...orgCaller(request), userId },
         { prisma: request.adminDb },
       );
 
@@ -217,12 +210,11 @@ export function registerOrganisationMemberRoutes(app: FastifyInstance) {
       const { domain } = parseDomainContext(request);
       const orgId = getOrgIdFromParams(request.params);
       const userId = getUserIdFromParams(request.params);
-      const actorUserId = getActorUserId(request as RequestWithClaims);
 
-      setTenantContextFromRequest(request, { orgId, userId: actorUserId });
+      setTenantContextFromRequest(request, { orgId, userId: tenantUserId(request) });
       await request.withTenantTx((tx) =>
         reactivateOrganisationMember(
-          { orgId, domain, actorUserId, actor: getActorProvenance(request), userId },
+          { orgId, domain, ...orgCaller(request), userId },
           { prisma: asPrismaClient(tx) },
         ),
       );
@@ -236,12 +228,10 @@ export function registerOrganisationMemberRoutes(app: FastifyInstance) {
     const orgId = getOrgIdFromParams(request.params);
     const newOwnerId = getTransferOwnerId((request.body ?? {}) as Record<string, unknown>);
 
-    const actorUserId = getActorUserId(request as RequestWithClaims);
-
-    setTenantContextFromRequest(request, { orgId, userId: actorUserId });
+    setTenantContextFromRequest(request, { orgId, userId: tenantUserId(request) });
     const org = await request.withTenantTx((tx) =>
       transferOrganisationOwnership(
-        { orgId, domain, actorUserId, newOwnerId },
+        { orgId, domain, ...orgCaller(request), newOwnerId },
         { prisma: asPrismaClient(tx) },
       ),
     );

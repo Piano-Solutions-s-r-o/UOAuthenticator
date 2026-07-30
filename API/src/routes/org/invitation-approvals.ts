@@ -15,10 +15,9 @@ import {
 import { AppError } from '../../utils/errors.js';
 import { assertVerifiedDomainMatchesQuery, normalizeDomain } from './domain-context.js';
 import {
-  type RequestWithClaims,
-  getActorProvenance,
-  getActorUserId,
   getOrgIdFromParams,
+  orgCaller,
+  tenantUserId,
 } from './organisation-route.shared.js';
 
 const ListQuerySchema = z
@@ -116,9 +115,9 @@ export function registerInvitationApprovalRoutes(app: FastifyInstance): void {
       if (!config || !configUrl) throw new AppError('UNAUTHORIZED', 401, 'MISSING_CONFIG');
 
       const { orgId, inviteId } = InviteIdParamSchema.parse(request.params);
-      const reviewerUserId = getActorUserId(request as RequestWithClaims);
+      const caller = orgCaller(request);
 
-      setTenantContextFromRequest(request, { orgId, userId: reviewerUserId });
+      setTenantContextFromRequest(request, { orgId, userId: tenantUserId(request) });
       const invite = await request.withTenantTx((tx) =>
         approveInvite(
           {
@@ -127,8 +126,11 @@ export function registerInvitationApprovalRoutes(app: FastifyInstance): void {
             inviteId,
             config,
             configUrl,
-            reviewerUserId,
-            actor: getActorProvenance(request),
+            // The reviewer is the acting user; in backend mode nobody reviewed
+            // it, the backend decided, and `actor` records that instead.
+            ...('actorUserId' in caller
+              ? { reviewerUserId: caller.actorUserId }
+              : { actor: caller.actor }),
           },
           { prisma: asPrismaClient(tx) },
         ),
@@ -152,12 +154,19 @@ export function registerInvitationApprovalRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { domain } = parseDomainQuery(request);
       const { orgId, inviteId } = InviteIdParamSchema.parse(request.params);
-      const reviewerUserId = getActorUserId(request as RequestWithClaims);
+      const caller = orgCaller(request);
 
-      setTenantContextFromRequest(request, { orgId, userId: reviewerUserId });
+      setTenantContextFromRequest(request, { orgId, userId: tenantUserId(request) });
       const invite = await request.withTenantTx((tx) =>
         denyInvite(
-          { orgId, domain, inviteId, reviewerUserId, actor: getActorProvenance(request) },
+          {
+            orgId,
+            domain,
+            inviteId,
+            ...('actorUserId' in caller
+              ? { reviewerUserId: caller.actorUserId }
+              : { actor: caller.actor }),
+          },
           { prisma: asPrismaClient(tx) },
         ),
       );

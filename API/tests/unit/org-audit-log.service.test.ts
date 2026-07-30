@@ -61,9 +61,9 @@ describe('writeOrgAuditLog', () => {
     });
   });
 
-  // A backend acting FOR a user must be distinguishable from the user acting
-  // themselves. Without this the only recorded identity is `actorUserId`, which is
-  // the same value in both cases.
+  // A domain backend acting on its own must be distinguishable from a user
+  // acting. Without this a backend-initiated mutation is indistinguishable from a
+  // system write, which is exactly the attribution gap this key closes.
   it('records backend actor provenance under the reserved metadata key', async () => {
     const create = vi.fn().mockResolvedValue({ id: 'oal-3' });
     const prisma = { orgAuditLog: { create } } as unknown as PrismaClient;
@@ -73,10 +73,8 @@ describe('writeOrgAuditLog', () => {
         orgId: 'org-1',
         actorUserId: 'user-1',
         actor: {
-          via: 'confidential_provisioning',
-          product: 'hugo',
+          via: 'domain_backend',
           sourceDomain: 'api.hugopos.eu',
-          chain: [{ sub: 'api.deepsignal.live', product: 'deepsignal' }],
         },
         action: 'member.added',
         targetType: 'org_member',
@@ -97,10 +95,8 @@ describe('writeOrgAuditLog', () => {
           userId: 'user-2',
           role: 'member',
           [ORG_AUDIT_ACTOR_METADATA_KEY]: {
-            via: 'confidential_provisioning',
-            product: 'hugo',
+            via: 'domain_backend',
             source_domain: 'api.hugopos.eu',
-            chain: [{ sub: 'api.deepsignal.live', product: 'deepsignal' }],
           },
         },
       },
@@ -117,8 +113,7 @@ describe('writeOrgAuditLog', () => {
         orgId: 'org-1',
         actorUserId: 'user-1',
         actor: {
-          via: 'confidential_provisioning',
-          product: 'hugo',
+          via: 'domain_backend',
           sourceDomain: 'api.hugopos.eu',
         },
         action: 'member.added',
@@ -130,8 +125,7 @@ describe('writeOrgAuditLog', () => {
     );
 
     expect(create.mock.calls[0][0].data.metadata[ORG_AUDIT_ACTOR_METADATA_KEY]).toEqual({
-      via: 'confidential_provisioning',
-      product: 'hugo',
+      via: 'domain_backend',
       source_domain: 'api.hugopos.eu',
     });
   });

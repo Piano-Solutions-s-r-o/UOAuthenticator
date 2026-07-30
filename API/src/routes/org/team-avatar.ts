@@ -22,12 +22,11 @@ import {
 import { assertVerifiedDomainMatchesQuery } from './domain-context.js';
 import {
   DomainQuerySchema,
-  getActorUserId,
   getOrgIdFromParams,
   getTeamIdFromParams,
+  orgCaller,
   parseDomainContext,
   parseDomainContextHook,
-  type RequestWithClaims,
 } from './team-route.shared.js';
 
 /**
@@ -72,7 +71,7 @@ type TeamAvatarContext = {
   domain: string;
   orgId: string;
   teamId: string;
-  actorUserId: string;
+  caller: ReturnType<typeof orgCaller>;
 };
 
 function mutationContext(request: FastifyRequest): TeamAvatarContext {
@@ -81,7 +80,7 @@ function mutationContext(request: FastifyRequest): TeamAvatarContext {
     domain,
     orgId: getOrgIdFromParams(request.params),
     teamId: getTeamIdFromParams(request.params),
-    actorUserId: getActorUserId(request as RequestWithClaims),
+    caller: orgCaller(request),
   };
 }
 
@@ -95,10 +94,9 @@ export function registerTeamAvatarRoutes(app: FastifyInstance): void {
 
       const orgId = getOrgIdFromParams(request.params);
       const teamId = getTeamIdFromParams(request.params);
-      const actorUserId = getActorUserId(request as RequestWithClaims);
 
       const resolvedTeamId = await requireOrgTeamId(
-        { orgId, teamId, domain: query.domain, actorUserId },
+        { orgId, teamId, domain: query.domain, ...orgCaller(request) },
         { prisma: request.adminDb },
       );
       const avatar = await resolveTeamAvatar({
@@ -120,10 +118,10 @@ export function registerTeamAvatarRoutes(app: FastifyInstance): void {
       schema: { response: { 200: uploadResponseSchema } },
     },
     async (request) => {
-      const { domain, orgId, teamId, actorUserId } = mutationContext(request);
+      const { domain, orgId, teamId, caller } = mutationContext(request);
 
       const resolvedTeamId = await requireOrgTeamId(
-        { orgId, teamId, domain, actorUserId, requireManager: true },
+        { orgId, teamId, domain, ...caller, requireManager: true },
         { prisma: request.adminDb },
       );
       const data = await readAvatarUpload(request);
@@ -139,10 +137,10 @@ export function registerTeamAvatarRoutes(app: FastifyInstance): void {
       schema: { response: { 200: uploadResponseSchema } },
     },
     async (request) => {
-      const { domain, orgId, teamId, actorUserId } = mutationContext(request);
+      const { domain, orgId, teamId, caller } = mutationContext(request);
 
       const resolvedTeamId = await requireOrgTeamId(
-        { orgId, teamId, domain, actorUserId, requireManager: true },
+        { orgId, teamId, domain, ...caller, requireManager: true },
         { prisma: request.adminDb },
       );
       await deleteTeamAvatar({ teamId: resolvedTeamId });

@@ -248,6 +248,17 @@ const ClientConfigSchema = RequiredConfigSchema.extend({
       user_needs_team: z.boolean().default(false),
       auto_create_personal_org_on_first_login: z.boolean().default(false),
       allow_user_create_org: z.boolean().default(false),
+      // Opt-in for backend mode on `/org/*` (brief §24.8): when true, this
+      // domain's product backend may call `/org/*` with NO `X-UOA-Access-Token`
+      // and be authorised by the domain pairing alone. Default false, so no
+      // existing domain gains the mode silently.
+      //
+      // This is a blast-radius control, not a new credential. The domain-hash
+      // bearer and the config-signing private key are two separate secrets;
+      // requiring the flag means a leaked bearer alone cannot rewrite the org
+      // graph — the attacker would also have to get this flag into a config JWT
+      // signed by the partner's own key.
+      backend_org_management: z.boolean().default(false),
       pending_invites_block_auto_create: z.boolean().default(true),
       max_teams_per_org: z.number().int().positive().max(1000).default(100),
       max_groups_per_org: z.number().int().positive().max(200).default(20),
@@ -270,6 +281,7 @@ const ClientConfigSchema = RequiredConfigSchema.extend({
       user_needs_team: false,
       auto_create_personal_org_on_first_login: false,
       allow_user_create_org: false,
+      backend_org_management: false,
       pending_invites_block_auto_create: true,
       max_teams_per_org: 100,
       max_groups_per_org: 20,

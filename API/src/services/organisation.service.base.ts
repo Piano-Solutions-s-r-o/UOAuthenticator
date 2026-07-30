@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Prisma, PrismaClient, type MembershipStatus } from '@prisma/client';
 
-import type { AccessTokenActor } from './access-token.service.js';
+import type { OrgActorProvenance } from './org-audit-log.service.js';
 import type { ClientConfig } from './config.service.js';
 import { getEnv } from '../config/env.js';
 import {
@@ -9,6 +9,7 @@ import {
   domainAvatarImageUrl,
   domainTeamAvatarImageUrl,
 } from '../utils/avatar-url.js';
+import { getAppLogger } from '../utils/app-logger.js';
 import { normalizeDomain } from '../utils/domain.js';
 import { AppError } from '../utils/errors.js';
 import { parseIconUrl } from '../utils/http-url.js';
@@ -126,6 +127,48 @@ const RESERVED_ORG_SLUGS = new Set([
 const SLUG_ALLOWED_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const SLUG_RANDOM_SUFFIX_MAX_ATTEMPTS = 10;
 const SLUG_SUFFIX_LENGTH = 4;
+
+/**
+ * Resolve who is calling an `/org/*` service, and refuse to guess.
+ *
+ * Exactly one of two things is true on every `/org/*` call:
+ *
+ *   1. A signed-in user is acting. `actorUserId` is their id, and every per-user
+ *      org/team role check in the service applies to them.
+ *   2. The product backend for this domain is acting. `requireOrgRole` accepted
+ *      the request on the domain pairing alone (domain-hash bearer + verified
+ *      config JWT, no `X-UOA-Access-Token`), so there is NO acting user and the
+ *      per-user role checks have no subject. `actorUserId` is `undefined` and
+ *      `actor` names the backend.
+ *
+ * Anything else is a programming error — an `actorUserId` that went missing on a
+ * user-initiated path would otherwise skip every actor check silently. That case
+ * raises a 500 rather than degrading into unauthenticated access, so a future
+ * refactor that drops the parameter fails loudly instead of opening a hole.
+ *
+ * An explicitly-empty `actorUserId` keeps its historical `BAD_REQUEST` — it is a
+ * malformed value, not an absent one.
+ */
+export function resolveOrgActor(params: {
+  actorUserId?: string;
+  actor?: OrgActorProvenance;
+}): string | undefined {
+  // Both set is as unresolvable as neither: the two describe mutually exclusive
+  // callers, and letting them through would write an audit row claiming that a
+  // user AND the domain backend performed the same mutation. `orgCaller` only
+  // ever produces one of the two, so this is a programming error on the same
+  // footing as a dropped spread — and gets the same loud 500.
+  if (params.actorUserId !== undefined && params.actor) {
+    throw new AppError('INTERNAL', 500, 'ORG_ACTOR_AMBIGUOUS');
+  }
+  if (params.actorUserId !== undefined) {
+    const trimmed = params.actorUserId.trim();
+    if (!trimmed) throw new AppError('BAD_REQUEST', 400);
+    return trimmed;
+  }
+  if (params.actor) return undefined;
+  throw new AppError('INTERNAL', 500, 'ORG_ACTOR_UNRESOLVED');
+}
 
 export function assertDatabaseEnabled(env: ReturnType<typeof getEnv>): void {
   if (!env.DATABASE_URL) {
@@ -359,12 +402,13 @@ export async function getOrganisationMember(
 export async function auditOrg(
   params: {
     orgId: string;
-    actorUserId: string;
+    /** The acting user, or `undefined` when the domain backend acted (see `actor`). */
+    actorUserId: string | undefined;
     /**
-     * Backend that acted for `actorUserId`, when the request arrived on the
-     * confidential provisioning path. Undefined for user-initiated mutations.
+     * The domain backend that made this mutation itself. Undefined for
+     * user-initiated mutations.
      */
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     action: OrgAuditAction;
     targetType: OrgAuditTargetType;
     targetId: string;
@@ -385,8 +429,36 @@ export async function auditOrg(
       },
       deps,
     );
-  } catch {
-    // Auditing is non-critical; the mutation has already succeeded.
+  } catch (err) {
+    // The mutation has already committed, so throwing here would report failure
+    // for work that actually happened — worse than a missing audit row. But a
+    // silent `catch {}` also makes "no audit row" indistinguishable from "no
+    // mutation", which is exactly the wrong answer for an authentication
+    // service. Log loudly and distinctly instead, so a dropped row is
+    // greppable and alertable rather than invisible.
+    //
+    // In backend mode this row is the ONLY record that the domain backend acted
+    // (there is no acting user to attribute it to), so treat a failure here as
+    // an operational incident, not noise.
+    try {
+      getAppLogger().error(
+        {
+          err,
+          orgId: params.orgId,
+          action: params.action,
+          targetType: params.targetType,
+          targetId: params.targetId,
+          actorUserId: params.actorUserId ?? null,
+          actorVia: params.actor?.via ?? null,
+          actorSourceDomain: params.actor?.sourceDomain ?? null,
+        },
+        'org_audit_log_write_failed',
+      );
+    } catch {
+      // `getAppLogger` throws when there is no running server to log through —
+      // a unit test or a CLI entry point. There is no operator to alert in that
+      // case, and the audit row is not the artefact under test.
+    }
   }
 }
 
@@ -398,4 +470,4 @@ export function parseOrgFeatureRoles(config: ClientConfig): string[] {
   return resolveOrgRoles(config);
 }
 
-export type { AccessTokenActor, OrgServicePrisma, OrgServiceDeps };
+export type { OrgActorProvenance, OrgServicePrisma, OrgServiceDeps };

@@ -12,8 +12,9 @@ import {
   assertDatabaseEnabled,
   auditOrg,
   normalizeDomain,
+  resolveOrgActor,
   resolveOrganisationByDomain,
-  type AccessTokenActor,
+  type OrgActorProvenance,
 } from './organisation.service.base.js';
 import { isOrgOrTeamManager } from './team.service.base.js';
 import {
@@ -108,7 +109,7 @@ function clampMaxUses(value?: number): number {
  */
 async function requireLinkManager(
   prisma: InviteLinkPrisma,
-  params: { orgId: string; teamId: string; actorUserId: string },
+  params: { orgId: string; teamId: string; actorUserId: string | undefined },
 ): Promise<void> {
   const isManager = await isOrgOrTeamManager(prisma, params);
   if (!isManager) {
@@ -125,8 +126,8 @@ export async function createTeamInviteLink(
     orgId: string;
     teamId: string;
     domain: string;
-    actorUserId: string;
-    actor?: AccessTokenActor;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
     roleToAssign?: string;
     maxUses?: number;
     expiresInDays?: number;
@@ -138,6 +139,7 @@ export async function createTeamInviteLink(
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
+  const actorUserId = resolveOrgActor(params);
   const prisma = deps?.prisma ?? (getPrisma() as InviteLinkPrisma);
   const now = deps?.now ? deps.now() : new Date();
 
@@ -151,7 +153,7 @@ export async function createTeamInviteLink(
     throw new AppError('NOT_FOUND', 404);
   }
 
-  await requireLinkManager(prisma, { orgId: org.id, teamId: team.id, actorUserId: params.actorUserId });
+  await requireLinkManager(prisma, { orgId: org.id, teamId: team.id, actorUserId });
 
   if (team.joinPolicy === 'HIDDEN') {
     throw new AppError('BAD_REQUEST', 400);
@@ -173,7 +175,10 @@ export async function createTeamInviteLink(
       orgId: org.id,
       teamId: team.id,
       tokenHash,
-      createdByUserId: params.actorUserId,
+      // Nullable column: a link created in backend mode has no human creator, and
+      // recording one would be a lie. The org audit row carries the backend's
+      // provenance instead.
+      createdByUserId: actorUserId ?? null,
       roleToAssign,
       expiresAt,
       maxUses,
@@ -183,7 +188,7 @@ export async function createTeamInviteLink(
 
   await auditOrg({
     orgId: org.id,
-    actorUserId: params.actorUserId,
+    actorUserId,
     actor: params.actor,
     action: 'invite_link.created',
     targetType: 'invite_link',
@@ -196,12 +201,19 @@ export async function createTeamInviteLink(
 
 /** List every invite link for a team (including revoked ones — `revokedAt` tells the caller which). */
 export async function listTeamInviteLinks(
-  params: { orgId: string; teamId: string; domain: string; actorUserId: string },
+  params: {
+    orgId: string;
+    teamId: string;
+    domain: string;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
+  },
   deps?: InviteLinkDeps,
 ): Promise<{ data: TeamInviteLinkRecord[] }> {
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
+  const actorUserId = resolveOrgActor(params);
   const prisma = deps?.prisma ?? (getPrisma() as InviteLinkPrisma);
   const org = await resolveOrganisationByDomain(prisma, { orgId: params.orgId, domain: params.domain });
 
@@ -213,7 +225,7 @@ export async function listTeamInviteLinks(
     throw new AppError('NOT_FOUND', 404);
   }
 
-  await requireLinkManager(prisma, { orgId: org.id, teamId: team.id, actorUserId: params.actorUserId });
+  await requireLinkManager(prisma, { orgId: org.id, teamId: team.id, actorUserId });
 
   const rows = await prisma.teamInviteLink.findMany({
     where: { orgId: org.id, teamId: team.id },
@@ -231,14 +243,15 @@ export async function revokeTeamInviteLink(
     teamId: string;
     linkId: string;
     domain: string;
-    actorUserId: string;
-    actor?: AccessTokenActor;
+    actorUserId?: string;
+    actor?: OrgActorProvenance;
   },
   deps?: InviteLinkDeps,
 ): Promise<{ revoked: boolean }> {
   const env = deps?.env ?? getEnv();
   assertDatabaseEnabled(env);
 
+  const actorUserId = resolveOrgActor(params);
   const prisma = deps?.prisma ?? (getPrisma() as InviteLinkPrisma);
   const now = deps?.now ? deps.now() : new Date();
 
@@ -251,7 +264,7 @@ export async function revokeTeamInviteLink(
     throw new AppError('NOT_FOUND', 404);
   }
 
-  await requireLinkManager(prisma, { orgId: org.id, teamId: team.id, actorUserId: params.actorUserId });
+  await requireLinkManager(prisma, { orgId: org.id, teamId: team.id, actorUserId });
 
   const link = await prisma.teamInviteLink.findFirst({
     where: { id: params.linkId, orgId: org.id, teamId: team.id },
@@ -271,7 +284,7 @@ export async function revokeTeamInviteLink(
 
   await auditOrg({
     orgId: org.id,
-    actorUserId: params.actorUserId,
+    actorUserId,
     actor: params.actor,
     action: 'invite_link.revoked',
     targetType: 'invite_link',
@@ -370,7 +383,7 @@ export async function redeemTeamInviteLink(
   params: {
     token: string;
     userId: string;
-    actor?: AccessTokenActor;
+    actor?: OrgActorProvenance;
     domain: string;
     config: ClientConfig;
   },

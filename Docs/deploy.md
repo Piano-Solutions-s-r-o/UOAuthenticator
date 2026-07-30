@@ -25,6 +25,67 @@
 
 The production root `https://authentication.unlikeotherai.com/` is a Tailwind holding page with links to Admin, `/llm`, and `/api`. The Admin UI is served by the same Cloud Run API service at `https://authentication.unlikeotherai.com/admin`.
 
+### Migrations run at container boot — what that costs
+
+`docker/start-production.sh` runs `prisma migrate deploy` when a revision starts,
+**while the previous revision is still serving traffic**. Two consequences that
+are easy to miss:
+
+- **Locks are shared with live traffic.** A migration that `DROP`s/`CREATE`s a
+  policy, adds a trigger, or alters a table takes `ACCESS EXCLUSIVE`. PostgreSQL
+  queues every later request behind a *waiting* `ACCESS EXCLUSIVE`, so a single
+  in-flight read is enough to stall all auth queries on that table for as long as
+  that read runs — measured at **10,110 ms** for a plain
+  `SELECT count(*) FROM org_members` behind a 12 s reader.
+  **Every migration that touches a live table must open with**
+  ```sql
+  SET lock_timeout = '5s';
+  SET statement_timeout = '120s';
+  ```
+  so it aborts instead of parking the service behind a lock queue. See
+  `API/prisma/migrations/20260730180000_org_member_active_org_domain_constraint/migration.sql`.
+
+- **A half-applied migration crash-loops the service.** See below.
+
+### Recovering from a failed migration
+
+Prisma runs each migration in one transaction, so the *schema* rolls back
+cleanly. The **bookkeeping does not**: `_prisma_migrations` is left with
+`finished_at NULL, rolled_back_at NULL`, and every subsequent boot then fails
+with **P3009**. `start-production.sh` runs under `set -eu`, so the container
+exits — a crash loop and a total auth outage until an operator intervenes. The
+script detects P3009 specifically and prints this runbook to the container log
+rather than dying silently.
+
+Recover, connected as `DATABASE_ADMIN_URL`:
+
+```sql
+-- 1. Identify it and read WHY it failed. `logs` holds the database error.
+SELECT migration_name, started_at, finished_at, rolled_back_at, logs
+  FROM _prisma_migrations
+ WHERE finished_at IS NULL;
+```
+
+```bash
+# 2. Fix the underlying cause first (see `logs`). For
+#    20260730180000_org_member_active_org_domain_constraint that means resolving
+#    pre-existing one-active-organisation-per-user-per-domain violations — the
+#    migration's pre-flight names every offending (user, domain) pair and gives
+#    the remediation query in its HINT.
+
+# 3. Clear the wedged row. The schema already rolled back, so `--rolled-back`
+#    (never `--applied`) is correct.
+DATABASE_URL="$DATABASE_ADMIN_URL" \
+  npx prisma migrate resolve --rolled-back <migration_name>
+
+# 4. Redeploy. The migration re-runs from scratch.
+```
+
+**Do not trust a failed deploy's status alone.** Killing the `prisma` process
+does not kill its schema-engine child, which can keep working for ~20 s after the
+CI step reports failure — so the workflow result and the actual database state
+can disagree. Always read `_prisma_migrations` before acting.
+
 ### GitHub Actions configuration
 
 Configured as GitHub repository variables:
@@ -247,7 +308,7 @@ Before enabling the confidential exchange in production:
    > **This is a hard prerequisite for the entire confidential exchange, not an
    > optimisation.** `MCP_OAUTH_ACCESS_TOKEN_PRIVATE_JWK` is the key the service
    > uses both to SIGN confidential access tokens and to VERIFY them when they
-   > come back (including on `/org/*`). Until it is set, the exchange cannot mint
+   > come back. Until it is set, the exchange cannot mint
    > anything and the verifier fails with `MCP_OAUTH_DISABLED` (500) —
    > deliberately a server error, never a 401, so an unprovisioned deployment
    > cannot be mistaken for a bad token.
@@ -260,9 +321,9 @@ Before enabling the confidential exchange in production:
    >
    > A **404 means the key is not set** (`isOAuthAccessTokenJwksEnabled()` gates
    > the route on exactly this variable). A 200 with at least one key means the
-   > profile is ready. Do not create `token.provision` mappings — or tell a
-   > product to start using them — until this returns 200, or every call will
-   > fail with a 5xx.
+   > profile is ready. Do not create delegation mappings — or tell a product
+   > to start using them — until this returns 200, or every call will fail
+   > with a 5xx.
 2. Keep `MCP_OAUTH_PUBLIC_PROFILE_ENABLED=false`; confidential signing and JWKS
    publication do not require a public OAuth tenant.
 3. Apply
@@ -285,44 +346,26 @@ Before enabling the confidential exchange in production:
 
    > ### ⚠️ `token.provision` — read before granting it
    >
-   > **`token.provision` is the highest-trust delegation scope, and what it
-   > grants depends entirely on the `resource` you pair it with.** Two very
-   > different capabilities share this one scope name:
+   > `token.provision` is a high-trust delegation scope: it authorises the
+   > source domain to provision tokens against the exact HTTPS `resource` the
+   > mapping names (e.g. a dedicated provisioner such as Coder). It is never
+   > implied by `ai.invoke`; grant it explicitly and only alongside the scopes
+   > actually needed.
    >
-   > | `resource` | What the mapping grants |
-   > |---|---|
-   > | A product's own HTTPS origin (e.g. `https://coder.example.com`) | Token provisioning for that product only — the original dedicated-provisioner use. |
-   > | **`<UOA public base URL>/org`** (e.g. `https://sso.hugopos.eu/org`) | **Full organisation and team authority over UOA's own tenancy for that source domain** — create/rename organisations, add and remove members, change org and team roles, transfer ownership, create and revoke invites and invite links. |
+   > `normalizeResource` plus exact-string audience matching mean the resource
+   > IS the containment boundary — review it when granting the scope, and
+   > confirm the source domain is a first-party backend you control.
    >
-   > The second row is the capability added by the `/org/*` confidential
-   > provisioning path. A backend holding such a token acts **as one of its
-   > users**, bounded by that user's live org/team role and source-domain role —
-   > it is never more privileged than that user's own session, and it cannot
-   > reach another domain's tenant. But within that user's authority it needs no
-   > further human interaction, and the token is minted server-to-server.
+   > It does NOT reach UOA's own `/org/*` surface. `/org/*` authenticates the
+   > domain pairing (domain-hash bearer + signed config JWT) directly and
+   > accepts no resource token — see `Docs/brief.md` §24.8.
    >
-   > **Before enabling a `token.provision` mapping:**
-   >
-   > 1. Look at the `resource`. If it ends in `/org` on a UOA base URL, you are
-   >    granting organisation and team authority over UOA itself — not merely
-   >    "token provisioning". Confirm that is intended and approved.
-   > 2. Confirm the source domain is a first-party backend you control. It will
-   >    be able to act for any of its users who hold a role on that domain.
-   > 3. Prefer the narrowest resource that works. `normalizeResource` plus exact
-   >    string audience matching mean a mapping for any other resource cannot
-   >    reach `/org` — so scoping the resource IS the containment boundary.
-   > 4. `token.provision` is never implied by `ai.invoke`; grant it explicitly
-   >    and only alongside the scopes actually needed.
-   > 5. Every org/team mutation made this way is recorded in `OrgAuditLog` with
-   >    backend provenance under the `uoa_actor` metadata key (`via`, `product`,
-   >    `source_domain`, and the `act` chain). Rows without that key were made by
-   >    the user directly. Use it when reviewing org history.
-   >
-   > To revoke, disable or delete the mapping — it fails closed before any token
-   > is issued. Already-issued tokens remain valid until `exp` (bounded by the
-   > confidential access-token lifetime), but every request re-reads the user's
-   > credential epoch and `DomainRole`, so bumping the epoch or removing the role
-   > revokes in-flight tokens immediately.
+   > To revoke, disable or delete the mapping — it fails closed before any
+   > token is issued. Already-issued tokens remain valid until `exp` (bounded
+   > by the confidential access-token lifetime), but every request re-reads the
+   > user's credential epoch and `DomainRole`, so bumping the epoch or removing
+   > the role revokes in-flight tokens immediately.
+
 7. Verify `GET https://authentication.unlikeotherai.com/oauth/jwks.json` returns
    the configured public key, while discovery, registration, authorize, login,
    and `/oauth/token` return 404. Exercise correct and wrong product credentials,
