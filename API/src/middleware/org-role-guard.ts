@@ -36,6 +36,42 @@ export function parseBearerOrRawToken(value: unknown): string | null {
   return trimmed;
 }
 
+export const ORG_ACCESS_TOKEN_HEADER = 'x-uoa-access-token';
+
+/**
+ * Resolve `X-UOA-Access-Token` into either a token or "the caller deliberately
+ * sent no user credential".
+ *
+ * This distinction is load-bearing and must never be collapsed. An ABSENT
+ * header selects backend mode, which carries authority over the entire tenant.
+ * A header that is PRESENT but blank — `""`, `"   "`, a tab, a newline,
+ * `"Bearer "` — is a MALFORMED CREDENTIAL, not an absent one. The realistic
+ * source is a partner BFF that attaches the domain-hash bearer server-side and
+ * forwards the end user's session token: for an anonymous visitor that token is
+ * the empty string, and treating it as "omitted" would promote an anonymous
+ * visitor to the whole tenant's backend.
+ *
+ * So: blank-but-present is a 401, exactly like a token that fails to verify.
+ * Only a genuinely missing header returns `null`.
+ */
+export function resolveOrgAccessTokenHeader(request: FastifyRequest): string | null {
+  const raw = request.headers[ORG_ACCESS_TOKEN_HEADER];
+  if (raw === undefined) return null;
+
+  // A repeated header is ambiguous about which credential was meant; refuse to
+  // pick one rather than guess.
+  const values = Array.isArray(raw) ? raw : [raw];
+  if (values.length !== 1) {
+    throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
+  }
+
+  const token = parseBearerOrRawToken(values[0]);
+  if (!token) {
+    throw new AppError('UNAUTHORIZED', 401, 'MISSING_ACCESS_TOKEN');
+  }
+  return token;
+}
+
 declare module 'fastify' {
   interface FastifyRequest {
     accessTokenClaims?: AccessTokenClaims;
@@ -123,7 +159,9 @@ export function requireOrgRole(...requiredRoles: string[]) {
 
     const domain = resolveDomainFromRequest(request);
 
-    const token = parseBearerOrRawToken(request.headers['x-uoa-access-token']);
+    // Only a genuinely ABSENT header selects backend mode. A present-but-blank
+    // header throws inside the resolver rather than reaching this branch.
+    const token = resolveOrgAccessTokenHeader(request);
     if (!token) {
       acceptDomainBackendCaller(request, domain);
       return;

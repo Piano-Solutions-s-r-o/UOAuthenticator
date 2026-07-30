@@ -4,7 +4,7 @@ import { asPrismaClient } from '../../db/tenant-context.js';
 import { configVerifier } from '../../middleware/config-verifier.js';
 import requireDomainHashAuthForDomainQuery from '../../middleware/domain-hash-auth.js';
 import { requireOrgFeatures } from '../../middleware/org-features.js';
-import { parseBearerOrRawToken, resolveActingUserClaims } from '../../middleware/org-role-guard.js';
+import { resolveActingUserClaims, resolveOrgAccessTokenHeader } from '../../middleware/org-role-guard.js';
 import { createRateLimiter } from '../../middleware/rate-limiter.js';
 import { setTenantContextFromRequest } from '../../plugins/tenant-context.plugin.js';
 import {
@@ -57,7 +57,11 @@ export function registerTeamInvitationRoutes(app: FastifyInstance): void {
       // Dual-mode route (Phase 4 Task 4, design §4.7): presence of the user access token switches
       // this from the trusted backend bulk-invite call (unchanged below) to the permission-gated,
       // single-invite, member-initiated path — same path/method, alongside the backend contract.
-      const accessToken = parseBearerOrRawToken(request.headers['x-uoa-access-token']);
+      // Same absent-vs-blank rule as `requireOrgRole`: only a genuinely missing
+      // header selects the trusted backend bulk-invite path. A present-but-blank
+      // header (an anonymous visitor's empty session forwarded by a BFF) is a
+      // malformed credential and 401s inside the resolver.
+      const accessToken = resolveOrgAccessTokenHeader(request);
       if (accessToken) {
         // Same resolver as `requireOrgRole`, so this member-initiated path accepts
         // exactly the tokens every other `/org/*` route accepts.

@@ -368,13 +368,49 @@ describe('requireOrgRole — domain-pairing backend mode', () => {
     expect(verifyAccessTokenMock).toHaveBeenCalledTimes(1);
   });
 
-  // An empty/whitespace header is treated as absent by `parseBearerOrRawToken`,
-  // so it lands in backend mode. Pin it: the alternative (a 401) would be a
-  // behaviour difference between "omit the header" and "send it empty".
-  it('treats a whitespace-only header as no token', async () => {
+  // A PRESENT but blank header is a malformed credential, never "no credential".
+  // Collapsing the two would let a BFF that forwards an anonymous visitor's
+  // empty session token execute as the whole tenant's backend, so each blank
+  // shape is pinned to a 401 and must never reach backend mode.
+  it.each([
+    ['empty string', ''],
+    ['spaces', '   '],
+    ['tab', '\t'],
+    ['newline', '\n'],
+    ['carriage return + newline', '\r\n'],
+    ['mixed whitespace', ' \t\r\n '],
+  ])('rejects a present-but-blank access token header (%s)', async (_label, headerValue) => {
     const middleware = requireOrgRole();
     const request = makeBackendRequest();
-    (request.headers as Record<string, string>)['x-uoa-access-token'] = '   ';
+    (request.headers as Record<string, string>)['x-uoa-access-token'] = headerValue;
+
+    await expect(middleware(request, {} as FastifyReply)).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      statusCode: 401,
+      message: 'MISSING_ACCESS_TOKEN',
+    });
+    expect(request.orgBackendCaller).toBeUndefined();
+  });
+
+  it('rejects a repeated access token header rather than picking one', async () => {
+    const middleware = requireOrgRole();
+    const request = makeBackendRequest();
+    (request.headers as Record<string, string[]>)['x-uoa-access-token'] = ['a.b.c', 'd.e.f'];
+
+    await expect(middleware(request, {} as FastifyReply)).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      statusCode: 401,
+      message: 'MISSING_ACCESS_TOKEN',
+    });
+    expect(request.orgBackendCaller).toBeUndefined();
+  });
+
+  // The counterpart: a genuinely absent header is still the one and only way
+  // into backend mode.
+  it('selects backend mode only when the header is absent', async () => {
+    const middleware = requireOrgRole();
+    const request = makeBackendRequest();
+    delete (request.headers as Record<string, unknown>)['x-uoa-access-token'];
 
     await middleware(request, {} as FastifyReply);
 
