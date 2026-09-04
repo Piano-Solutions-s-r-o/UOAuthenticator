@@ -284,6 +284,7 @@ describe('requestRegistrationInstructions', () => {
       data: expect.objectContaining({
         type: 'VERIFY_EMAIL',
         email: 'new@example.com',
+        expiresAt: new Date('2026-02-11T00:00:00.000Z'),
       }),
     });
 
