@@ -4,6 +4,10 @@ export const PUBLIC_ERROR_MESSAGE = 'Request failed';
 // TTL is implementation-defined; keep short by default.
 export const EMAIL_TOKEN_TTL_MS = 30 * 60 * 1000;
 
+// Registration can require switching to an email client and another browser tab.
+// Keep this separate so password resets, 2FA resets, and invites stay short-lived.
+export const REGISTRATION_EMAIL_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+
 // Brief 22.13: authorization codes must be short-lived (OAuth authorization code flow).
 export const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1000;
 
