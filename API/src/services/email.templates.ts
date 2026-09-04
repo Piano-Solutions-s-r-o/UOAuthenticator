@@ -1,4 +1,4 @@
-import { EMAIL_TOKEN_TTL_MS, REGISTRATION_EMAIL_TOKEN_TTL_MS } from '../config/constants.js';
+import { EMAIL_TOKEN_TTL_MS } from '../config/constants.js';
 
 type EmailTemplate = {
   subject: string;
@@ -15,8 +15,7 @@ type RegistrationCopy = {
   /** Body sentence shown above the button (HTML) and re-used as the text intro. */
   body: string;
   buttonLabel: string;
-  expiryHours: (hours: number) => string;
-  expiryMinutes: (minutes: number) => string;
+  expiry: string;
   fallbackLabel: string;
   ignoreLabel: string;
 };
@@ -33,9 +32,7 @@ const REGISTRATION_COPY: Record<EmailLocale, RegistrationCopy> = {
     heading: "Let's get you in",
     body: "You're one tap away. Use the button below to reach your account or finish signing up.",
     buttonLabel: 'Continue',
-    expiryHours: (hours) => `Tick tock — this link's good for ${hours} hours, and one use only.`,
-    expiryMinutes: (minutes) =>
-      `Tick tock — this link's good for ${minutes} minutes, and one use only.`,
+    expiry: `Tick tock — this link is time-limited and one use only.`,
     fallbackLabel: 'Button playing dead? Paste this URL into your browser:',
     ignoreLabel: "Wasn't you? Pretend this never happened.",
   },
@@ -44,9 +41,7 @@ const REGISTRATION_COPY: Record<EmailLocale, RegistrationCopy> = {
     heading: 'Pojďme vás přihlásit',
     body: 'Jste jen jedno kliknutí od cíle. Klikněte na tlačítko níže a dostanete se ke svému účtu nebo dokončíte registraci.',
     buttonLabel: 'Pokračovat',
-    expiryHours: (hours) => `Tik ťak — odkaz platí ${hours} hodin a použít ho lze jen jednou.`,
-    expiryMinutes: (minutes) =>
-      `Tik ťak — odkaz platí ${minutes} minut a použít ho lze jen jednou.`,
+    expiry: `Tik ťak — odkaz je časově omezený a použít ho lze jen jednou.`,
     fallbackLabel: 'Tlačítko nereaguje? Zkopírujte tuto adresu do prohlížeče:',
     ignoreLabel: 'Tohle jste nebyl/a vy? Tak na to rychle zapomeňte.',
   },
@@ -100,10 +95,6 @@ export function escapeHtml(value: string): string {
 
 function tokenTtlMinutes(): number {
   return Math.max(1, Math.round(EMAIL_TOKEN_TTL_MS / (60 * 1000)));
-}
-
-function registrationTokenTtlHours(): number {
-  return Math.max(1, Math.round(REGISTRATION_EMAIL_TOKEN_TTL_MS / (60 * 60 * 1000)));
 }
 
 export function resolveTheme(theme?: Partial<EmailTheme>): EmailTheme {
@@ -234,9 +225,7 @@ export function buildRegistrationLinkTemplate(params: {
   theme?: Partial<EmailTheme>;
   locale?: EmailLocale;
 }): EmailTemplate {
-  const hours = registrationTokenTtlHours();
-  const copy = registrationCopy(params.locale);
-  return buildNeutralSignInLinkTemplate(params, hours * 60, copy.expiryHours(hours));
+  return buildNeutralSignInLinkTemplate(params);
 }
 
 function buildNeutralSignInLinkTemplate(
@@ -245,8 +234,6 @@ function buildNeutralSignInLinkTemplate(
     theme?: Partial<EmailTheme>;
     locale?: EmailLocale;
   },
-  minutes: number,
-  expiryLabel: string,
 ): EmailTemplate {
   const theme = resolveTheme(params.theme);
   const copy = registrationCopy(params.locale);
@@ -258,7 +245,7 @@ function buildNeutralSignInLinkTemplate(
     copy.body,
     params.link,
     '',
-    expiryLabel,
+    copy.expiry,
     '',
     copy.ignoreLabel,
   ].join('\n');
@@ -270,9 +257,9 @@ function buildNeutralSignInLinkTemplate(
     body: copy.body,
     buttonLabel: copy.buttonLabel,
     buttonUrl: params.link,
-    minutes,
+    minutes: 0,
     lang: params.locale ?? 'en',
-    expiryLabel,
+    expiryLabel: copy.expiry,
     fallbackLabel: copy.fallbackLabel,
     ignoreLabel: copy.ignoreLabel,
   });
@@ -301,9 +288,7 @@ export function buildLoginLinkTemplate(params: {
   theme?: Partial<EmailTheme>;
   locale?: EmailLocale;
 }): EmailTemplate {
-  const minutes = tokenTtlMinutes();
-  const copy = registrationCopy(params.locale);
-  return buildNeutralSignInLinkTemplate(params, minutes, copy.expiryMinutes(minutes));
+  return buildNeutralSignInLinkTemplate(params);
 }
 
 export function buildTeamInviteTemplate(params: {

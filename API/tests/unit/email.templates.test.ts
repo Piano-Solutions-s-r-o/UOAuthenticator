@@ -25,7 +25,7 @@ describe('buildVerifyEmailSetPasswordTemplate', () => {
     expect(tpl.text).toContain('reach your account or finish signing up');
     expect(tpl.text).not.toContain('login-link');
     expect(tpl.text).not.toContain('verify-set-password');
-    expect(tpl.text).toMatch(/good for 24 hours/i);
+    expect(tpl.text).toMatch(/time-limited/i);
     expect(tpl.text).toMatch(/pretend this never happened/i);
     expect(tpl.text).not.toMatch(/set your password/i);
 
@@ -56,7 +56,7 @@ describe('buildVerifyEmailTemplate', () => {
     expect(tpl.subject).toBe('Your sign-in link');
     expect(tpl.text).toContain(link);
     expect(tpl.text).toContain('reach your account or finish signing up');
-    expect(tpl.text).toMatch(/good for 24 hours/i);
+    expect(tpl.text).toMatch(/time-limited/i);
     expect(tpl.text).toMatch(/pretend this never happened/i);
     expect(tpl.text).not.toContain('set your password');
 
@@ -115,7 +115,7 @@ describe('buildLoginLinkTemplate', () => {
     expect(tpl.text).toContain('reach your account or finish signing up');
     expect(tpl.text).not.toContain('login-link');
     expect(tpl.text).not.toContain('verify-set-password');
-    expect(tpl.text).toMatch(/good for 30 minutes/i);
+    expect(tpl.text).toMatch(/time-limited/i);
     expect(tpl.text).toMatch(/pretend this never happened/i);
 
     expect(tpl.html).toContain('get you in');
@@ -137,19 +137,17 @@ describe('buildLoginLinkTemplate', () => {
 });
 
 describe('registration link template aliases', () => {
-  it('uses neutral copy with the TTL appropriate to registration or login', () => {
+  it('uses one neutral template for new-user, existing-user, and login-link emails', () => {
     const link = 'https://auth.example.com/auth/email/link?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
-    const registration = buildRegistrationLinkTemplate({ link });
-    const login = buildLoginLinkTemplate({ link });
+    const neutral = buildRegistrationLinkTemplate({ link });
 
-    expect(buildVerifyEmailSetPasswordTemplate({ link })).toEqual(registration);
-    expect(buildVerifyEmailTemplate({ link })).toEqual(registration);
-    expect(buildAccountExistsTemplate({ link })).toEqual(login);
-    expect(registration.subject).toBe('Your sign-in link');
-    expect(registration.text).toMatch(/good for 24 hours/i);
-    expect(login.text).toMatch(/good for 30 minutes/i);
-    expect(registration.text).not.toMatch(/already have an account|verify your email/i);
-    expect(registration.html).not.toMatch(/already have an account|reset password/i);
+    expect(buildVerifyEmailSetPasswordTemplate({ link })).toEqual(neutral);
+    expect(buildVerifyEmailTemplate({ link })).toEqual(neutral);
+    expect(buildLoginLinkTemplate({ link })).toEqual(neutral);
+    expect(buildAccountExistsTemplate({ link })).toEqual(neutral);
+    expect(neutral.subject).toBe('Your sign-in link');
+    expect(neutral.text).not.toMatch(/already have an account|verify your email/i);
+    expect(neutral.html).not.toMatch(/already have an account|reset password/i);
   });
 });
 
@@ -164,7 +162,7 @@ describe('sign-in email localization (HUGO-553)', () => {
     expect(tpl.html).toContain('get you in');
     expect(tpl.html).toContain('reach your account or finish signing up');
     expect(tpl.html).toContain('Continue');
-    expect(tpl.text).toMatch(/good for 24 hours/i);
+    expect(tpl.text).toMatch(/time-limited/i);
     expect(tpl.text).toMatch(/pretend this never happened/i);
   });
 
@@ -177,10 +175,10 @@ describe('sign-in email localization (HUGO-553)', () => {
     expect(tpl.html).toContain('dokončíte registraci');
     expect(tpl.html).toContain('Pokračovat');
     expect(tpl.text).toContain('Pojďme vás přihlásit');
-    expect(tpl.text).toMatch(/odkaz platí 24 hodin/);
+    expect(tpl.text).toMatch(/odkaz je časově omezený/);
     // No leftover English copy in the Czech email.
     expect(tpl.html).not.toContain('get you in');
-    expect(tpl.html).not.toMatch(/good for 24 hours/i);
+    expect(tpl.html).not.toMatch(/time-limited/i);
   });
 
   it('falls back to English for an unsupported locale', () => {
