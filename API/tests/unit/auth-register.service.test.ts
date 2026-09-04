@@ -117,6 +117,7 @@ describe('requestRegistrationInstructions', () => {
         tokenHash: 'hash123',
         userId: 'u1',
         tokenVersion: 7,
+        expiresAt: new Date('2026-02-10T00:30:00.000Z'),
       }),
     });
 
@@ -222,6 +223,7 @@ describe('requestRegistrationInstructions', () => {
         tokenHash: 'hash456',
         userId: null,
         tokenVersion: null,
+        expiresAt: new Date('2026-02-11T00:00:00.000Z'),
       }),
     });
 
@@ -282,6 +284,7 @@ describe('requestRegistrationInstructions', () => {
       data: expect.objectContaining({
         type: 'VERIFY_EMAIL',
         email: 'new@example.com',
+        expiresAt: new Date('2026-02-11T00:00:00.000Z'),
       }),
     });
 

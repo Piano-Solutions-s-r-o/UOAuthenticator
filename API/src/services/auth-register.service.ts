@@ -5,7 +5,7 @@ import argon2 from 'argon2';
 
 import type { ClientConfig } from './config.service.js';
 
-import { EMAIL_TOKEN_TTL_MS } from '../config/constants.js';
+import { EMAIL_TOKEN_TTL_MS, REGISTRATION_EMAIL_TOKEN_TTL_MS } from '../config/constants.js';
 import { getEnv, requireEnv } from '../config/env.js';
 import { getPrisma } from '../db/prisma.js';
 import { buildUserIdentity } from './user-scope.service.js';
@@ -191,7 +191,9 @@ export async function requestRegistrationInstructions(
     : hashEmailToken(token, sharedSecret);
 
   const now = deps?.now ? deps.now() : new Date();
-  const expiresAt = new Date(now.getTime() + EMAIL_TOKEN_TTL_MS);
+  const expiresAt = new Date(
+    now.getTime() + (existing ? EMAIL_TOKEN_TTL_MS : REGISTRATION_EMAIL_TOKEN_TTL_MS),
+  );
 
   const type = existing
     ? 'LOGIN_LINK'

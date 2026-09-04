@@ -25,7 +25,7 @@ describe('buildVerifyEmailSetPasswordTemplate', () => {
     expect(tpl.text).toContain('reach your account or finish signing up');
     expect(tpl.text).not.toContain('login-link');
     expect(tpl.text).not.toContain('verify-set-password');
-    expect(tpl.text).toMatch(/good for 30 minutes/i);
+    expect(tpl.text).toMatch(/time-limited/i);
     expect(tpl.text).toMatch(/pretend this never happened/i);
     expect(tpl.text).not.toMatch(/set your password/i);
 
@@ -56,7 +56,7 @@ describe('buildVerifyEmailTemplate', () => {
     expect(tpl.subject).toBe('Your sign-in link');
     expect(tpl.text).toContain(link);
     expect(tpl.text).toContain('reach your account or finish signing up');
-    expect(tpl.text).toMatch(/good for 30 minutes/i);
+    expect(tpl.text).toMatch(/time-limited/i);
     expect(tpl.text).toMatch(/pretend this never happened/i);
     expect(tpl.text).not.toContain('set your password');
 
@@ -115,7 +115,7 @@ describe('buildLoginLinkTemplate', () => {
     expect(tpl.text).toContain('reach your account or finish signing up');
     expect(tpl.text).not.toContain('login-link');
     expect(tpl.text).not.toContain('verify-set-password');
-    expect(tpl.text).toMatch(/good for 30 minutes/i);
+    expect(tpl.text).toMatch(/time-limited/i);
     expect(tpl.text).toMatch(/pretend this never happened/i);
 
     expect(tpl.html).toContain('get you in');
@@ -162,7 +162,7 @@ describe('sign-in email localization (HUGO-553)', () => {
     expect(tpl.html).toContain('get you in');
     expect(tpl.html).toContain('reach your account or finish signing up');
     expect(tpl.html).toContain('Continue');
-    expect(tpl.text).toMatch(/good for 30 minutes/i);
+    expect(tpl.text).toMatch(/time-limited/i);
     expect(tpl.text).toMatch(/pretend this never happened/i);
   });
 
@@ -175,10 +175,10 @@ describe('sign-in email localization (HUGO-553)', () => {
     expect(tpl.html).toContain('dokončíte registraci');
     expect(tpl.html).toContain('Pokračovat');
     expect(tpl.text).toContain('Pojďme vás přihlásit');
-    expect(tpl.text).toMatch(/odkaz platí 30 minut/);
+    expect(tpl.text).toMatch(/odkaz je časově omezený/);
     // No leftover English copy in the Czech email.
     expect(tpl.html).not.toContain('get you in');
-    expect(tpl.html).not.toMatch(/good for 30 minutes/i);
+    expect(tpl.html).not.toMatch(/time-limited/i);
   });
 
   it('falls back to English for an unsupported locale', () => {

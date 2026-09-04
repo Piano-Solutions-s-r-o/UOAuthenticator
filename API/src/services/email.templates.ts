@@ -15,7 +15,7 @@ type RegistrationCopy = {
   /** Body sentence shown above the button (HTML) and re-used as the text intro. */
   body: string;
   buttonLabel: string;
-  expiry: (minutes: number) => string;
+  expiry: string;
   fallbackLabel: string;
   ignoreLabel: string;
 };
@@ -32,7 +32,7 @@ const REGISTRATION_COPY: Record<EmailLocale, RegistrationCopy> = {
     heading: "Let's get you in",
     body: "You're one tap away. Use the button below to reach your account or finish signing up.",
     buttonLabel: 'Continue',
-    expiry: (minutes) => `Tick tock — this link's good for ${minutes} minutes, and one use only.`,
+    expiry: `Tick tock — this link is time-limited and one use only.`,
     fallbackLabel: 'Button playing dead? Paste this URL into your browser:',
     ignoreLabel: "Wasn't you? Pretend this never happened.",
   },
@@ -41,7 +41,7 @@ const REGISTRATION_COPY: Record<EmailLocale, RegistrationCopy> = {
     heading: 'Pojďme vás přihlásit',
     body: 'Jste jen jedno kliknutí od cíle. Klikněte na tlačítko níže a dostanete se ke svému účtu nebo dokončíte registraci.',
     buttonLabel: 'Pokračovat',
-    expiry: (minutes) => `Tik ťak — odkaz platí ${minutes} minut a použít ho lze jen jednou.`,
+    expiry: `Tik ťak — odkaz je časově omezený a použít ho lze jen jednou.`,
     fallbackLabel: 'Tlačítko nereaguje? Zkopírujte tuto adresu do prohlížeče:',
     ignoreLabel: 'Tohle jste nebyl/a vy? Tak na to rychle zapomeňte.',
   },
@@ -225,7 +225,16 @@ export function buildRegistrationLinkTemplate(params: {
   theme?: Partial<EmailTheme>;
   locale?: EmailLocale;
 }): EmailTemplate {
-  const minutes = tokenTtlMinutes();
+  return buildNeutralSignInLinkTemplate(params);
+}
+
+function buildNeutralSignInLinkTemplate(
+  params: {
+    link: string;
+    theme?: Partial<EmailTheme>;
+    locale?: EmailLocale;
+  },
+): EmailTemplate {
   const theme = resolveTheme(params.theme);
   const copy = registrationCopy(params.locale);
 
@@ -236,7 +245,7 @@ export function buildRegistrationLinkTemplate(params: {
     copy.body,
     params.link,
     '',
-    copy.expiry(minutes),
+    copy.expiry,
     '',
     copy.ignoreLabel,
   ].join('\n');
@@ -248,9 +257,9 @@ export function buildRegistrationLinkTemplate(params: {
     body: copy.body,
     buttonLabel: copy.buttonLabel,
     buttonUrl: params.link,
-    minutes,
+    minutes: 0,
     lang: params.locale ?? 'en',
-    expiryLabel: copy.expiry(minutes),
+    expiryLabel: copy.expiry,
     fallbackLabel: copy.fallbackLabel,
     ignoreLabel: copy.ignoreLabel,
   });
@@ -279,7 +288,7 @@ export function buildLoginLinkTemplate(params: {
   theme?: Partial<EmailTheme>;
   locale?: EmailLocale;
 }): EmailTemplate {
-  return buildRegistrationLinkTemplate(params);
+  return buildNeutralSignInLinkTemplate(params);
 }
 
 export function buildTeamInviteTemplate(params: {
@@ -366,7 +375,7 @@ export function buildAccountExistsTemplate(params: {
   theme?: Partial<EmailTheme>;
   locale?: EmailLocale;
 }): EmailTemplate {
-  return buildRegistrationLinkTemplate(params);
+  return buildLoginLinkTemplate(params);
 }
 
 export function buildPasswordResetTemplate(params: { link: string; theme?: Partial<EmailTheme> }): EmailTemplate {
