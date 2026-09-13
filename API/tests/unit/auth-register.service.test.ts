@@ -117,7 +117,7 @@ describe('requestRegistrationInstructions', () => {
         tokenHash: 'hash123',
         userId: 'u1',
         tokenVersion: 7,
-        expiresAt: new Date('2026-02-10T00:30:00.000Z'),
+        expiresAt: new Date('2026-02-11T00:00:00.000Z'),
       }),
     });
 

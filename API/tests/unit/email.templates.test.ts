@@ -16,7 +16,8 @@ import type { EmailLocale } from '../../src/services/email.templates.js';
 
 describe('buildVerifyEmailSetPasswordTemplate', () => {
   it('includes subject, text, and html with the provided link', () => {
-    const link = 'https://auth.example.com/auth/email/link?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
+    const link =
+      'https://auth.example.com/auth/email/link?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
     const tpl = buildVerifyEmailSetPasswordTemplate({ link });
     const escapedLink = link.replaceAll('&', '&amp;');
 
@@ -25,7 +26,8 @@ describe('buildVerifyEmailSetPasswordTemplate', () => {
     expect(tpl.text).toContain('reach your account or finish signing up');
     expect(tpl.text).not.toContain('login-link');
     expect(tpl.text).not.toContain('verify-set-password');
-    expect(tpl.text).toMatch(/time-limited/i);
+    expect(tpl.text).toMatch(/good for 24 hours/i);
+    expect(tpl.html).toMatch(/good for 24 hours/i);
     expect(tpl.text).toMatch(/pretend this never happened/i);
     expect(tpl.text).not.toMatch(/set your password/i);
 
@@ -49,14 +51,16 @@ describe('buildVerifyEmailSetPasswordTemplate', () => {
 
 describe('buildVerifyEmailTemplate', () => {
   it('includes subject, text, and html with the provided link', () => {
-    const link = 'https://auth.example.com/auth/email/link?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
+    const link =
+      'https://auth.example.com/auth/email/link?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
     const tpl = buildVerifyEmailTemplate({ link });
     const escapedLink = link.replaceAll('&', '&amp;');
 
     expect(tpl.subject).toBe('Your sign-in link');
     expect(tpl.text).toContain(link);
     expect(tpl.text).toContain('reach your account or finish signing up');
-    expect(tpl.text).toMatch(/time-limited/i);
+    expect(tpl.text).toMatch(/good for 24 hours/i);
+    expect(tpl.html).toMatch(/good for 24 hours/i);
     expect(tpl.text).toMatch(/pretend this never happened/i);
     expect(tpl.text).not.toContain('set your password');
 
@@ -78,7 +82,8 @@ describe('buildVerifyEmailTemplate', () => {
 
 describe('buildPasswordResetTemplate', () => {
   it('includes subject, text, and html with the provided link', () => {
-    const link = 'https://auth.example.com/auth/email/reset-password?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
+    const link =
+      'https://auth.example.com/auth/email/reset-password?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
     const tpl = buildPasswordResetTemplate({ link });
     const escapedLink = link.replaceAll('&', '&amp;');
 
@@ -106,7 +111,8 @@ describe('buildPasswordResetTemplate', () => {
 
 describe('buildLoginLinkTemplate', () => {
   it('includes subject, text, and html with the provided link', () => {
-    const link = 'https://auth.example.com/auth/email/link?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
+    const link =
+      'https://auth.example.com/auth/email/link?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
     const tpl = buildLoginLinkTemplate({ link });
     const escapedLink = link.replaceAll('&', '&amp;');
 
@@ -115,7 +121,8 @@ describe('buildLoginLinkTemplate', () => {
     expect(tpl.text).toContain('reach your account or finish signing up');
     expect(tpl.text).not.toContain('login-link');
     expect(tpl.text).not.toContain('verify-set-password');
-    expect(tpl.text).toMatch(/time-limited/i);
+    expect(tpl.text).toMatch(/good for 30 minutes/i);
+    expect(tpl.html).toMatch(/good for 30 minutes/i);
     expect(tpl.text).toMatch(/pretend this never happened/i);
 
     expect(tpl.html).toContain('get you in');
@@ -137,22 +144,25 @@ describe('buildLoginLinkTemplate', () => {
 });
 
 describe('registration link template aliases', () => {
-  it('uses one neutral template for new-user, existing-user, and login-link emails', () => {
-    const link = 'https://auth.example.com/auth/email/link?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
+  it('uses one neutral 24-hour template for new-user and existing-user registration emails', () => {
+    const link =
+      'https://auth.example.com/auth/email/link?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
     const neutral = buildRegistrationLinkTemplate({ link });
 
     expect(buildVerifyEmailSetPasswordTemplate({ link })).toEqual(neutral);
     expect(buildVerifyEmailTemplate({ link })).toEqual(neutral);
-    expect(buildLoginLinkTemplate({ link })).toEqual(neutral);
     expect(buildAccountExistsTemplate({ link })).toEqual(neutral);
     expect(neutral.subject).toBe('Your sign-in link');
+    expect(neutral.text).toMatch(/good for 24 hours/i);
+    expect(buildLoginLinkTemplate({ link }).text).toMatch(/good for 30 minutes/i);
     expect(neutral.text).not.toMatch(/already have an account|verify your email/i);
     expect(neutral.html).not.toMatch(/already have an account|reset password/i);
   });
 });
 
 describe('sign-in email localization (HUGO-553)', () => {
-  const link = 'https://auth.example.com/auth/email/link?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
+  const link =
+    'https://auth.example.com/auth/email/link?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
 
   it('uses English Hugo-voice copy by default', () => {
     const tpl = buildRegistrationLinkTemplate({ link });
@@ -162,7 +172,8 @@ describe('sign-in email localization (HUGO-553)', () => {
     expect(tpl.html).toContain('get you in');
     expect(tpl.html).toContain('reach your account or finish signing up');
     expect(tpl.html).toContain('Continue');
-    expect(tpl.text).toMatch(/time-limited/i);
+    expect(tpl.text).toMatch(/good for 24 hours/i);
+    expect(tpl.html).toMatch(/good for 24 hours/i);
     expect(tpl.text).toMatch(/pretend this never happened/i);
   });
 
@@ -175,10 +186,19 @@ describe('sign-in email localization (HUGO-553)', () => {
     expect(tpl.html).toContain('dokončíte registraci');
     expect(tpl.html).toContain('Pokračovat');
     expect(tpl.text).toContain('Pojďme vás přihlásit');
-    expect(tpl.text).toMatch(/odkaz je časově omezený/);
+    expect(tpl.text).toMatch(/odkaz platí 24 hodin/);
+    expect(tpl.html).toMatch(/odkaz platí 24 hodin/);
     // No leftover English copy in the Czech email.
     expect(tpl.html).not.toContain('get you in');
-    expect(tpl.html).not.toMatch(/time-limited/i);
+    expect(tpl.html).not.toMatch(/good for 24 hours/i);
+  });
+
+  it('renders the exact shorter lifetime for a standalone Czech login link', () => {
+    const tpl = buildLoginLinkTemplate({ link, locale: 'cs' });
+
+    expect(tpl.text).toContain('odkaz platí 30 minut');
+    expect(tpl.html).toContain('odkaz platí 30 minut');
+    expect(tpl.text).not.toContain('24 hodin');
   });
 
   it('falls back to English for an unsupported locale', () => {
@@ -191,7 +211,8 @@ describe('sign-in email localization (HUGO-553)', () => {
 
 describe('buildTeamInviteTemplate', () => {
   it('includes the invite context and action link', () => {
-    const link = 'https://auth.example.com/auth/email/link?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
+    const link =
+      'https://auth.example.com/auth/email/link?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
     const tpl = buildTeamInviteTemplate({
       link,
       organisationName: 'Acme',
@@ -230,13 +251,16 @@ describe('buildAccessRequestNotificationTemplate', () => {
     expect(tpl.text).not.toMatch(/expires in 30 minutes/i);
     expect(tpl.html).toContain('Review request');
     expect(tpl.html).toContain('Alex Example &lt;alex@example.com&gt;');
-    expect(tpl.html).toContain('href="https://admin.example.com/team-access?request=123&amp;team=core"');
+    expect(tpl.html).toContain(
+      'href="https://admin.example.com/team-access?request=123&amp;team=core"',
+    );
   });
 });
 
 describe('buildTwoFaResetTemplate', () => {
   it('includes subject, text, and html with the provided link', () => {
-    const link = 'https://auth.example.com/auth/email/twofa-reset?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
+    const link =
+      'https://auth.example.com/auth/email/twofa-reset?token=t&config_url=https%3A%2F%2Fcfg.example.com%2Fconfig.jwt';
     const tpl = buildTwoFaResetTemplate({ link });
     const escapedLink = link.replaceAll('&', '&amp;');
 
