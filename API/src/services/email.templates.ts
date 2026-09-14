@@ -1,55 +1,17 @@
 import { EMAIL_TOKEN_TTL_MS } from '../config/constants.js';
+import {
+  registrationCopy,
+  registrationTokenTtlHours,
+  type EmailLocale,
+} from './email.registration-copy.js';
+
+export type { EmailLocale } from './email.registration-copy.js';
 
 type EmailTemplate = {
   subject: string;
   text: string;
   html: string;
 };
-
-/** Locales we hand-author email copy for. Anything else falls back to English. */
-export type EmailLocale = 'en' | 'cs';
-
-type RegistrationCopy = {
-  subject: string;
-  heading: string;
-  /** Body sentence shown above the button (HTML) and re-used as the text intro. */
-  body: string;
-  buttonLabel: string;
-  expiry: string;
-  fallbackLabel: string;
-  ignoreLabel: string;
-};
-
-/**
- * Sign-in / registration email copy in Hugo's voice (HUGO-553). One neutral
- * template serves login-link, verify-email, set-password and account-exists,
- * so the wording must read naturally for both a returning login and finishing
- * signup. English is the source; unsupported locales fall back to it.
- */
-const REGISTRATION_COPY: Record<EmailLocale, RegistrationCopy> = {
-  en: {
-    subject: 'Your sign-in link',
-    heading: "Let's get you in",
-    body: "You're one tap away. Use the button below to reach your account or finish signing up.",
-    buttonLabel: 'Continue',
-    expiry: `Tick tock — this link is time-limited and one use only.`,
-    fallbackLabel: 'Button playing dead? Paste this URL into your browser:',
-    ignoreLabel: "Wasn't you? Pretend this never happened.",
-  },
-  cs: {
-    subject: 'Váš přihlašovací odkaz',
-    heading: 'Pojďme vás přihlásit',
-    body: 'Jste jen jedno kliknutí od cíle. Klikněte na tlačítko níže a dostanete se ke svému účtu nebo dokončíte registraci.',
-    buttonLabel: 'Pokračovat',
-    expiry: `Tik ťak — odkaz je časově omezený a použít ho lze jen jednou.`,
-    fallbackLabel: 'Tlačítko nereaguje? Zkopírujte tuto adresu do prohlížeče:',
-    ignoreLabel: 'Tohle jste nebyl/a vy? Tak na to rychle zapomeňte.',
-  },
-};
-
-function registrationCopy(locale?: EmailLocale): RegistrationCopy {
-  return REGISTRATION_COPY[locale ?? 'en'] ?? REGISTRATION_COPY.en;
-}
 
 /** Subset of config theme colors used to style emails. */
 export type EmailTheme = {
@@ -152,10 +114,13 @@ function buildEmailHtml(params: {
   const t = params.theme;
   const escapedLink = escapeHtml(params.buttonUrl);
   const expiryLabel =
-    params.expiryLabel ?? `This link expires in ${params.minutes} minutes and can only be used once.`;
+    params.expiryLabel ??
+    `This link expires in ${params.minutes} minutes and can only be used once.`;
   const fallbackLabel =
-    params.fallbackLabel ?? 'If the button does not work, copy and paste this URL into your browser:';
-  const ignoreLabel = params.ignoreLabel ?? 'If you did not request this, you can ignore this email.';
+    params.fallbackLabel ??
+    'If the button does not work, copy and paste this URL into your browser:';
+  const ignoreLabel =
+    params.ignoreLabel ?? 'If you did not request this, you can ignore this email.';
 
   const fontLink = t.fontImportUrl
     ? `<link rel="stylesheet" href="${escapeHtml(t.fontImportUrl)}" />`
@@ -225,7 +190,9 @@ export function buildRegistrationLinkTemplate(params: {
   theme?: Partial<EmailTheme>;
   locale?: EmailLocale;
 }): EmailTemplate {
-  return buildNeutralSignInLinkTemplate(params);
+  const hours = registrationTokenTtlHours();
+  const copy = registrationCopy(params.locale);
+  return buildNeutralSignInLinkTemplate(params, hours * 60, copy.expiryHours(hours));
 }
 
 function buildNeutralSignInLinkTemplate(
@@ -234,6 +201,8 @@ function buildNeutralSignInLinkTemplate(
     theme?: Partial<EmailTheme>;
     locale?: EmailLocale;
   },
+  minutes: number,
+  expiryLabel: string,
 ): EmailTemplate {
   const theme = resolveTheme(params.theme);
   const copy = registrationCopy(params.locale);
@@ -245,7 +214,7 @@ function buildNeutralSignInLinkTemplate(
     copy.body,
     params.link,
     '',
-    copy.expiry,
+    expiryLabel,
     '',
     copy.ignoreLabel,
   ].join('\n');
@@ -257,9 +226,9 @@ function buildNeutralSignInLinkTemplate(
     body: copy.body,
     buttonLabel: copy.buttonLabel,
     buttonUrl: params.link,
-    minutes: 0,
+    minutes,
     lang: params.locale ?? 'en',
-    expiryLabel: copy.expiry,
+    expiryLabel,
     fallbackLabel: copy.fallbackLabel,
     ignoreLabel: copy.ignoreLabel,
   });
@@ -288,7 +257,9 @@ export function buildLoginLinkTemplate(params: {
   theme?: Partial<EmailTheme>;
   locale?: EmailLocale;
 }): EmailTemplate {
-  return buildNeutralSignInLinkTemplate(params);
+  const minutes = tokenTtlMinutes();
+  const copy = registrationCopy(params.locale);
+  return buildNeutralSignInLinkTemplate(params, minutes, copy.expiryMinutes(minutes));
 }
 
 export function buildTeamInviteTemplate(params: {
@@ -375,10 +346,15 @@ export function buildAccountExistsTemplate(params: {
   theme?: Partial<EmailTheme>;
   locale?: EmailLocale;
 }): EmailTemplate {
-  return buildLoginLinkTemplate(params);
+  // This email is sent from the public registration endpoint. Keep it byte-for-byte
+  // neutral with the new-user registration template, including the 24-hour TTL.
+  return buildRegistrationLinkTemplate(params);
 }
 
-export function buildPasswordResetTemplate(params: { link: string; theme?: Partial<EmailTheme> }): EmailTemplate {
+export function buildPasswordResetTemplate(params: {
+  link: string;
+  theme?: Partial<EmailTheme>;
+}): EmailTemplate {
   const minutes = tokenTtlMinutes();
   const theme = resolveTheme(params.theme);
 
@@ -483,7 +459,10 @@ export function buildIntegrationRequestNotificationTemplate(params: {
   return { subject, text, html };
 }
 
-export function buildTwoFaResetTemplate(params: { link: string; theme?: Partial<EmailTheme> }): EmailTemplate {
+export function buildTwoFaResetTemplate(params: {
+  link: string;
+  theme?: Partial<EmailTheme>;
+}): EmailTemplate {
   const minutes = tokenTtlMinutes();
   const theme = resolveTheme(params.theme);
 

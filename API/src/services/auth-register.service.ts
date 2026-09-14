@@ -5,7 +5,7 @@ import argon2 from 'argon2';
 
 import type { ClientConfig } from './config.service.js';
 
-import { EMAIL_TOKEN_TTL_MS, REGISTRATION_EMAIL_TOKEN_TTL_MS } from '../config/constants.js';
+import { REGISTRATION_EMAIL_TOKEN_TTL_MS } from '../config/constants.js';
 import { getEnv, requireEnv } from '../config/env.js';
 import { getPrisma } from '../db/prisma.js';
 import { buildUserIdentity } from './user-scope.service.js';
@@ -191,9 +191,10 @@ export async function requestRegistrationInstructions(
     : hashEmailToken(token, sharedSecret);
 
   const now = deps?.now ? deps.now() : new Date();
-  const expiresAt = new Date(
-    now.getTime() + (existing ? EMAIL_TOKEN_TTL_MS : REGISTRATION_EMAIL_TOKEN_TTL_MS),
-  );
+  // Both branches of the public registration flow must have the same lifetime.
+  // A shorter existing-user token would make account existence observable from
+  // the email copy or from when the otherwise-neutral link stops working.
+  const expiresAt = new Date(now.getTime() + REGISTRATION_EMAIL_TOKEN_TTL_MS);
 
   const type = existing
     ? 'LOGIN_LINK'
@@ -231,7 +232,12 @@ export async function requestRegistrationInstructions(
       codeChallenge: params.codeChallenge,
       codeChallengeMethod: params.codeChallengeMethod,
     });
-    await (deps?.sendAccountExistsEmail ?? sendAccountExistsEmail)({ to: email, link, theme, locale });
+    await (deps?.sendAccountExistsEmail ?? sendAccountExistsEmail)({
+      to: email,
+      link,
+      theme,
+      locale,
+    });
     return { status: 'sent' };
   }
 

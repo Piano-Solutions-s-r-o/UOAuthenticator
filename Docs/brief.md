@@ -260,6 +260,7 @@ The user must always know **why** they can't proceed and **how** to fix it:
   - New user → verification + set password
 
 - **Email copy must remain generic**: subjects and body text must not explicitly indicate whether an account already exists (even though the backend sends different links depending on state)
+- Links requested through this registration flow last 24 hours and the neutral email states that exact lifetime. This applies equally to the existing-user and new-user branches so neither the copy nor the expiry behaviour reveals whether an account exists. Standalone login links outside the registration flow remain short-lived and state their separate lifetime.
 
 ### Product-Specific Existing-Account UX Opt-In
 
