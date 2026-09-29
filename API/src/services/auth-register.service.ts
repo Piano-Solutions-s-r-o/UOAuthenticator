@@ -80,6 +80,7 @@ function buildRegistrationEmailLandingLink(params: {
   requestAccess?: boolean;
   codeChallenge?: string;
   codeChallengeMethod?: 'S256';
+  locale?: EmailLocale;
 }): string {
   const baseUrl = normalizeBaseUrl(params.baseUrl);
   // Neutral landing route for registration flows (existing-user login link vs new-user
@@ -96,6 +97,10 @@ function buildRegistrationEmailLandingLink(params: {
   if (params.codeChallenge) {
     url.searchParams.set('code_challenge', params.codeChallenge);
     url.searchParams.set('code_challenge_method', params.codeChallengeMethod ?? 'S256');
+  }
+  // HUGO-1815: the landing page opens in the language the email was written in.
+  if (params.locale) {
+    url.searchParams.set('ui_locales', params.locale);
   }
   return url.toString();
 }
@@ -231,6 +236,7 @@ export async function requestRegistrationInstructions(
       requestAccess: params.requestAccess,
       codeChallenge: params.codeChallenge,
       codeChallengeMethod: params.codeChallengeMethod,
+      locale,
     });
     await (deps?.sendAccountExistsEmail ?? sendAccountExistsEmail)({
       to: email,
@@ -249,6 +255,7 @@ export async function requestRegistrationInstructions(
     requestAccess: params.requestAccess,
     codeChallenge: params.codeChallenge,
     codeChallengeMethod: params.codeChallengeMethod,
+    locale,
   });
   if (type === 'VERIFY_EMAIL') {
     await (deps?.sendVerifyEmailEmail ?? sendVerifyEmailEmail)({

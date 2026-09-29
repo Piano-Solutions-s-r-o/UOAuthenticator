@@ -11,6 +11,7 @@ const QuerySchema = z
   .object({
     config_url: z.string().min(1).max(2048),
     token: z.string().min(1).max(4096),
+    ui_locales: z.string().min(1).max(64).optional(),
   })
   .strict();
 

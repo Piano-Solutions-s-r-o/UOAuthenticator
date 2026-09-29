@@ -157,7 +157,8 @@ PopupContainer
 - If a translation key is missing, the AI fallback is triggered via `language-loader.ts`
 - AI-generated translations are cached server-side permanently
 - Language selector dropdown is only rendered if config provides multiple languages
-- Default language comes from the client website's selection (passed in config as optional `language`)
+- Default language comes from the client website's selection (passed in config as optional `language`), overridden by a supported `ui_locales` query param on `/auth` (pure helper `i18n/ui-locales.ts`; `App` passes `initialSearch` to `I18nProvider`, so SSR and hydration agree)
+- `I18nProvider` publishes the effective language to `utils/api.ts` (`setRequestLanguage`), which sends it as `Accept-Language` on every API request; the API uses it to pick the email locale (`en`/`cs`, else English)
 
 ---
 

@@ -141,7 +141,8 @@ export const configJwtDocumentation = {
     allowed_registration_domains: 'string[] — lowercase email domains allowed to register',
     registration_domain_mapping:
       'array of { email_domain, org_id, team_id? } — email-domain-based org/team placement',
-    language: 'string — currently selected language override',
+    language:
+      'string — currently selected language override. A `ui_locales` query param on /auth takes precedence over it; emails follow the language the page shows (Accept-Language), falling back to the browser\'s. Hand-authored email locales: en, cs.',
     login_flow: {
       email_code_enabled: 'boolean (default false)',
       workspace_selection:

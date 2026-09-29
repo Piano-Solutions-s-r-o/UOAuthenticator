@@ -132,6 +132,42 @@ describe('login-code.service', () => {
         expect.objectContaining({ to: 'jane@example.com', code: '123456' }),
       );
     });
+
+    it('passes the locale through to the email', async () => {
+      const prisma = makePrisma();
+      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'user-1',
+        tokenVersion: 7,
+      });
+      (prisma.verificationToken.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({
+        count: 0,
+      });
+      (prisma.verificationToken.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'token-1',
+      });
+      const sendLoginCodeEmail = vi.fn(async () => undefined);
+
+      await issueLoginCode(
+        {
+          email: 'jane@example.com',
+          config: makeConfig(),
+          configUrl: 'https://client.example.com/auth-config',
+          locale: 'cs',
+        },
+        {
+          env: baseEnv,
+          prisma,
+          now: () => new Date('2026-03-01T00:00:00.000Z'),
+          sharedSecret: 'test-shared-secret-with-enough-length',
+          generateCode: () => '123456',
+          sendLoginCodeEmail,
+        },
+      );
+
+      expect(sendLoginCodeEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'jane@example.com', code: '123456', locale: 'cs' }),
+      );
+    });
   });
 
   describe('verifyLoginCode', () => {

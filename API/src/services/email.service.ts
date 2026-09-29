@@ -177,9 +177,10 @@ export async function sendLoginCodeEmail(params: {
   to: string;
   code: string;
   theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
 }): Promise<void> {
   const env = getEnv();
-  const template = buildLoginCodeTemplate({ code: params.code, theme: params.theme });
+  const template = buildLoginCodeTemplate({ code: params.code, theme: params.theme, locale: params.locale });
   await dispatchEmail({
     to: params.to,
     from: env.EMAIL_FROM,
@@ -212,9 +213,10 @@ export async function sendPasswordResetEmail(params: {
   to: string;
   link: string;
   theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
 }): Promise<void> {
   const env = getEnv();
-  const template = buildPasswordResetTemplate({ link: params.link, theme: params.theme });
+  const template = buildPasswordResetTemplate({ link: params.link, theme: params.theme, locale: params.locale });
   await dispatchEmail({
     to: params.to,
     from: env.EMAIL_FROM,
@@ -277,9 +279,10 @@ export async function sendTwoFaResetEmail(params: {
   to: string;
   link: string;
   theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
 }): Promise<void> {
   const env = getEnv();
-  const template = buildTwoFaResetTemplate({ link: params.link, theme: params.theme });
+  const template = buildTwoFaResetTemplate({ link: params.link, theme: params.theme, locale: params.locale });
   await dispatchEmail({
     to: params.to,
     from: env.EMAIL_FROM,

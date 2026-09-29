@@ -186,6 +186,33 @@ describe('GET /auth/email/link', () => {
     await app.close();
   });
 
+  it('accepts ui_locales and forwards it to the rendered auth page (HUGO-1815)', async () => {
+    validateRegistrationEmailLandingTokenMock.mockResolvedValue('LOGIN_LINK');
+
+    const { createApp } = await import('../../src/app.js');
+    const app = await createApp();
+    await app.ready();
+
+    const res = await app.inject({
+      method: 'GET',
+      url:
+        '/auth/email/link?' +
+        'config_url=https%3A%2F%2Fclient.example.com%2Fauth-config' +
+        '&token=missing-pkce-token&ui_locales=cs',
+      headers: { accept: 'text/html' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(renderAuthEntrypointHtmlMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestUrl:
+          '/auth?config_url=https%3A%2F%2Fclient.example.com%2Fauth-config&ui_locales=cs',
+      }),
+    );
+
+    await app.close();
+  });
+
   it('renders the login screen instead of an auth error when the email link has no PKCE challenge', async () => {
     validateRegistrationEmailLandingTokenMock.mockResolvedValue('LOGIN_LINK');
 

@@ -5,6 +5,7 @@ import { configVerifier } from '../../middleware/config-verifier.js';
 import { parseRequestAccessFlag } from '../../services/access-request-flow.service.js';
 import { requestRegistrationInstructions } from '../../services/auth-register.service.js';
 import { issueLoginCode } from '../../services/login-code.service.js';
+import { resolveEmailLocale } from '../../utils/email-locale.js';
 import { parseRequiredPkceChallenge } from '../../utils/pkce.js';
 import { authStartRateLimiter } from './rate-limit-keys.js';
 
@@ -82,6 +83,7 @@ export function registerAuthStartRoute(app: FastifyInstance): void {
                 email,
                 config: request.config,
                 configUrl: request.configUrl,
+                locale: resolveEmailLocale(request.headers['accept-language']),
               },
               { prisma: request.adminDb },
             );

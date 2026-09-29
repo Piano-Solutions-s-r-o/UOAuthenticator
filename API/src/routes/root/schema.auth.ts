@@ -10,6 +10,8 @@ export const authEndpoints: EndpointSchema[] = [
       redirect_url: 'string (optional) — OAuth redirect URL override (redirect_uri also accepted)',
       code_challenge: 'string (required for sign-in actions) — exactly 43-char PKCE S256 challenge',
       code_challenge_method: '"S256" when code_challenge is sent',
+      ui_locales:
+        'string (optional) — OIDC ui_locales: space-separated language tags in preference order. The first whose primary subtag (cs-CZ → cs) is in the config\'s language_config sets the initial page language, ahead of the config `language` claim and the first language_config entry; unsupported values are ignored. The page then sends its current language as Accept-Language on every API call, and emails are written in that language (hand-authored: en, cs).',
       team_hint:
         "string (optional, ≤256 chars, id/slug-safe charset) — chooser preselect / one-click workspace switch (design §11.4): when the workspace chooser renders, a team already in the verified user's own chooser payload matching this teamId or slug is auto-selected, same as the single-team auto-skip. Client-side ONLY — an invalid or non-matching value is silently ignored (chooser renders normally) and select-team's server-side product-policy + exact ACTIVE-membership check remains the sole authority; it can never select a team the user doesn't already have.",
     },
@@ -285,13 +287,22 @@ export const authEndpoints: EndpointSchema[] = [
     method: 'GET',
     path: '/auth/email/reset-password',
     description: 'Email link landing — renders set-password UI',
-    query: { token: 'string (required)', config_url: 'string (required)' },
+    query: {
+      token: 'string (required)',
+      config_url: 'string (required)',
+      redirect_url: 'string (optional)',
+      ui_locales: 'string (optional, ≤64 chars) — OIDC UI language preference; carried by emailed links so the page opens in the email\'s language',
+    },
   },
   {
     method: 'GET',
     path: '/auth/email/twofa-reset',
     description: 'Email link landing for 2FA reset — renders confirmation page only',
-    query: { token: 'string (required)', config_url: 'string (required)' },
+    query: {
+      token: 'string (required)',
+      config_url: 'string (required)',
+      ui_locales: 'string (optional, ≤64 chars) — OIDC UI language preference; carried by emailed links so the page opens in the email\'s language',
+    },
   },
   {
     method: 'POST',
@@ -313,6 +324,7 @@ export const authEndpoints: EndpointSchema[] = [
         'string (optional for recovery; required to complete the one-click OAuth grant) — exactly 43-char PKCE S256 challenge preserved through email verification',
       code_challenge_method: '"S256" when code_challenge is sent',
       request_access: 'string (optional) — preserves access-request intent through email auth',
+      ui_locales: 'string (optional, ≤64 chars) — OIDC UI language preference; carried by emailed links so the page opens in the email\'s language',
     },
   },
   {

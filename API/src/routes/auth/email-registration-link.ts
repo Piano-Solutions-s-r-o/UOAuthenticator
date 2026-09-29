@@ -39,6 +39,7 @@ const QuerySchema = z
     code_challenge: z.string().min(1).max(256).optional(),
     code_challenge_method: z.string().min(1).max(32).optional(),
     request_access: z.string().max(16).optional(),
+    ui_locales: z.string().min(1).max(64).optional(),
   })
   .strict();
 
@@ -66,8 +67,14 @@ export function registerAuthEmailRegistrationLinkRoute(app: FastifyInstance): vo
       preHandler: [tokenConsumeRateLimiter, configVerifier],
     },
     async (request, reply) => {
-      const { token, redirect_url, code_challenge, code_challenge_method, request_access } =
-        QuerySchema.parse(request.query);
+      const {
+        token,
+        redirect_url,
+        code_challenge,
+        code_challenge_method,
+        request_access,
+        ui_locales,
+      } = QuerySchema.parse(request.query);
 
       const config = request.config;
       const configUrl = request.configUrl;
@@ -94,6 +101,7 @@ export function registerAuthEmailRegistrationLinkRoute(app: FastifyInstance): vo
             redirect_url,
             parseRequestAccessFlag(request_access),
             undefined,
+            ui_locales,
           ),
         });
         sendAuthHtml(reply, html);
@@ -124,6 +132,7 @@ export function registerAuthEmailRegistrationLinkRoute(app: FastifyInstance): vo
             redirect_url,
             parseRequestAccessFlag(request_access),
             pkce,
+            ui_locales,
           ),
         });
         sendAuthHtml(reply, html);
@@ -140,6 +149,7 @@ export function registerAuthEmailRegistrationLinkRoute(app: FastifyInstance): vo
             redirect_url,
             parseRequestAccessFlag(request_access),
             undefined,
+            ui_locales,
           ),
         });
         sendAuthHtml(reply, html);
@@ -247,6 +257,7 @@ export function registerAuthEmailRegistrationLinkRoute(app: FastifyInstance): vo
                 continuation.loginToken,
                 requestAccess,
                 pkce,
+                ui_locales,
               ),
             );
             return;
@@ -257,11 +268,16 @@ export function registerAuthEmailRegistrationLinkRoute(app: FastifyInstance): vo
           if (outcome.kind === 'twofa') {
             redirectNoStore(
               reply,
-              buildTwoFaAuthUrl(configUrl, redirectUrl, {
-                requestAccess,
-                kind: 'challenge',
-                token: outcome.twofa_token,
-              }),
+              buildTwoFaAuthUrl(
+                configUrl,
+                redirectUrl,
+                {
+                  requestAccess,
+                  kind: 'challenge',
+                  token: outcome.twofa_token,
+                },
+                ui_locales,
+              ),
             );
             return;
           }
@@ -269,11 +285,16 @@ export function registerAuthEmailRegistrationLinkRoute(app: FastifyInstance): vo
           if (outcome.kind === 'twofa_enroll_required') {
             redirectNoStore(
               reply,
-              buildTwoFaAuthUrl(configUrl, redirectUrl, {
-                requestAccess,
-                kind: 'enrollment',
-                token: outcome.setup.setup_token,
-              }),
+              buildTwoFaAuthUrl(
+                configUrl,
+                redirectUrl,
+                {
+                  requestAccess,
+                  kind: 'enrollment',
+                  token: outcome.setup.setup_token,
+                },
+                ui_locales,
+              ),
             );
             return;
           }
@@ -328,6 +349,7 @@ export function registerAuthEmailRegistrationLinkRoute(app: FastifyInstance): vo
           type,
           parseRequestAccessFlag(request_access),
           pkce,
+          ui_locales,
         ),
       });
       sendAuthHtml(reply, html);
@@ -342,10 +364,12 @@ function buildAuthUrl(
   type: string,
   requestAccess: boolean,
   pkce: PkceChallenge,
+  uiLocales: string | undefined,
 ): string {
   const params = new URLSearchParams();
   params.set('config_url', configUrl);
   if (redirectUrl) params.set('redirect_url', redirectUrl);
+  if (uiLocales) params.set('ui_locales', uiLocales);
   params.set('code_challenge', pkce.codeChallenge);
   params.set('code_challenge_method', pkce.codeChallengeMethod);
   params.set('email_token', token);
@@ -364,10 +388,12 @@ function buildWorkspaceChooserAuthUrl(
   loginToken: string,
   requestAccess: boolean,
   pkce: PkceChallenge,
+  uiLocales: string | undefined,
 ): string {
   const params = new URLSearchParams();
   params.set('config_url', configUrl);
   params.set('redirect_url', redirectUrl);
+  if (uiLocales) params.set('ui_locales', uiLocales);
   params.set('code_challenge', pkce.codeChallenge);
   params.set('code_challenge_method', pkce.codeChallengeMethod);
   params.set('login_token', loginToken);
@@ -382,10 +408,12 @@ function buildTwoFaAuthUrl(
   continuation:
     | { requestAccess: boolean; kind: 'challenge'; token: string }
     | { requestAccess: boolean; kind: 'enrollment'; token: string },
+  uiLocales: string | undefined,
 ): string {
   const params = new URLSearchParams();
   params.set('config_url', configUrl);
   params.set('redirect_url', redirectUrl);
+  if (uiLocales) params.set('ui_locales', uiLocales);
   if (continuation.kind === 'challenge') {
     params.set('twofa_token', continuation.token);
   } else {
@@ -401,10 +429,12 @@ function buildLoginAuthUrl(
   redirectUrl: string | undefined,
   requestAccess: boolean,
   pkce: PkceChallenge | undefined,
+  uiLocales: string | undefined,
 ): string {
   const params = new URLSearchParams();
   params.set('config_url', configUrl);
   if (redirectUrl) params.set('redirect_url', redirectUrl);
+  if (uiLocales) params.set('ui_locales', uiLocales);
   if (pkce) {
     params.set('code_challenge', pkce.codeChallenge);
     params.set('code_challenge_method', pkce.codeChallengeMethod);

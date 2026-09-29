@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { configVerifier } from '../../middleware/config-verifier.js';
 import { requestTwoFaReset, resetTwoFaWithToken } from '../../services/twofactor-reset.service.js';
 import { AppError } from '../../utils/errors.js';
+import { resolveEmailLocale } from '../../utils/email-locale.js';
 import { resetRequestRateLimiter, tokenConsumeRateLimiter } from '../auth/rate-limit-keys.js';
 
 const SUCCESS_MESSAGE = 'We sent instructions to your email';
@@ -37,6 +38,7 @@ export function registerTwoFactorResetRoutes(app: FastifyInstance): void {
             email,
             config: request.config,
             configUrl: request.configUrl,
+            locale: resolveEmailLocale(request.headers['accept-language']),
           });
         } catch (err) {
           request.log.error({ err }, '2FA reset request failed');

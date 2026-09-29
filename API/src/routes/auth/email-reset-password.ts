@@ -13,6 +13,7 @@ const QuerySchema = z
     config_url: z.string().min(1).max(2048),
     token: z.string().min(1).max(4096),
     redirect_url: z.string().min(1).max(2048).optional(),
+    ui_locales: z.string().min(1).max(64).optional(),
   })
   .strict();
 
@@ -27,10 +28,15 @@ function isEmailLinkTokenError(err: unknown): boolean {
   ].includes(err.message);
 }
 
-function buildLoginAuthUrl(configUrl: string, redirectUrl: string | undefined): string {
+function buildLoginAuthUrl(
+  configUrl: string,
+  redirectUrl: string | undefined,
+  uiLocales: string | undefined,
+): string {
   const params = new URLSearchParams();
   params.set('config_url', configUrl);
   if (redirectUrl) params.set('redirect_url', redirectUrl);
+  if (uiLocales) params.set('ui_locales', uiLocales);
   return `/auth?${params.toString()}`;
 }
 
@@ -43,7 +49,7 @@ export function registerAuthEmailResetPasswordRoute(app: FastifyInstance): void 
       preHandler: [tokenConsumeRateLimiter, configVerifier],
     },
     async (request, reply) => {
-      const { token, redirect_url } = QuerySchema.parse(request.query);
+      const { token, redirect_url, ui_locales } = QuerySchema.parse(request.query);
 
       if (!request.config || !request.configUrl) {
         throw new AppError('BAD_REQUEST', 400, 'MISSING_CONFIG');
@@ -71,7 +77,7 @@ export function registerAuthEmailResetPasswordRoute(app: FastifyInstance): void 
         const html = await renderAuthEntrypointHtml({
           config: request.config,
           configUrl: request.configUrl,
-          requestUrl: buildLoginAuthUrl(request.configUrl, redirect_url),
+          requestUrl: buildLoginAuthUrl(request.configUrl, redirect_url, ui_locales),
         });
         sendAuthHtml(reply, html);
         return;
@@ -90,6 +96,7 @@ export function registerAuthEmailResetPasswordRoute(app: FastifyInstance): void 
       if (redirectUrl) params.set('redirect_url', redirectUrl);
       params.set('email_token', token);
       params.set('email_token_type', 'PASSWORD_RESET');
+      if (ui_locales) params.set('ui_locales', ui_locales);
 
       const html = await renderAuthEntrypointHtml({
         config: request.config,

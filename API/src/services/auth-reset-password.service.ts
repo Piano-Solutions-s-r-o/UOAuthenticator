@@ -11,6 +11,7 @@ import { runInTransaction } from '../db/tenant-context.js';
 import { AppError } from '../utils/errors.js';
 import { generateEmailToken, hashEmailToken } from '../utils/verification-token.js';
 import { extractEmailTheme } from './email-theme.service.js';
+import type { EmailLocale } from './email.templates.js';
 import { sendPasswordResetEmail } from './email.service.js';
 import { hashPassword } from './password.service.js';
 import { revokeAllRefreshTokensForUser } from './refresh-token-revocation.service.js';
@@ -53,11 +54,14 @@ function buildPasswordResetLink(params: {
   baseUrl: string;
   token: string;
   configUrl: string;
+  locale?: EmailLocale;
 }): string {
   const baseUrl = normalizeBaseUrl(params.baseUrl);
   const url = new URL(`${baseUrl}/auth/email/reset-password`);
   url.searchParams.set('token', params.token);
   url.searchParams.set('config_url', params.configUrl);
+  // HUGO-1815: the landing page opens in the language the email was written in.
+  if (params.locale) url.searchParams.set('ui_locales', params.locale);
   return url.toString();
 }
 
@@ -114,7 +118,7 @@ async function consumeAccountFlowTimingBudget(): Promise<void> {
 }
 
 export async function requestPasswordReset(
-  params: { email: string; config: ClientConfig; configUrl: string },
+  params: { email: string; config: ClientConfig; configUrl: string; locale?: EmailLocale },
   deps?: ResetPasswordDeps,
 ): Promise<void> {
   const env = deps?.env ?? getEnv();
@@ -170,8 +174,18 @@ export async function requestPasswordReset(
     : `http://${env.HOST}:${env.PORT}`;
 
   const theme = extractEmailTheme(params.config);
-  const link = buildPasswordResetLink({ baseUrl, token, configUrl: params.configUrl });
-  await (deps?.sendPasswordResetEmail ?? sendPasswordResetEmail)({ to: email, link, theme });
+  const link = buildPasswordResetLink({
+    baseUrl,
+    token,
+    configUrl: params.configUrl,
+    locale: params.locale,
+  });
+  await (deps?.sendPasswordResetEmail ?? sendPasswordResetEmail)({
+    to: email,
+    link,
+    theme,
+    locale: params.locale,
+  });
 }
 
 export async function validatePasswordResetToken(

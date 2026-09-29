@@ -175,4 +175,26 @@ describe('GET /auth/email/reset-password', () => {
 
     await app.close();
   });
+
+  it('accepts ui_locales and forwards it to the auth page (HUGO-1815)', async () => {
+    validatePasswordResetTokenMock.mockResolvedValue(undefined);
+
+    const { createApp } = await import('../../src/app.js');
+    const app = await createApp();
+    await app.ready();
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `${RESET_URL}&ui_locales=cs`,
+      headers: { accept: 'text/html' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const call = renderAuthEntrypointHtmlMock.mock.calls[0]?.[0] as { requestUrl: string };
+    const params = new URLSearchParams(call.requestUrl.split('?')[1]);
+    expect(params.get('ui_locales')).toBe('cs');
+    expect(params.get('email_token')).toBe('stale-token');
+
+    await app.close();
+  });
 });

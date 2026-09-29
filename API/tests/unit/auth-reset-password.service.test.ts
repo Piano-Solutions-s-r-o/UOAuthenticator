@@ -121,6 +121,68 @@ describe('requestPasswordReset', () => {
     );
   });
 
+
+  it('passes the locale to the email and marks the link with ui_locales', async () => {
+    const findUnique = vi
+      .fn<PrismaStub['user']['findUnique']>()
+      .mockResolvedValue({ id: 'u1', tokenVersion: 7 });
+    const createToken = vi
+      .fn<PrismaStub['verificationToken']['create']>()
+      .mockResolvedValue({ id: 't1' });
+    const prisma: PrismaStub = {
+      user: { findUnique },
+      verificationToken: { create: createToken },
+    };
+
+    const sendPasswordResetEmail = vi.fn<(params: { to: string; link: string }) => Promise<void>>(
+      async () => undefined,
+    );
+
+    await requestPasswordReset(
+      {
+        email: 'existing@example.com',
+        config: baseConfig(),
+        configUrl: 'https://client.example.com/auth-config',
+        locale: 'cs',
+      },
+      {
+        env: testEnv(),
+        prisma: prisma as unknown as never,
+        sharedSecret: 'pepper',
+        now: () => new Date('2026-02-10T00:00:00.000Z'),
+        generateEmailToken: () => 'token123',
+        hashEmailToken: () => 'hash123',
+        sendPasswordResetEmail,
+      },
+    );
+
+    expect(findUnique).toHaveBeenCalledWith({
+      where: { userKey: 'existing@example.com' },
+      select: { id: true, tokenVersion: true },
+    });
+
+    expect(createToken).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        type: 'PASSWORD_RESET',
+        email: 'existing@example.com',
+        userKey: 'existing@example.com',
+        domain: null,
+        configUrl: 'https://client.example.com/auth-config',
+        tokenHash: 'hash123',
+        userId: 'u1',
+        tokenVersion: 7,
+      }),
+    });
+
+    expect(sendPasswordResetEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'existing@example.com',
+        link: 'https://auth.example.com/auth/email/reset-password?token=token123&config_url=https%3A%2F%2Fclient.example.com%2Fauth-config&ui_locales=cs',
+        locale: 'cs',
+      }),
+    );
+  });
+
   it('does nothing for non-existent users (no enumeration) but burns timing budget', async () => {
     const findUnique = vi.fn<PrismaStub['user']['findUnique']>().mockResolvedValue(null);
     const createToken = vi.fn<PrismaStub['verificationToken']['create']>();
