@@ -38,7 +38,7 @@ const EN_FALLBACK = 'If the button does not work, copy and paste this URL into y
 const EN_LINK_EXPIRY = (minutes: number): string =>
   `This link expires in ${minutes} minutes and can only be used once.`;
 
-const PASSWORD_RESET_COPY: Record<EmailLocale, LinkEmailCopy> = {
+const RECOVERY_LINK_COPY: Record<EmailLocale, LinkEmailCopy> = {
   en: {
     subject: 'Reset your password',
     heading: 'Reset your password',
@@ -101,8 +101,8 @@ const LOGIN_CODE_COPY: Record<EmailLocale, LoginCodeCopy> = {
   },
 };
 
-export function passwordResetCopy(locale?: EmailLocale): LinkEmailCopy {
-  return PASSWORD_RESET_COPY[locale ?? 'en'] ?? PASSWORD_RESET_COPY.en;
+export function recoveryLinkCopy(locale?: EmailLocale): LinkEmailCopy {
+  return RECOVERY_LINK_COPY[locale ?? 'en'] ?? RECOVERY_LINK_COPY.en;
 }
 
 export function twoFaResetCopy(locale?: EmailLocale): LinkEmailCopy {

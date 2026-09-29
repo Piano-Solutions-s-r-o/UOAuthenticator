@@ -4,7 +4,7 @@ import {
   registrationTokenTtlHours,
   type EmailLocale,
 } from './email.registration-copy.js';
-import { passwordResetCopy, twoFaResetCopy, type LinkEmailCopy } from './email.account-copy.js';
+import { recoveryLinkCopy, twoFaResetCopy, type LinkEmailCopy } from './email.account-copy.js';
 
 export type { EmailLocale } from './email.registration-copy.js';
 
@@ -395,7 +395,7 @@ export function buildPasswordResetTemplate(params: {
   theme?: Partial<EmailTheme>;
   locale?: EmailLocale;
 }): EmailTemplate {
-  return buildCopyLinkTemplate({ ...params, copy: passwordResetCopy(params.locale) });
+  return buildCopyLinkTemplate({ ...params, copy: recoveryLinkCopy(params.locale) });
 }
 
 export function buildIntegrationApprovedTemplate(params: {
