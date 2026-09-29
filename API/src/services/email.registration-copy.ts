@@ -34,15 +34,15 @@ const REGISTRATION_COPY: Record<EmailLocale, RegistrationCopy> = {
     ignoreLabel: "Wasn't you? Pretend this never happened.",
   },
   cs: {
-    subject: 'Váš přihlašovací odkaz',
-    heading: 'Pojďme vás přihlásit',
-    body: 'Jste jen jedno kliknutí od cíle. Klikněte na tlačítko níže a dostanete se ke svému účtu nebo dokončíte registraci.',
+    subject: 'Tvůj přihlašovací odkaz',
+    heading: 'Pojďme tě přihlásit',
+    body: 'Jsi jen jedno kliknutí od cíle. Klikni na tlačítko níže a dostaneš se ke svému účtu nebo dokončíš registraci.',
     buttonLabel: 'Pokračovat',
     expiryHours: (hours) => `Tik ťak — odkaz platí ${hours} hodin a použít ho lze jen jednou.`,
     expiryMinutes: (minutes) =>
       `Tik ťak — odkaz platí ${minutes} minut a použít ho lze jen jednou.`,
-    fallbackLabel: 'Tlačítko nereaguje? Zkopírujte tuto adresu do prohlížeče:',
-    ignoreLabel: 'Tohle jste nebyl/a vy? Tak na to rychle zapomeňte.',
+    fallbackLabel: 'Tlačítko nereaguje? Zkopíruj tuto adresu do prohlížeče:',
+    ignoreLabel: 'Tohle jsi nebyl(a) ty? Tak na to rychle zapomeň.',
   },
 };
 

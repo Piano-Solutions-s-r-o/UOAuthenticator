@@ -181,14 +181,16 @@ describe('sign-in email localization (HUGO-553)', () => {
   it('renders Czech copy when locale is cs', () => {
     const tpl = buildRegistrationLinkTemplate({ link, locale: 'cs' });
 
-    expect(tpl.subject).toBe('Váš přihlašovací odkaz');
+    expect(tpl.subject).toBe('Tvůj přihlašovací odkaz');
     expect(tpl.html).toContain('<html lang="cs">');
-    expect(tpl.html).toContain('Pojďme vás přihlásit');
-    expect(tpl.html).toContain('dokončíte registraci');
+    expect(tpl.html).toContain('Pojďme tě přihlásit');
+    expect(tpl.html).toContain('dokončíš registraci');
     expect(tpl.html).toContain('Pokračovat');
-    expect(tpl.text).toContain('Pojďme vás přihlásit');
+    expect(tpl.text).toContain('Pojďme tě přihlásit');
     expect(tpl.text).toMatch(/odkaz platí 24 hodin/);
     expect(tpl.html).toMatch(/odkaz platí 24 hodin/);
+    // HUGO-1815: informal address (tykání) throughout the Czech email.
+    expect(tpl.html).not.toMatch(/Váš|vás|Klikněte|Zkopírujte|zapomeňte/);
     // No leftover English copy in the Czech email.
     expect(tpl.html).not.toContain('get you in');
     expect(tpl.html).not.toMatch(/good for 24 hours/i);
