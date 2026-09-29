@@ -50,4 +50,10 @@ describe('api Accept-Language header', () => {
     await postBinary('/x', {});
     expect(sentHeaders()['accept-language']).toBe('cs');
   });
+
+  it('drops a value that is not a plain language tag instead of breaking fetch', async () => {
+    setRequestLanguage('čeština');
+    await getJson('/x');
+    expect(sentHeaders()['accept-language']).toBeUndefined();
+  });
 });

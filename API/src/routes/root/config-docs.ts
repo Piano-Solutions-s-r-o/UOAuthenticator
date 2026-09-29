@@ -82,6 +82,9 @@ export const configJwtDocumentation = {
             'danger',
             'danger_text',
           ],
+          optional_keys: {
+            link: 'Colour of text links and outline/ghost button text on the page background. Defaults to primary. Set it when primary is a fill colour that is unreadable as text (e.g. a light yellow on white).',
+          },
           value_format: 'hex color only (#RGB, #RGBA, #RRGGBB, #RRGGBBAA) or transparent',
         },
         radii: {

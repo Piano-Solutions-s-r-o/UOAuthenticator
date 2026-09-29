@@ -24,6 +24,7 @@ export type ApiFailure = {
 export type ApiResult<T> = ApiSuccess<T> | ApiFailure;
 
 let requestLanguage: string | null = null;
+const LANGUAGE_TAG = /^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$/;
 
 /**
  * Tells the API which language the page currently shows; it is sent as `Accept-Language` on every
@@ -31,7 +32,9 @@ let requestLanguage: string | null = null;
  */
 export function setRequestLanguage(language: string | null): void {
   const trimmed = language?.trim();
-  requestLanguage = trimmed ? trimmed : null;
+  // Only a plain language tag becomes a header; anything else (a stray character from a client
+  // config) would make fetch throw and break every request, so it is dropped instead.
+  requestLanguage = trimmed && LANGUAGE_TAG.test(trimmed) ? trimmed : null;
 }
 
 function languageHeader(): Record<string, string> {

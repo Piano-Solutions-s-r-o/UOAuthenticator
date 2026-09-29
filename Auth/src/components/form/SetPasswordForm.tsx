@@ -158,7 +158,7 @@ export function SetPasswordForm(): React.JSX.Element {
         </p>
         <button
           type="button"
-          className="text-sm text-[var(--uoa-color-primary)] hover:underline"
+          className="text-sm text-[var(--uoa-color-link)] hover:underline"
           onClick={() => setView('login')}
         >
           {t('nav.backToLogin')}

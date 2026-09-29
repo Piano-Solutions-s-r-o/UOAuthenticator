@@ -17,7 +17,7 @@ export function ResetPasswordPage(): React.JSX.Element {
       <div className="mt-4 text-center text-sm">
         <button
           type="button"
-          className="text-[var(--uoa-color-primary)] hover:underline"
+          className="text-[var(--uoa-color-link)] hover:underline"
           onClick={() => setView('login')}
         >
           {t('nav.backToLogin')}

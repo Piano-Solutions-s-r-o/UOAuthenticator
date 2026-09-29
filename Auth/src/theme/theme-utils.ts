@@ -180,6 +180,7 @@ function parseThemeVars(uiTheme: Record<string, unknown>): ThemeVars {
     const border = sanitizeHexColor(readString(colors, 'border'));
     const danger = sanitizeHexColor(readString(colors, 'danger'));
     const dangerText = sanitizeHexColor(readString(colors, 'danger_text'));
+    const link = sanitizeHexColor(readString(colors, 'link'));
 
     if (bg) vars['--uoa-color-bg'] = bg;
     if (surface) vars['--uoa-color-surface'] = surface;
@@ -187,6 +188,7 @@ function parseThemeVars(uiTheme: Record<string, unknown>): ThemeVars {
     if (muted) vars['--uoa-color-muted'] = muted;
     if (primary) vars['--uoa-color-primary'] = primary;
     if (primaryText) vars['--uoa-color-primary-text'] = primaryText;
+    if (link) vars['--uoa-color-link'] = link;
     if (border) vars['--uoa-color-border'] = border;
     if (danger) vars['--uoa-color-danger'] = danger;
     if (dangerText) vars['--uoa-color-danger-text'] = dangerText;
@@ -209,6 +211,12 @@ function parseThemeVars(uiTheme: Record<string, unknown>): ThemeVars {
       const v = name.startsWith('--uoa-color-') ? sanitizeHexColor(raw) : sanitizeCssLength(raw);
       if (v) vars[name] = v;
     }
+  }
+
+  // HUGO-1815: text links fall back to the (possibly css_vars-overridden) primary, so configs
+  // without `colors.link` render exactly as before.
+  if (!vars['--uoa-color-link'] && vars['--uoa-color-primary']) {
+    vars['--uoa-color-link'] = vars['--uoa-color-primary'];
   }
 
   return vars;
@@ -353,10 +361,10 @@ function buttonPrimaryClasses(style: ButtonStyle): string {
   const base =
     'inline-flex w-full items-center justify-center gap-2 rounded-[var(--uoa-radius-button)] px-4 py-2.5 font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--uoa-color-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--uoa-color-bg)] disabled:opacity-60';
   if (style === 'outline') {
-    return `${base} border border-[var(--uoa-color-primary)] bg-transparent text-[var(--uoa-color-primary)] hover:bg-[var(--uoa-color-surface)]`;
+    return `${base} border border-[var(--uoa-color-primary)] bg-transparent text-[var(--uoa-color-link)] hover:bg-[var(--uoa-color-surface)]`;
   }
   if (style === 'ghost') {
-    return `${base} bg-transparent text-[var(--uoa-color-primary)] hover:bg-[var(--uoa-color-surface)]`;
+    return `${base} bg-transparent text-[var(--uoa-color-link)] hover:bg-[var(--uoa-color-surface)]`;
   }
   return `${base} bg-[var(--uoa-color-primary)] text-[var(--uoa-color-primary-text)] hover:opacity-90`;
 }

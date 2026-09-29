@@ -61,6 +61,8 @@ export function registerAuthStartRoute(app: FastifyInstance): void {
               requestAccess: parseRequestAccessFlag(request_access),
               codeChallenge: pkce.codeChallenge,
               codeChallengeMethod: pkce.codeChallengeMethod,
+              // HUGO-1815: the sign-in/verify link sent here matches the page language, like the code.
+              locale: resolveEmailLocale(request.headers['accept-language']),
             },
             { prisma: request.adminDb },
           );

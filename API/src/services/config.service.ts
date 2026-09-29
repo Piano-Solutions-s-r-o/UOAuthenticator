@@ -69,6 +69,10 @@ const UiThemeSchema = z
         border: HexColorSchema,
         danger: HexColorSchema,
         danger_text: HexColorSchema,
+        // HUGO-1815: optional colour for text links and text-only buttons on the page
+        // background. Defaults to `primary`; set it when `primary` is a fill colour that is
+        // unreadable as text (e.g. a light yellow brand colour on white).
+        link: HexColorSchema.optional(),
       })
       .passthrough(),
     radii: z

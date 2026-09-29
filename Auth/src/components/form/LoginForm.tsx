@@ -200,7 +200,7 @@ export function LoginForm(): React.JSX.Element {
       <div className="flex items-center justify-between text-sm">
         <button
           type="button"
-          className="text-[var(--uoa-color-primary)] hover:underline"
+          className="text-[var(--uoa-color-link)] hover:underline"
           onClick={() => setView('reset-password')}
         >
           {t('nav.forgotPassword')}
@@ -208,7 +208,7 @@ export function LoginForm(): React.JSX.Element {
         {registrationAllowed ? (
           <button
             type="button"
-            className="text-[var(--uoa-color-primary)] hover:underline"
+            className="text-[var(--uoa-color-link)] hover:underline"
             onClick={() => setView('register')}
           >
             {t('nav.createAccount')}
@@ -220,7 +220,7 @@ export function LoginForm(): React.JSX.Element {
         <div className="text-center text-sm">
           <button
             type="button"
-            className="text-[var(--uoa-color-primary)] hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+            className="text-[var(--uoa-color-link)] hover:underline disabled:cursor-not-allowed disabled:opacity-60"
             onClick={() => void handleEmailCode()}
             disabled={!email || sendingCode}
           >

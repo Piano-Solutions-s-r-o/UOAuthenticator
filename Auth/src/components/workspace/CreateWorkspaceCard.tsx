@@ -40,7 +40,7 @@ export function CreateWorkspaceCard(props: {
     >
       <span
         aria-hidden="true"
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--uoa-radius-button)] border border-[var(--uoa-color-border)] text-lg text-[var(--uoa-color-primary)]"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--uoa-radius-button)] border border-[var(--uoa-color-border)] text-lg text-[var(--uoa-color-link)]"
       >
         +
       </span>
