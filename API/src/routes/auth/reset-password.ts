@@ -7,6 +7,7 @@ import {
   resetPasswordWithToken,
 } from '../../services/auth-reset-password.service.js';
 import { AppError } from '../../utils/errors.js';
+import { resolveEmailLocale } from '../../utils/email-locale.js';
 import { resetRequestRateLimiter, tokenConsumeRateLimiter } from './rate-limit-keys.js';
 
 const SUCCESS_MESSAGE = "If you have an account with us, we've sent you instructions";
@@ -42,6 +43,7 @@ export function registerAuthResetPasswordRoutes(app: FastifyInstance): void {
               email,
               config: request.config,
               configUrl: request.configUrl,
+              locale: resolveEmailLocale(request.headers['accept-language']),
             },
             { prisma: request.adminDb },
           );

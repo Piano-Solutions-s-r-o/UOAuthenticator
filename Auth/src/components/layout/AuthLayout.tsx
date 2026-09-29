@@ -11,7 +11,7 @@ export function AuthLayout(props: { children: React.ReactNode }): React.JSX.Elem
   const { view } = usePopup();
   const pageContainer =
     view === 'signatures'
-      ? classNames.pageContainer.replace('max-w-lg', 'max-w-5xl')
+      ? classNames.pageContainer.replace(/max-w-(lg|md)/, 'max-w-5xl')
       : classNames.pageContainer;
 
   return (

@@ -3,6 +3,8 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { translationsByLanguage } from './translations/index.js';
 import type { TranslationKey } from './translations/en.js';
 import { loadTranslations } from './language-loader.js';
+import { pickUiLocale } from './ui-locales.js';
+import { setRequestLanguage } from '../utils/api.js';
 
 type I18nContextValue = {
   language: string;
@@ -59,9 +61,20 @@ function readLanguageConfig(config: unknown): { language: string; languages: str
 export function I18nProvider(props: {
   config: unknown;
   configUrl: string;
+  /** The `/auth?...` query string; its `ui_locales` picks the initial language. */
+  initialSearch?: string;
   children: React.ReactNode;
 }): React.JSX.Element {
-  const initial = useMemo(() => readLanguageConfig(props.config), [props.config]);
+  const initial = useMemo(() => {
+    const base = readLanguageConfig(props.config);
+    // Precedence: ui_locales (a client app's explicit choice) → config `language` → first configured.
+    // Same fallback as the popup state (use-popup.tsx): when the bootstrap search was rejected in
+    // the browser, read the real URL so the language still matches the server render.
+    const search =
+      props.initialSearch ?? (typeof window !== 'undefined' ? window.location?.search : undefined);
+    const fromQuery = pickUiLocale(search, base.languages);
+    return fromQuery ? { ...base, language: fromQuery } : base;
+  }, [props.config, props.initialSearch]);
   const [language, setLanguageState] = useState<string>(initial.language);
   const [remoteByLanguage, setRemoteByLanguage] = useState<Record<string, Record<string, string>>>(
     {},
@@ -104,6 +117,14 @@ export function I18nProvider(props: {
       cancelled = true;
     };
   }, [enKeys, initial.languages, language, props.configUrl, remoteByLanguage]);
+
+  // Keep the API informed of the language the page shows (emails follow it). Set during render (not
+  // in an effect) because child effects — e.g. a page fetching on mount — run before the parent's.
+  // Browser only: the SSR pass never issues API requests and must not write shared module state.
+  const effectiveLanguage = initial.languages.includes(language)
+    ? language
+    : (initial.languages[0] ?? 'en');
+  if (typeof window !== 'undefined') setRequestLanguage(effectiveLanguage);
 
   const value = useMemo<I18nContextValue>(() => {
     const languages = initial.languages;

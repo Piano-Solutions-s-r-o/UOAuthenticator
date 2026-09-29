@@ -53,14 +53,14 @@ export function RegisterForm(): React.JSX.Element {
         <div className="mt-3 flex flex-wrap gap-3">
           <button
             type="button"
-            className="text-sm font-medium text-[var(--uoa-color-primary)] hover:underline"
+            className="text-sm font-medium text-[var(--uoa-color-link)] hover:underline"
             onClick={() => setView('login')}
           >
             {t('nav.backToLogin')}
           </button>
           <button
             type="button"
-            className="text-sm font-medium text-[var(--uoa-color-primary)] hover:underline"
+            className="text-sm font-medium text-[var(--uoa-color-link)] hover:underline"
             onClick={() => setView('reset-password')}
           >
             {t('nav.resetPassword')}

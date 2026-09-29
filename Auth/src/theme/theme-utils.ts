@@ -1,6 +1,9 @@
 import { THEME_CSS_VAR_NAMES } from './theme-defaults.js';
 import type {
   BaseTextSize,
+  ButtonFontWeight,
+  PageLayout,
+  CreateAccountStyle,
   ButtonStyle,
   CardStyle,
   Density,
@@ -141,6 +144,35 @@ function parseButtonStyle(value: unknown): ButtonStyle | '' {
   return '';
 }
 
+// HUGO-1815: lets a client match its own button weight; absent = the historical `medium`.
+function parseButtonFontWeight(value: unknown): ButtonFontWeight | '' {
+  if (value === undefined) return 'medium';
+  if (value === 'medium' || value === 'semibold' || value === 'bold') return value;
+  return '';
+}
+
+// Literal class names so Tailwind generates them.
+const BUTTON_FONT_WEIGHT_CLASS: Record<ButtonFontWeight, string> = {
+  medium: 'font-medium',
+  semibold: 'font-semibold',
+  bold: 'font-bold',
+};
+
+// HUGO-1815: `centered` mirrors a client's own sign-in page — content centred vertically, the
+// language switch in the page corner, a larger logo. Absent = the historical stacked layout.
+function parsePageLayout(value: unknown): PageLayout | '' {
+  if (value === undefined) return 'default';
+  if (value === 'default' || value === 'centered') return value;
+  return '';
+}
+
+// HUGO-1815: "Create account" as a text link (default) or a secondary button under the primary.
+function parseCreateAccountStyle(value: unknown): CreateAccountStyle | '' {
+  if (value === undefined) return 'link';
+  if (value === 'link' || value === 'secondary') return value;
+  return '';
+}
+
 function parseCardStyle(value: unknown): CardStyle | '' {
   if (value === 'plain' || value === 'bordered' || value === 'shadow') return value;
   return '';
@@ -180,6 +212,9 @@ function parseThemeVars(uiTheme: Record<string, unknown>): ThemeVars {
     const border = sanitizeHexColor(readString(colors, 'border'));
     const danger = sanitizeHexColor(readString(colors, 'danger'));
     const dangerText = sanitizeHexColor(readString(colors, 'danger_text'));
+    const link = sanitizeHexColor(readString(colors, 'link'));
+    const secondary = sanitizeHexColor(readString(colors, 'secondary'));
+    const secondaryText = sanitizeHexColor(readString(colors, 'secondary_text'));
 
     if (bg) vars['--uoa-color-bg'] = bg;
     if (surface) vars['--uoa-color-surface'] = surface;
@@ -187,6 +222,9 @@ function parseThemeVars(uiTheme: Record<string, unknown>): ThemeVars {
     if (muted) vars['--uoa-color-muted'] = muted;
     if (primary) vars['--uoa-color-primary'] = primary;
     if (primaryText) vars['--uoa-color-primary-text'] = primaryText;
+    if (link) vars['--uoa-color-link'] = link;
+    if (secondary) vars['--uoa-color-secondary'] = secondary;
+    if (secondaryText) vars['--uoa-color-secondary-text'] = secondaryText;
     if (border) vars['--uoa-color-border'] = border;
     if (danger) vars['--uoa-color-danger'] = danger;
     if (dangerText) vars['--uoa-color-danger-text'] = dangerText;
@@ -209,6 +247,12 @@ function parseThemeVars(uiTheme: Record<string, unknown>): ThemeVars {
       const v = name.startsWith('--uoa-color-') ? sanitizeHexColor(raw) : sanitizeCssLength(raw);
       if (v) vars[name] = v;
     }
+  }
+
+  // HUGO-1815: text links fall back to the (possibly css_vars-overridden) primary, so configs
+  // without `colors.link` render exactly as before.
+  if (!vars['--uoa-color-link'] && vars['--uoa-color-primary']) {
+    vars['--uoa-color-link'] = vars['--uoa-color-primary'];
   }
 
   return vars;
@@ -242,9 +286,24 @@ export function buildThemeFromConfig(config: unknown): Theme {
     vars['--uoa-font-family'] = fontFamily;
   }
 
+  // HUGO-1815: optional separate face for page headings (a client's display font).
+  const rawHeadingFont = typography ? typography.heading_font_family : undefined;
+  const headingFontFamily =
+    rawHeadingFont === undefined ? undefined : parseFontFamily(rawHeadingFont) || null;
+  if (headingFontFamily === null) throw new Error('Invalid theme config');
+  if (headingFontFamily && !isPresetFont(headingFontFamily)) {
+    vars['--uoa-heading-font-family'] = headingFontFamily;
+  }
+
   const button = isRecord(uiTheme.button) ? uiTheme.button : null;
   const buttonStyle = button ? parseButtonStyle(button.style) : '';
   if (!buttonStyle) throw new Error('Invalid theme config');
+  const buttonFontWeight = parseButtonFontWeight(button?.font_weight);
+  if (!buttonFontWeight) throw new Error('Invalid theme config');
+  const createAccount = parseCreateAccountStyle(button?.create_account);
+  if (!createAccount) throw new Error('Invalid theme config');
+  const layout = parsePageLayout(uiTheme.layout);
+  if (!layout) throw new Error('Invalid theme config');
 
   const card = isRecord(uiTheme.card) ? uiTheme.card : null;
   const cardStyle = card ? parseCardStyle(card.style) : '';
@@ -271,9 +330,15 @@ export function buildThemeFromConfig(config: unknown): Theme {
 
   return {
     vars,
+    layout,
     density,
-    typography: { fontFamily, baseTextSize, ...(fontImportUrl ? { fontImportUrl } : {}) },
-    button: { style: buttonStyle },
+    typography: {
+      fontFamily,
+      baseTextSize,
+      ...(fontImportUrl ? { fontImportUrl } : {}),
+      ...(headingFontFamily ? { headingFontFamily } : {}),
+    },
+    button: { style: buttonStyle, fontWeight: buttonFontWeight, createAccount },
     card: { style: cardStyle },
     logo: {
       url: logoUrl,
@@ -325,7 +390,7 @@ function typographyClasses(typography: Theme['typography']): {
       : typography.fontFamily === 'mono'
         ? 'font-mono'
         : 'font-sans'
-    : 'font-[family-name:var(--uoa-font-family)]';
+    : 'font-[family-name:var(--uoa-font-family),ui-sans-serif,system-ui,sans-serif]';
   const baseText =
     typography.baseTextSize === 'sm'
       ? 'text-sm'
@@ -338,7 +403,16 @@ function typographyClasses(typography: Theme['typography']): {
       : typography.baseTextSize === 'lg'
         ? 'text-3xl'
         : 'text-2xl';
-  return { font, baseText, title: `${titleSize} font-semibold tracking-tight` };
+  const headingFont = !typography.headingFontFamily
+    ? ''
+    : isPresetFont(typography.headingFontFamily)
+      ? typography.headingFontFamily === 'serif'
+        ? ' font-serif'
+        : typography.headingFontFamily === 'mono'
+          ? ' font-mono'
+          : ' font-sans'
+      : ' font-[family-name:var(--uoa-heading-font-family),ui-sans-serif,system-ui,sans-serif]';
+  return { font, baseText, title: `${titleSize} font-semibold tracking-tight${headingFont}` };
 }
 
 function cardClasses(style: CardStyle): string {
@@ -349,37 +423,58 @@ function cardClasses(style: CardStyle): string {
   return `${base} border border-[var(--uoa-color-border)] shadow-sm shadow-black/5`;
 }
 
-function buttonPrimaryClasses(style: ButtonStyle): string {
+function buttonPrimaryClasses(style: ButtonStyle, fontWeight: ButtonFontWeight): string {
   const base =
-    'inline-flex w-full items-center justify-center gap-2 rounded-[var(--uoa-radius-button)] px-4 py-2.5 font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--uoa-color-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--uoa-color-bg)] disabled:opacity-60';
+    `inline-flex w-full items-center justify-center gap-2 rounded-[var(--uoa-radius-button)] px-4 py-2.5 ${BUTTON_FONT_WEIGHT_CLASS[fontWeight]} focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--uoa-color-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--uoa-color-bg)] disabled:opacity-60`;
   if (style === 'outline') {
-    return `${base} border border-[var(--uoa-color-primary)] bg-transparent text-[var(--uoa-color-primary)] hover:bg-[var(--uoa-color-surface)]`;
+    return `${base} border border-[var(--uoa-color-primary)] bg-transparent text-[var(--uoa-color-link)] hover:bg-[var(--uoa-color-surface)]`;
   }
   if (style === 'ghost') {
-    return `${base} bg-transparent text-[var(--uoa-color-primary)] hover:bg-[var(--uoa-color-surface)]`;
+    return `${base} bg-transparent text-[var(--uoa-color-link)] hover:bg-[var(--uoa-color-surface)]`;
   }
   return `${base} bg-[var(--uoa-color-primary)] text-[var(--uoa-color-primary-text)] hover:opacity-90`;
 }
 
-function buttonSecondaryClasses(style: ButtonStyle): string {
+function buttonSecondaryClasses(style: ButtonStyle, fontWeight: ButtonFontWeight): string {
   const base =
-    'inline-flex w-full items-center justify-center gap-2 rounded-[var(--uoa-radius-button)] px-4 py-2.5 font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--uoa-color-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--uoa-color-bg)] disabled:opacity-60';
+    `inline-flex w-full items-center justify-center gap-2 rounded-[var(--uoa-radius-button)] px-4 py-2.5 ${BUTTON_FONT_WEIGHT_CLASS[fontWeight]} focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--uoa-color-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--uoa-color-bg)] disabled:opacity-60`;
   // Secondary stays neutral regardless of primary style choice.
   void style;
   return `${base} border border-[var(--uoa-color-border)] bg-[var(--uoa-color-surface)] text-[var(--uoa-color-text)] hover:opacity-90`;
 }
 
+function buttonSecondaryFilledClasses(theme: Theme): string {
+  if (!theme.vars['--uoa-color-secondary']) {
+    return buttonSecondaryClasses(theme.button.style, theme.button.fontWeight);
+  }
+  const base = `inline-flex w-full items-center justify-center gap-2 rounded-[var(--uoa-radius-button)] px-4 py-2.5 ${BUTTON_FONT_WEIGHT_CLASS[theme.button.fontWeight]} focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--uoa-color-link)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--uoa-color-bg)] disabled:opacity-60`;
+  const text = theme.vars['--uoa-color-secondary-text']
+    ? 'text-[var(--uoa-color-secondary-text)]'
+    : 'text-[var(--uoa-color-text)]';
+  return `${base} bg-[var(--uoa-color-secondary)] ${text} hover:opacity-90`;
+}
+
 export function buildThemeClassNames(theme: Theme): ThemeClassNames {
   const t = typographyClasses(theme.typography);
+  const centered = theme.layout === 'centered';
 
   return {
-    appShell: `min-h-dvh bg-[var(--uoa-color-bg)] text-[var(--uoa-color-text)] ${t.font} ${t.baseText}`,
-    pageContainer: `mx-auto max-w-lg ${densityPagePadding(theme.density)}`,
+    appShell: `min-h-dvh bg-[var(--uoa-color-bg)] text-[var(--uoa-color-text)] ${t.font} ${t.baseText}${
+      centered ? ' relative flex items-center justify-center' : ''
+    }`,
+    pageContainer: centered
+      ? `mx-auto w-full max-w-md ${densityPagePadding(theme.density)}`
+      : `mx-auto max-w-lg ${densityPagePadding(theme.density)}`,
     card: `${densityCardPadding(theme.density)} ${cardClasses(theme.card.style)}`,
-    logoWrap: 'mb-6 flex items-center justify-center',
-    title: t.title,
-    buttonPrimary: buttonPrimaryClasses(theme.button.style),
-    buttonSecondary: buttonSecondaryClasses(theme.button.style),
+    logoWrap: centered ? 'mb-8 flex items-center justify-center' : 'mb-6 flex items-center justify-center',
+    logoImage: centered ? 'h-auto w-[150px]' : 'h-10 w-auto',
+    languageSelectorWrap: centered ? 'absolute right-4 top-4 z-10' : 'mb-4 flex justify-end',
+    title: centered
+      ? t.title.replace(/^text-(xl|2xl|3xl)/, 'text-center text-3xl')
+      : t.title,
+    buttonPrimary: buttonPrimaryClasses(theme.button.style, theme.button.fontWeight),
+    buttonSecondary: buttonSecondaryClasses(theme.button.style, theme.button.fontWeight),
+    buttonSecondaryFilled: buttonSecondaryFilledClasses(theme),
   };
 }
 

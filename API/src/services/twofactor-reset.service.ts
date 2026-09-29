@@ -10,6 +10,7 @@ import { getAdminPrisma } from '../db/prisma.js';
 import { runInTransaction } from '../db/tenant-context.js';
 import { AppError } from '../utils/errors.js';
 import { generateEmailToken, hashEmailToken } from '../utils/verification-token.js';
+import type { EmailLocale } from './email.templates.js';
 import { sendTwoFaResetEmail } from './email.service.js';
 import { revokeAllRefreshTokensForUser } from './refresh-token-revocation.service.js';
 import { buildUserIdentity } from './user-scope.service.js';
@@ -69,11 +70,14 @@ function buildTwoFaResetLink(params: {
   baseUrl: string;
   token: string;
   configUrl: string;
+  locale?: EmailLocale;
 }): string {
   const baseUrl = normalizeBaseUrl(params.baseUrl);
   const url = new URL(`${baseUrl}/auth/email/twofa-reset`);
   url.searchParams.set('token', params.token);
   url.searchParams.set('config_url', params.configUrl);
+  // HUGO-1815: the landing page opens in the language the email was written in.
+  if (params.locale) url.searchParams.set('ui_locales', params.locale);
   return url.toString();
 }
 
@@ -116,7 +120,7 @@ function assertTwoFaResetTokenValid(params: {
  * Must not enumerate whether the email exists (caller should always return a generic response).
  */
 export async function requestTwoFaReset(
-  params: { email: string; config: ClientConfig; configUrl: string },
+  params: { email: string; config: ClientConfig; configUrl: string; locale?: EmailLocale },
   deps?: TwoFaResetDeps,
 ): Promise<void> {
   const env = deps?.env ?? getEnv();
@@ -170,8 +174,17 @@ export async function requestTwoFaReset(
     ? normalizeBaseUrl(env.PUBLIC_BASE_URL)
     : `http://${env.HOST}:${env.PORT}`;
 
-  const link = buildTwoFaResetLink({ baseUrl, token, configUrl: params.configUrl });
-  await (deps?.sendTwoFaResetEmail ?? sendTwoFaResetEmail)({ to: email, link });
+  const link = buildTwoFaResetLink({
+    baseUrl,
+    token,
+    configUrl: params.configUrl,
+    locale: params.locale,
+  });
+  await (deps?.sendTwoFaResetEmail ?? sendTwoFaResetEmail)({
+    to: email,
+    link,
+    locale: params.locale,
+  });
 }
 
 /**

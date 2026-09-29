@@ -5,6 +5,7 @@ import { Input } from '../ui/Input.js';
 import { PasswordInput } from '../ui/PasswordInput.js';
 import { Switch } from '../ui/Switch.js';
 import { usePopup } from '../../hooks/use-popup.js';
+import { useTheme } from '../../hooks/use-theme.js';
 import { useTranslation } from '../../i18n/use-translation.js';
 import { postJson } from '../../utils/api.js';
 import { isEmailCodeEnabled, isRegistrationAllowed } from '../../utils/auth-config.js';
@@ -73,6 +74,7 @@ export function LoginForm(): React.JSX.Element {
     setWorkspaceChoices,
   } = usePopup();
   const registrationAllowed = isRegistrationAllowed(config);
+  const createAccountAsButton = useTheme().theme.button.createAccount === 'secondary';
   const emailCodeEnabled = isEmailCodeEnabled(config);
   const { rememberMeEnabled, rememberMeDefault } = readSessionConfig(config);
 
@@ -191,24 +193,36 @@ export function LoginForm(): React.JSX.Element {
 
       {error && <p className="text-sm text-[var(--uoa-color-danger)]">{error}</p>}
 
-      <div className="mt-2">
+      <div className="mt-2 flex flex-col gap-3">
         <Button variant="primary" type="submit" disabled={loading}>
           {loading ? '...' : t('form.login.submit')}
         </Button>
+        {registrationAllowed && createAccountAsButton ? (
+          <Button
+            variant="secondaryFilled"
+            type="button"
+            disabled={loading}
+            onClick={() => setView('register')}
+          >
+            {t('nav.createAccount')}
+          </Button>
+        ) : null}
       </div>
 
-      <div className="flex items-center justify-between text-sm">
+      <div
+        className={`flex items-center text-sm ${createAccountAsButton ? 'justify-center' : 'justify-between'}`}
+      >
         <button
           type="button"
-          className="text-[var(--uoa-color-primary)] hover:underline"
+          className="text-[var(--uoa-color-link)] hover:underline"
           onClick={() => setView('reset-password')}
         >
           {t('nav.forgotPassword')}
         </button>
-        {registrationAllowed ? (
+        {registrationAllowed && !createAccountAsButton ? (
           <button
             type="button"
-            className="text-[var(--uoa-color-primary)] hover:underline"
+            className="text-[var(--uoa-color-link)] hover:underline"
             onClick={() => setView('register')}
           >
             {t('nav.createAccount')}
@@ -220,7 +234,7 @@ export function LoginForm(): React.JSX.Element {
         <div className="text-center text-sm">
           <button
             type="button"
-            className="text-[var(--uoa-color-primary)] hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+            className="text-[var(--uoa-color-link)] hover:underline disabled:cursor-not-allowed disabled:opacity-60"
             onClick={() => void handleEmailCode()}
             disabled={!email || sendingCode}
           >

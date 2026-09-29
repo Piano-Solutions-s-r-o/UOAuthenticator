@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { useTheme } from '../../hooks/use-theme.js';
 import { useTranslation } from '../../i18n/use-translation.js';
 
 // Endonyms (the language's own name) keyed by ISO 639-1 code.
@@ -25,12 +26,13 @@ function selectClasses(): string {
 
 export function LanguageSelector(): React.JSX.Element | null {
   const { language, languages, setLanguage } = useTranslation();
+  const { classNames } = useTheme();
 
   // Brief: single language (no selector). Dropdown only shown when multiple languages provided.
   if (languages.length <= 1) return null;
 
   return (
-    <div className="mb-4 flex justify-end">
+    <div className={classNames.languageSelectorWrap}>
       <select
         className={selectClasses()}
         aria-label="Language"

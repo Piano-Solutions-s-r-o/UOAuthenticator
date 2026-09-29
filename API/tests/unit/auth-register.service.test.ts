@@ -241,6 +241,42 @@ describe('requestRegistrationInstructions', () => {
     expect(sendVerifyEmailEmail).not.toHaveBeenCalled();
   });
 
+  it('marks the emailed link with ui_locales when a locale is known (HUGO-1815)', async () => {
+    const findUnique = vi.fn<PrismaStub['user']['findUnique']>().mockResolvedValue(null);
+    const createToken = vi
+      .fn<PrismaStub['verificationToken']['create']>()
+      .mockResolvedValue({ id: 't2c' });
+    const prisma: PrismaStub = {
+      user: { findUnique },
+      verificationToken: { create: createToken },
+    };
+    const sendVerifyEmailSetPasswordEmail = vi.fn<
+      (params: { to: string; link: string; locale?: string }) => Promise<void>
+    >(async () => undefined);
+
+    await requestRegistrationInstructions(
+      {
+        email: 'new@example.com',
+        config: baseConfig({ user_scope: 'per_domain' }),
+        configUrl: 'https://client.example.com/auth-config',
+        locale: 'cs',
+      },
+      {
+        env: testEnv(),
+        prisma,
+        sharedSecret: 'pepper',
+        now: () => new Date('2026-02-10T00:00:00.000Z'),
+        generateEmailToken: () => 'token456',
+        hashEmailToken: () => 'hash456',
+        sendVerifyEmailSetPasswordEmail,
+      },
+    );
+
+    const sent = sendVerifyEmailSetPasswordEmail.mock.calls[0][0];
+    expect(new URL(sent.link).searchParams.get('ui_locales')).toBe('cs');
+    expect(sent.locale).toBe('cs');
+  });
+
   it('creates a VERIFY_EMAIL token and sends passwordless verification instructions when registration_mode=passwordless', async () => {
     const findUnique = vi.fn<PrismaStub['user']['findUnique']>().mockResolvedValue(null);
     const createToken = vi

@@ -93,7 +93,7 @@ describe('POST /auth/start', () => {
     vi.restoreAllMocks();
   });
 
-  async function postStart(email: unknown) {
+  async function postStart(email: unknown, headers?: Record<string, string>) {
     const { createApp } = await import('../../src/app.js');
     const app = await createApp();
     await app.ready();
@@ -102,6 +102,7 @@ describe('POST /auth/start', () => {
         method: 'POST',
         url: `/auth/start?${QUERY_SUFFIX}`,
         payload: { email },
+        ...(headers ? { headers } : {}),
       });
     } finally {
       await app.close();
@@ -119,6 +120,17 @@ describe('POST /auth/start', () => {
     const res = await postStart('brand-new@example.com');
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ message: 'We sent instructions to your email' });
+  });
+
+  // HUGO-1815: the sign-in/verify link email follows the page language like the code email does.
+  it('passes the page language to the registration instructions email', async () => {
+    requestRegistrationInstructionsMock.mockResolvedValue({ status: 'sent' });
+    const res = await postStart('jane@example.com', { 'accept-language': 'cs' });
+    expect(res.statusCode).toBe(200);
+    expect(requestRegistrationInstructionsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ email: 'jane@example.com', locale: 'cs' }),
+      expect.any(Object),
+    );
   });
 
   it('returns the identical generic body for a malformed email (no enumeration)', async () => {

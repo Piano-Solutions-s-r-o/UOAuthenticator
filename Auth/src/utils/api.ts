@@ -23,6 +23,24 @@ export type ApiFailure = {
 
 export type ApiResult<T> = ApiSuccess<T> | ApiFailure;
 
+let requestLanguage: string | null = null;
+const LANGUAGE_TAG = /^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$/;
+
+/**
+ * Tells the API which language the page currently shows; it is sent as `Accept-Language` on every
+ * request so emails match the page (HUGO-1815). Never set = no header (the browser's own default).
+ */
+export function setRequestLanguage(language: string | null): void {
+  const trimmed = language?.trim();
+  // Only a plain language tag becomes a header; anything else (a stray character from a client
+  // config) would make fetch throw and break every request, so it is dropped instead.
+  requestLanguage = trimmed && LANGUAGE_TAG.test(trimmed) ? trimmed : null;
+}
+
+function languageHeader(): Record<string, string> {
+  return requestLanguage ? { 'accept-language': requestLanguage } : {};
+}
+
 export type QueryValue = string | number | boolean | null | undefined;
 
 function appendQuery(url: URL, query?: Record<string, QueryValue>): void {
@@ -85,6 +103,7 @@ async function request<T>(
       method,
       headers: {
         accept: 'application/json',
+        ...languageHeader(),
         ...(options.body !== undefined ? { 'content-type': 'application/json' } : {}),
       },
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
@@ -142,7 +161,11 @@ export async function postBinary<TReq>(
   try {
     response = await fetch(url, {
       method: 'POST',
-      headers: { accept: 'application/pdf', 'content-type': 'application/json' },
+      headers: {
+        accept: 'application/pdf',
+        'content-type': 'application/json',
+        ...languageHeader(),
+      },
       body: JSON.stringify(body),
     });
   } catch {

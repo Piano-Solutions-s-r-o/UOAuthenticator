@@ -12,6 +12,7 @@ import {
   buildVerifyEmailTemplate,
   buildVerifyEmailSetPasswordTemplate,
 } from '../../src/services/email.templates.js';
+import { buildLoginCodeTemplate } from '../../src/services/email.templates.login-code.js';
 import type { EmailLocale } from '../../src/services/email.templates.js';
 
 describe('buildVerifyEmailSetPasswordTemplate', () => {
@@ -180,14 +181,16 @@ describe('sign-in email localization (HUGO-553)', () => {
   it('renders Czech copy when locale is cs', () => {
     const tpl = buildRegistrationLinkTemplate({ link, locale: 'cs' });
 
-    expect(tpl.subject).toBe('Váš přihlašovací odkaz');
+    expect(tpl.subject).toBe('Tvůj přihlašovací odkaz');
     expect(tpl.html).toContain('<html lang="cs">');
-    expect(tpl.html).toContain('Pojďme vás přihlásit');
-    expect(tpl.html).toContain('dokončíte registraci');
+    expect(tpl.html).toContain('Pojďme tě přihlásit');
+    expect(tpl.html).toContain('dokončíš registraci');
     expect(tpl.html).toContain('Pokračovat');
-    expect(tpl.text).toContain('Pojďme vás přihlásit');
+    expect(tpl.text).toContain('Pojďme tě přihlásit');
     expect(tpl.text).toMatch(/odkaz platí 24 hodin/);
     expect(tpl.html).toMatch(/odkaz platí 24 hodin/);
+    // HUGO-1815: informal address (tykání) throughout the Czech email.
+    expect(tpl.html).not.toMatch(/Váš|vás|Klikněte|Zkopírujte|zapomeňte/);
     // No leftover English copy in the Czech email.
     expect(tpl.html).not.toContain('get you in');
     expect(tpl.html).not.toMatch(/good for 24 hours/i);
@@ -314,5 +317,88 @@ describe('buildIntegrationRequestNotificationTemplate', () => {
     expect(tpl.html).not.toContain('<script>alert(1)</script>');
     expect(tpl.html).toContain('evil&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(tpl.html).toContain('x&quot;@y&lt;script&gt;');
+  });
+});
+
+describe('account email localization (HUGO-1815)', () => {
+  const link = 'https://auth.example.com/auth/email/x?token=t&ui_locales=cs';
+
+  it('renders the Czech password reset email with informal address', () => {
+    const tpl = buildPasswordResetTemplate({ link, locale: 'cs' });
+
+    expect(tpl.subject).toBe('Obnovení hesla');
+    expect(tpl.html).toContain('<html lang="cs">');
+    expect(tpl.html).toContain('Obnov si heslo');
+    expect(tpl.html).toContain('Obnovit heslo');
+    expect(tpl.text).toContain('Pokud jsi žádal(a) o obnovení hesla, použij tento odkaz:');
+    expect(tpl.text).toContain('Odkaz platí 30 minut a použít ho můžeš jen jednou.');
+    expect(tpl.html).toContain('Pokud tlačítko nefunguje, zkopíruj tuto adresu do prohlížeče:');
+    expect(tpl.html).toContain('tenhle e-mail klidně ignoruj');
+    expect(tpl.html).not.toContain('This link expires');
+    expect(tpl.html).not.toContain('If you did not request');
+  });
+
+  it('renders the Czech 2FA reset email', () => {
+    const tpl = buildTwoFaResetTemplate({ link, locale: 'cs' });
+
+    expect(tpl.subject).toBe('Obnovení dvoufaktorového ověření');
+    expect(tpl.html).toContain('<html lang="cs">');
+    expect(tpl.html).toContain('Obnovit dvoufaktorové ověření');
+    expect(tpl.text).toContain('použij tento odkaz:');
+    expect(tpl.html).not.toContain('If you requested');
+  });
+
+  it('renders the Czech login code email', () => {
+    const tpl = buildLoginCodeTemplate({ code: '123456', locale: 'cs' });
+
+    expect(tpl.subject).toBe('Tvůj přihlašovací kód');
+    expect(tpl.html).toContain('<html lang="cs">');
+    expect(tpl.text).toContain('Pro přihlášení zadej tento kód: 123456');
+    expect(tpl.html).toContain('Kód platí');
+    expect(tpl.html).not.toContain('This code expires');
+  });
+
+  it('keeps English copy unchanged when no locale (or an unsupported one) is given', () => {
+    const pw = buildPasswordResetTemplate({ link });
+    expect(pw.subject).toBe('Reset your password');
+    expect(pw.html).toContain('<html lang="en">');
+    expect(pw.text).toContain('If you requested a password reset, use this link:');
+    expect(pw.html).toContain('This link expires in 30 minutes and can only be used once.');
+    expect(pw.html).toContain(
+      'If the button does not work, copy and paste this URL into your browser:',
+    );
+
+    const twofa = buildTwoFaResetTemplate({ link, locale: 'de' as EmailLocale });
+    expect(twofa.subject).toBe('Reset two-factor authentication');
+
+    const code = buildLoginCodeTemplate({ code: '123456' });
+    expect(code.subject).toBe('Your sign-in code');
+    expect(code.html).toContain('<html lang="en">');
+    expect(code.text).toContain('Enter this code to sign in: 123456');
+  });
+});
+
+// HUGO-1815: every Czech e-mail addresses the operator informally (tykání). Checked on subject +
+// plain-text body (the HTML carries CSS words that are not copy).
+describe('Czech e-mail tone', () => {
+  const link = 'https://auth.example.com/auth/email/link?token=abc';
+  const FORMAL =
+    /(?<!\p{L})(Vy|Vám|vám|Vás|vás|Váš|váš|Vaše|vaše|Vaši|vaši|Vašeho|vašeho|Vašem|vašem|jste|Jste)(?!\p{L})|\p{L}+te(?!\p{L})/u;
+  const templates = {
+    registration: buildRegistrationLinkTemplate({ link, locale: 'cs' }),
+    passwordReset: buildPasswordResetTemplate({ link, locale: 'cs' }),
+    twoFaReset: buildTwoFaResetTemplate({ link, locale: 'cs' }),
+    loginCode: buildLoginCodeTemplate({ code: '123456', locale: 'cs' }),
+  };
+
+  for (const [name, tpl] of Object.entries(templates)) {
+    it(`${name} uses informal address`, () => {
+      expect(`${tpl.subject}\n${tpl.text}`.match(FORMAL)).toBeNull();
+    });
+  }
+
+  it('the check catches formal wording', () => {
+    expect(FORMAL.test('Klikněte na tlačítko')).toBe(true);
+    expect(FORMAL.test('Váš přihlašovací odkaz')).toBe(true);
   });
 });

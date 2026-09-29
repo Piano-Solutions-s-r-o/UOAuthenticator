@@ -49,7 +49,7 @@ export function PasswordInput(props: PasswordInputProps): React.JSX.Element {
           aria-label={visible ? hideToggleLabel : showToggleLabel}
           className={[
             'absolute inset-y-0 right-2 my-1 flex items-center rounded px-2 text-xs font-medium',
-            'text-[var(--uoa-color-primary)] hover:underline',
+            'text-[var(--uoa-color-link)] hover:underline',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--uoa-color-primary)]',
           ].join(' ')}
         >

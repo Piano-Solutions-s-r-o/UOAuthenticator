@@ -111,7 +111,7 @@ export function CodeEntryPage(): React.JSX.Element {
       <div className="mt-4 text-center text-sm">
         <button
           type="button"
-          className="text-[var(--uoa-color-primary)] hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+          className="text-[var(--uoa-color-link)] hover:underline disabled:cursor-not-allowed disabled:opacity-60"
           onClick={() => void handleResend()}
           disabled={resending}
         >

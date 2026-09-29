@@ -11,6 +11,7 @@ import { hashEmailToken } from '../utils/verification-token.js';
 import { buildUserIdentity } from './user-scope.service.js';
 import { extractEmailTheme } from './email-theme.service.js';
 import { sendLoginCodeEmail } from './email.service.js';
+import type { EmailLocale } from './email.templates.js';
 import type { ClientConfig } from './config.service.js';
 import { lockAndReadVerificationTokenEpoch } from './verification-token-epoch.service.js';
 
@@ -69,6 +70,7 @@ export async function issueLoginCode(
     email: string;
     config: ClientConfig;
     configUrl: string;
+    locale?: EmailLocale;
   },
   deps?: LoginCodeDeps,
 ): Promise<void> {
@@ -134,7 +136,12 @@ export async function issueLoginCode(
   }
 
   const theme = extractEmailTheme(params.config);
-  await (deps?.sendLoginCodeEmail ?? sendLoginCodeEmail)({ to: email, code, theme });
+  await (deps?.sendLoginCodeEmail ?? sendLoginCodeEmail)({
+    to: email,
+    code,
+    theme,
+    locale: params.locale,
+  });
 }
 
 /**

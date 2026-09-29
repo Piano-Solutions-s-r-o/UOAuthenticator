@@ -167,6 +167,13 @@ This service is **stateless where possible**, standards-based, and API-first.
 - Defaults to language selected on client website
 - Dropdown shown only if multiple languages provided
 - Client passes the selected language via optional config claim: `language` (must be one of `language_config` when `language_config` is an array)
+- Client may also pass the OIDC `ui_locales` query param on `/auth` (space-separated tags in preference order; the primary subtag is compared, so `cs-CZ` → `cs`). Initial-language precedence: first supported `ui_locales` tag → config `language` → first `language_config` entry. Unsupported values are ignored. SSR and client resolve it identically from the same query string.
+
+### Email Language
+
+- Emails sent from the auth flow (registration/verify, login link, sign-in code, password reset, 2FA reset) are written in the language the auth page currently shows. The SPA sends its current language as `Accept-Language` on every API request; the API falls back to the browser's own `Accept-Language` when absent.
+- Hand-authored email locales are `en` and `cs`; any other language gets English. Czech copy uses informal address (tykání).
+- Links inside those emails carry `ui_locales=<email locale>` so the page opened from the email renders in the same language; the email landing routes accept and forward it.
 
 ### Translation Fallback
 

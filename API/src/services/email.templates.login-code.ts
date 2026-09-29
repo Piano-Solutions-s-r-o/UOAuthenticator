@@ -1,5 +1,12 @@
 import { LOGIN_CODE_TTL_MS } from '../config/constants.js';
-import { escapeHtml, logoHtml, resolveTheme, type EmailTheme } from './email.templates.js';
+import { loginCodeCopy } from './email.account-copy.js';
+import {
+  escapeHtml,
+  logoHtml,
+  resolveTheme,
+  type EmailLocale,
+  type EmailTheme,
+} from './email.templates.js';
 
 type EmailTemplate = {
   subject: string;
@@ -19,19 +26,21 @@ function codeTtlMinutes(): number {
 export function buildLoginCodeTemplate(params: {
   code: string;
   theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
 }): EmailTemplate {
   const theme = resolveTheme(params.theme);
   const minutes = codeTtlMinutes();
+  const copy = loginCodeCopy(params.locale);
 
-  const subject = 'Your sign-in code';
+  const subject = copy.subject;
   const text = [
-    'Your sign-in code',
+    copy.heading,
     '',
-    `Enter this code to sign in: ${params.code}`,
+    `${copy.intro} ${params.code}`,
     '',
-    `This code expires in ${minutes} minutes and can only be used once.`,
+    copy.expiry(minutes),
     '',
-    'If you did not request this, you can ignore this email.',
+    copy.ignoreLabel,
   ].join('\n');
 
   const t = theme;
@@ -40,7 +49,7 @@ export function buildLoginCodeTemplate(params: {
     : '';
 
   const html = `<!doctype html>
-<html lang="en">
+<html lang="${params.locale ?? 'en'}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -55,12 +64,12 @@ export function buildLoginCodeTemplate(params: {
             ${logoHtml(t)}
             <tr>
               <td style="padding:24px 24px 8px 24px;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${t.text};">
-                <h1 style="margin:0;font-size:20px;line-height:28px;color:${t.text};">Your sign-in code</h1>
+                <h1 style="margin:0;font-size:20px;line-height:28px;color:${t.text};">${escapeHtml(copy.heading)}</h1>
               </td>
             </tr>
             <tr>
               <td style="padding:0 24px 16px 24px;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${t.text};font-size:14px;line-height:22px;">
-                Enter this code to sign in:
+                ${escapeHtml(copy.intro)}
               </td>
             </tr>
             <tr>
@@ -72,12 +81,12 @@ export function buildLoginCodeTemplate(params: {
             </tr>
             <tr>
               <td style="padding:0 24px 16px 24px;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${t.muted};font-size:12px;line-height:18px;">
-                This code expires in ${minutes} minutes and can only be used once.
+                ${escapeHtml(copy.expiry(minutes))}
               </td>
             </tr>
             <tr>
               <td style="padding:0 24px 24px 24px;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${t.muted};font-size:12px;line-height:18px;">
-                If you did not request this, you can ignore this email.
+                ${escapeHtml(copy.ignoreLabel)}
               </td>
             </tr>
           </table>

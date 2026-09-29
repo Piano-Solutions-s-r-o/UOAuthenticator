@@ -4,6 +4,7 @@ import {
   registrationTokenTtlHours,
   type EmailLocale,
 } from './email.registration-copy.js';
+import { recoveryLinkCopy, twoFaResetCopy, type LinkEmailCopy } from './email.account-copy.js';
 
 export type { EmailLocale } from './email.registration-copy.js';
 
@@ -351,36 +352,50 @@ export function buildAccountExistsTemplate(params: {
   return buildRegistrationLinkTemplate(params);
 }
 
-export function buildPasswordResetTemplate(params: {
+function buildCopyLinkTemplate(params: {
   link: string;
   theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
+  copy: LinkEmailCopy;
 }): EmailTemplate {
   const minutes = tokenTtlMinutes();
   const theme = resolveTheme(params.theme);
+  const { copy } = params;
 
-  const subject = 'Reset your password';
   const text = [
-    'Reset your password',
+    copy.heading,
     '',
-    'If you requested a password reset, use this link:',
+    copy.textIntro,
     params.link,
     '',
-    `This link expires in ${minutes} minutes and can only be used once.`,
+    copy.expiry(minutes),
     '',
-    'If you did not request this, you can ignore this email.',
+    copy.ignoreLabel,
   ].join('\n');
 
   const html = buildEmailHtml({
     theme,
-    subject,
-    heading: 'Reset your password',
-    body: 'If you requested a password reset, click the button below.',
-    buttonLabel: 'Reset password',
+    subject: copy.subject,
+    heading: copy.heading,
+    body: copy.body,
+    buttonLabel: copy.buttonLabel,
     buttonUrl: params.link,
     minutes,
+    lang: params.locale ?? 'en',
+    expiryLabel: copy.expiry(minutes),
+    fallbackLabel: copy.fallbackLabel,
+    ignoreLabel: copy.ignoreLabel,
   });
 
-  return { subject, text, html };
+  return { subject: copy.subject, text, html };
+}
+
+export function buildPasswordResetTemplate(params: {
+  link: string;
+  theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
+}): EmailTemplate {
+  return buildCopyLinkTemplate({ ...params, copy: recoveryLinkCopy(params.locale) });
 }
 
 export function buildIntegrationApprovedTemplate(params: {
@@ -462,31 +477,7 @@ export function buildIntegrationRequestNotificationTemplate(params: {
 export function buildTwoFaResetTemplate(params: {
   link: string;
   theme?: Partial<EmailTheme>;
+  locale?: EmailLocale;
 }): EmailTemplate {
-  const minutes = tokenTtlMinutes();
-  const theme = resolveTheme(params.theme);
-
-  const subject = 'Reset two-factor authentication';
-  const text = [
-    'Reset two-factor authentication',
-    '',
-    'If you requested to reset two-factor authentication, use this link:',
-    params.link,
-    '',
-    `This link expires in ${minutes} minutes and can only be used once.`,
-    '',
-    'If you did not request this, you can ignore this email.',
-  ].join('\n');
-
-  const html = buildEmailHtml({
-    theme,
-    subject,
-    heading: 'Reset two-factor authentication',
-    body: 'If you requested to reset two-factor authentication, click the button below.',
-    buttonLabel: 'Reset two-factor authentication',
-    buttonUrl: params.link,
-    minutes,
-  });
-
-  return { subject, text, html };
+  return buildCopyLinkTemplate({ ...params, copy: twoFaResetCopy(params.locale) });
 }
