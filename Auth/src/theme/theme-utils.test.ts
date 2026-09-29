@@ -102,3 +102,58 @@ describe('layout (HUGO-1815)', () => {
     expect(() => buildThemeFromConfig(withLayout('grid'))).toThrow();
   });
 });
+
+describe('heading font, centred heading and create-account button (HUGO-1815)', () => {
+  function withTheme(extra: { typography?: object; button?: object; colors?: object; layout?: string }) {
+    const c = config((extra.colors ?? {}) as Record<string, string>);
+    return {
+      ui_theme: {
+        ...c.ui_theme,
+        ...(extra.layout ? { layout: extra.layout } : {}),
+        typography: { ...c.ui_theme.typography, ...(extra.typography ?? {}) },
+        button: { ...c.ui_theme.button, ...(extra.button ?? {}) },
+      },
+    };
+  }
+
+  it('leaves the title and create-account defaults unchanged', () => {
+    const theme = buildThemeFromConfig(withTheme({}));
+    const names = buildThemeClassNames(theme);
+    expect(names.title).toBe('text-2xl font-semibold tracking-tight');
+    expect(theme.button.createAccount).toBe('link');
+    expect(names.buttonSecondaryFilled).toBe(names.buttonSecondary);
+  });
+
+  it('uses the heading font and centres a 3xl title in the centered layout', () => {
+    const theme = buildThemeFromConfig(
+      withTheme({ layout: 'centered', typography: { heading_font_family: 'Manrope' } }),
+    );
+    expect(theme.vars['--uoa-heading-font-family']).toBe('Manrope');
+    const names = buildThemeClassNames(theme);
+    expect(names.title).toContain('text-center text-3xl');
+    expect(names.title).toContain('var(--uoa-heading-font-family)');
+  });
+
+  it('rejects an unsafe heading font', () => {
+    expect(() =>
+      buildThemeFromConfig(withTheme({ typography: { heading_font_family: 'x;}body{' } })),
+    ).toThrow();
+  });
+
+  it('fills the create-account button with colors.secondary', () => {
+    const theme = buildThemeFromConfig(
+      withTheme({
+        button: { create_account: 'secondary' },
+        colors: { secondary: '#E2DDD5', secondary_text: '#1B1B1B' },
+      }),
+    );
+    expect(theme.button.createAccount).toBe('secondary');
+    const names = buildThemeClassNames(theme);
+    expect(names.buttonSecondaryFilled).toContain('bg-[var(--uoa-color-secondary)]');
+    expect(names.buttonSecondaryFilled).toContain('text-[var(--uoa-color-secondary-text)]');
+  });
+
+  it('rejects an unknown create_account style', () => {
+    expect(() => buildThemeFromConfig(withTheme({ button: { create_account: 'banner' } }))).toThrow();
+  });
+});

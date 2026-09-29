@@ -3,6 +3,7 @@ export type Density = 'compact' | 'comfortable' | 'spacious';
 export type ButtonStyle = 'solid' | 'outline' | 'ghost';
 export type ButtonFontWeight = 'medium' | 'semibold' | 'bold';
 export type PageLayout = 'default' | 'centered';
+export type CreateAccountStyle = 'link' | 'secondary';
 export type CardStyle = 'plain' | 'bordered' | 'shadow';
 
 export type FontFamilyPreset = 'sans' | 'serif' | 'mono';
@@ -19,10 +20,12 @@ export type Theme = {
     fontFamily: FontFamily;
     baseTextSize: BaseTextSize;
     fontImportUrl?: string;
+    headingFontFamily?: FontFamily;
   };
   button: {
     style: ButtonStyle;
     fontWeight: ButtonFontWeight;
+    createAccount: CreateAccountStyle;
   };
   card: {
     style: CardStyle;
@@ -47,5 +50,7 @@ export type ThemeClassNames = {
   title: string;
   buttonPrimary: string;
   buttonSecondary: string;
+  /** Filled secondary action (e.g. "Create account" as a button); falls back to buttonSecondary. */
+  buttonSecondaryFilled: string;
 };
 

@@ -73,6 +73,9 @@ const UiThemeSchema = z
         // background. Defaults to `primary`; set it when `primary` is a fill colour that is
         // unreadable as text (e.g. a light yellow brand colour on white).
         link: HexColorSchema.optional(),
+        // HUGO-1815: optional fill/text of a filled secondary action ("Create account" button).
+        secondary: HexColorSchema.optional(),
+        secondary_text: HexColorSchema.optional(),
       })
       .passthrough(),
     radii: z
@@ -88,6 +91,8 @@ const UiThemeSchema = z
         font_family: z.string().trim().min(1).max(200),
         base_text_size: z.enum(['sm', 'md', 'lg']),
         font_import_url: HttpUrlOrEmptySchema.optional(),
+        // HUGO-1815: optional face for page headings; same token rules as font_family.
+        heading_font_family: z.string().trim().min(1).max(200).optional(),
       })
       .passthrough(),
     button: z
@@ -95,6 +100,8 @@ const UiThemeSchema = z
         style: z.enum(['solid', 'outline', 'ghost']),
         // HUGO-1815: optional; absent renders the historical medium weight.
         font_weight: z.enum(['medium', 'semibold', 'bold']).optional(),
+        // HUGO-1815: "Create account" as a text link (default) or a secondary button.
+        create_account: z.enum(['link', 'secondary']).optional(),
       })
       .passthrough(),
     card: z
