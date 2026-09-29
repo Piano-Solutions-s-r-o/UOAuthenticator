@@ -148,6 +148,32 @@ describe('GET /auth', () => {
     await app.close();
   });
 
+  // HUGO-1815: a client app forwards the user's language as OIDC `ui_locales`; it wins over the
+  // config's first language so the server-rendered page is already in that language.
+  it('renders the ui_locales language instead of the first configured language', async () => {
+    const jwt = await signTestConfigJwt(baseClientConfigPayload({
+      language_config: ['en', 'cs'],
+    }));
+
+    const fetchMock = vi.fn(await createTestConfigFetchHandler(jwt));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const app = await createApp();
+    await app.ready();
+
+    const configUrl = 'https://client.example.com/auth-config';
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth?config_url=${encodeURIComponent(configUrl)}&ui_locales=cs`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('Přihlásit se');
+    expect(res.body).not.toContain('>Sign in<');
+
+    await app.close();
+  });
+
   it('renders UI HTML when optional config fields are present', async () => {
     process.env.SHARED_SECRET = process.env.SHARED_SECRET ?? 'test-shared-secret-with-enough-length';
     process.env.AUTH_SERVICE_IDENTIFIER =
