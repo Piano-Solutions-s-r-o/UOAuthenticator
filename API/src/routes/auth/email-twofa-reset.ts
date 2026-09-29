@@ -13,7 +13,7 @@ const QuerySchema = z
     token: z.string().min(1).max(4096),
     // Accepted so emailed links carrying it pass `.strict()`; this landing is server-rendered
     // English and does not read it yet (HUGO-1815 declared gap).
-    ui_locales: z.string().min(1).max(64).optional(),
+    ui_locales: z.string().regex(/^[A-Za-z0-9_ -]{1,64}$/).optional(),
   })
   .strict();
 

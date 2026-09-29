@@ -39,7 +39,7 @@ const QuerySchema = z
     code_challenge: z.string().min(1).max(256).optional(),
     code_challenge_method: z.string().min(1).max(32).optional(),
     request_access: z.string().max(16).optional(),
-    ui_locales: z.string().min(1).max(64).optional(),
+    ui_locales: z.string().regex(/^[A-Za-z0-9_ -]{1,64}$/).optional(),
   })
   .strict();
 

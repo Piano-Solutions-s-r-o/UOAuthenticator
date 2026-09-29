@@ -68,7 +68,11 @@ export function I18nProvider(props: {
   const initial = useMemo(() => {
     const base = readLanguageConfig(props.config);
     // Precedence: ui_locales (a client app's explicit choice) → config `language` → first configured.
-    const fromQuery = pickUiLocale(props.initialSearch, base.languages);
+    // Same fallback as the popup state (use-popup.tsx): when the bootstrap search was rejected in
+    // the browser, read the real URL so the language still matches the server render.
+    const search =
+      props.initialSearch ?? (typeof window !== 'undefined' ? window.location?.search : undefined);
+    const fromQuery = pickUiLocale(search, base.languages);
     return fromQuery ? { ...base, language: fromQuery } : base;
   }, [props.config, props.initialSearch]);
   const [language, setLanguageState] = useState<string>(initial.language);

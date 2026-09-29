@@ -73,7 +73,7 @@ const safeConfigJwtNestedKeys = new Map<string, ReadonlySet<string>>([
   ],
   [
     'payload.ui_theme.colors',
-    new Set(['bg', 'surface', 'text', 'muted', 'primary', 'primary_text', 'border', 'danger', 'danger_text']),
+    new Set(['bg', 'surface', 'text', 'muted', 'primary', 'primary_text', 'border', 'danger', 'danger_text', 'link']),
   ],
   ['payload.ui_theme.radii', new Set(['card', 'button', 'input'])],
   ['payload.ui_theme.typography', new Set(['font_family', 'base_text_size', 'font_import_url'])],
