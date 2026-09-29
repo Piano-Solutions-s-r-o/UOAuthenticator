@@ -75,3 +75,30 @@ describe('button.font_weight (HUGO-1815)', () => {
     expect(() => buildThemeFromConfig(withButton({ style: 'solid', font_weight: '900' }))).toThrow();
   });
 });
+
+describe('layout (HUGO-1815)', () => {
+  function withLayout(layout?: unknown) {
+    const c = config({});
+    return { ui_theme: { ...c.ui_theme, ...(layout === undefined ? {} : { layout }) } };
+  }
+
+  it('keeps the stacked layout when absent', () => {
+    const names = buildThemeClassNames(buildThemeFromConfig(withLayout()));
+    expect(names.pageContainer).toContain('max-w-lg');
+    expect(names.languageSelectorWrap).toBe('mb-4 flex justify-end');
+    expect(names.logoImage).toBe('h-10 w-auto');
+    expect(names.appShell).not.toContain('items-center');
+  });
+
+  it('centres the page and moves the language switch to the corner when centered', () => {
+    const names = buildThemeClassNames(buildThemeFromConfig(withLayout('centered')));
+    expect(names.appShell).toContain('items-center');
+    expect(names.pageContainer).toContain('max-w-md');
+    expect(names.languageSelectorWrap).toContain('absolute');
+    expect(names.logoImage).toBe('h-auto w-[150px]');
+  });
+
+  it('rejects an unknown layout', () => {
+    expect(() => buildThemeFromConfig(withLayout('grid'))).toThrow();
+  });
+});

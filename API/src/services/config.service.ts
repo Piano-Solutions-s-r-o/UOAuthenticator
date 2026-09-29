@@ -112,6 +112,8 @@ const UiThemeSchema = z
         style: z.record(SafeCssValueSchema).optional(),
       })
       .passthrough(),
+    // HUGO-1815: optional page layout; absent = the stacked default.
+    layout: z.enum(['default', 'centered']).optional(),
     // Optional explicit overrides for advanced clients; validated if provided.
     css_vars: z.record(z.string()).optional(),
   })

@@ -2,6 +2,7 @@ export type Density = 'compact' | 'comfortable' | 'spacious';
 
 export type ButtonStyle = 'solid' | 'outline' | 'ghost';
 export type ButtonFontWeight = 'medium' | 'semibold' | 'bold';
+export type PageLayout = 'default' | 'centered';
 export type CardStyle = 'plain' | 'bordered' | 'shadow';
 
 export type FontFamilyPreset = 'sans' | 'serif' | 'mono';
@@ -12,6 +13,7 @@ export type ThemeVars = Record<string, string>;
 
 export type Theme = {
   vars: ThemeVars;
+  layout: PageLayout;
   density: Density;
   typography: {
     fontFamily: FontFamily;
@@ -40,6 +42,8 @@ export type ThemeClassNames = {
   pageContainer: string;
   card: string;
   logoWrap: string;
+  logoImage: string;
+  languageSelectorWrap: string;
   title: string;
   buttonPrimary: string;
   buttonSecondary: string;

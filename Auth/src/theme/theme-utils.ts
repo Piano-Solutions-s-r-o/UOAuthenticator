@@ -2,6 +2,7 @@ import { THEME_CSS_VAR_NAMES } from './theme-defaults.js';
 import type {
   BaseTextSize,
   ButtonFontWeight,
+  PageLayout,
   ButtonStyle,
   CardStyle,
   Density,
@@ -156,6 +157,14 @@ const BUTTON_FONT_WEIGHT_CLASS: Record<ButtonFontWeight, string> = {
   bold: 'font-bold',
 };
 
+// HUGO-1815: `centered` mirrors a client's own sign-in page — content centred vertically, the
+// language switch in the page corner, a larger logo. Absent = the historical stacked layout.
+function parsePageLayout(value: unknown): PageLayout | '' {
+  if (value === undefined) return 'default';
+  if (value === 'default' || value === 'centered') return value;
+  return '';
+}
+
 function parseCardStyle(value: unknown): CardStyle | '' {
   if (value === 'plain' || value === 'bordered' || value === 'shadow') return value;
   return '';
@@ -270,6 +279,8 @@ export function buildThemeFromConfig(config: unknown): Theme {
   if (!buttonStyle) throw new Error('Invalid theme config');
   const buttonFontWeight = parseButtonFontWeight(button?.font_weight);
   if (!buttonFontWeight) throw new Error('Invalid theme config');
+  const layout = parsePageLayout(uiTheme.layout);
+  if (!layout) throw new Error('Invalid theme config');
 
   const card = isRecord(uiTheme.card) ? uiTheme.card : null;
   const cardStyle = card ? parseCardStyle(card.style) : '';
@@ -296,6 +307,7 @@ export function buildThemeFromConfig(config: unknown): Theme {
 
   return {
     vars,
+    layout,
     density,
     typography: { fontFamily, baseTextSize, ...(fontImportUrl ? { fontImportUrl } : {}) },
     button: { style: buttonStyle, fontWeight: buttonFontWeight },
@@ -396,12 +408,19 @@ function buttonSecondaryClasses(style: ButtonStyle, fontWeight: ButtonFontWeight
 
 export function buildThemeClassNames(theme: Theme): ThemeClassNames {
   const t = typographyClasses(theme.typography);
+  const centered = theme.layout === 'centered';
 
   return {
-    appShell: `min-h-dvh bg-[var(--uoa-color-bg)] text-[var(--uoa-color-text)] ${t.font} ${t.baseText}`,
-    pageContainer: `mx-auto max-w-lg ${densityPagePadding(theme.density)}`,
+    appShell: `min-h-dvh bg-[var(--uoa-color-bg)] text-[var(--uoa-color-text)] ${t.font} ${t.baseText}${
+      centered ? ' relative flex items-center justify-center' : ''
+    }`,
+    pageContainer: centered
+      ? `mx-auto w-full max-w-md ${densityPagePadding(theme.density)}`
+      : `mx-auto max-w-lg ${densityPagePadding(theme.density)}`,
     card: `${densityCardPadding(theme.density)} ${cardClasses(theme.card.style)}`,
-    logoWrap: 'mb-6 flex items-center justify-center',
+    logoWrap: centered ? 'mb-8 flex items-center justify-center' : 'mb-6 flex items-center justify-center',
+    logoImage: centered ? 'h-auto w-[150px]' : 'h-10 w-auto',
+    languageSelectorWrap: centered ? 'absolute right-4 top-4 z-10' : 'mb-4 flex justify-end',
     title: t.title,
     buttonPrimary: buttonPrimaryClasses(theme.button.style, theme.button.fontWeight),
     buttonSecondary: buttonSecondaryClasses(theme.button.style, theme.button.fontWeight),

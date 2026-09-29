@@ -3,14 +3,14 @@ import React from 'react';
 import { useTheme } from '../../hooks/use-theme.js';
 
 export function Logo(): React.JSX.Element | null {
-  const { theme } = useTheme();
+  const { theme, classNames } = useTheme();
 
   if (theme.logo.url) {
     return (
       <img
         src={theme.logo.url}
         alt={theme.logo.alt}
-        className="h-10 w-auto"
+        className={classNames.logoImage}
         loading="eager"
         decoding="async"
       />

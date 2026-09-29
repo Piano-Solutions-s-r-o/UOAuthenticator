@@ -69,7 +69,7 @@ const emptyAllowedKeys = new Set<string>();
 const safeConfigJwtNestedKeys = new Map<string, ReadonlySet<string>>([
   [
     'payload.ui_theme',
-    new Set(['colors', 'radii', 'density', 'typography', 'button', 'card', 'logo', 'css_vars']),
+    new Set(['colors', 'radii', 'density', 'typography', 'button', 'card', 'logo', 'layout', 'css_vars']),
   ],
   [
     'payload.ui_theme.colors',

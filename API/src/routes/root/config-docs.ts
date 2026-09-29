@@ -105,6 +105,8 @@ export const configJwtDocumentation = {
           style: 'solid | outline | ghost',
           font_weight: 'optional: medium (default) | semibold | bold — weight of the primary and secondary buttons',
         },
+        layout:
+          'optional: default | centered — centered centres the card vertically, puts the language switch in the page corner and shows a 150px-wide logo',
         card: {
           required_keys: ['style'],
           style: 'plain | bordered | shadow',
