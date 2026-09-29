@@ -341,9 +341,9 @@ describe('account email localization (HUGO-1815)', () => {
   it('renders the Czech 2FA reset email', () => {
     const tpl = buildTwoFaResetTemplate({ link, locale: 'cs' });
 
-    expect(tpl.subject).toBe('Obnovení dvoufázového ověření');
+    expect(tpl.subject).toBe('Obnovení dvoufaktorového ověření');
     expect(tpl.html).toContain('<html lang="cs">');
-    expect(tpl.html).toContain('Obnovit dvoufázové ověření');
+    expect(tpl.html).toContain('Obnovit dvoufaktorové ověření');
     expect(tpl.text).toContain('použij tento odkaz:');
     expect(tpl.html).not.toContain('If you requested');
   });
@@ -375,5 +375,30 @@ describe('account email localization (HUGO-1815)', () => {
     expect(code.subject).toBe('Your sign-in code');
     expect(code.html).toContain('<html lang="en">');
     expect(code.text).toContain('Enter this code to sign in: 123456');
+  });
+});
+
+// HUGO-1815: every Czech e-mail addresses the operator informally (tykání). Checked on subject +
+// plain-text body (the HTML carries CSS words that are not copy).
+describe('Czech e-mail tone', () => {
+  const link = 'https://auth.example.com/auth/email/link?token=abc';
+  const FORMAL =
+    /(?<!\p{L})(Vy|Vám|vám|Vás|vás|Váš|váš|Vaše|vaše|Vaši|vaši|Vašeho|vašeho|Vašem|vašem|jste|Jste)(?!\p{L})|\p{L}+te(?!\p{L})/u;
+  const templates = {
+    registration: buildRegistrationLinkTemplate({ link, locale: 'cs' }),
+    passwordReset: buildPasswordResetTemplate({ link, locale: 'cs' }),
+    twoFaReset: buildTwoFaResetTemplate({ link, locale: 'cs' }),
+    loginCode: buildLoginCodeTemplate({ code: '123456', locale: 'cs' }),
+  };
+
+  for (const [name, tpl] of Object.entries(templates)) {
+    it(`${name} uses informal address`, () => {
+      expect(`${tpl.subject}\n${tpl.text}`.match(FORMAL)).toBeNull();
+    });
+  }
+
+  it('the check catches formal wording', () => {
+    expect(FORMAL.test('Klikněte na tlačítko')).toBe(true);
+    expect(FORMAL.test('Váš přihlašovací odkaz')).toBe(true);
   });
 });
