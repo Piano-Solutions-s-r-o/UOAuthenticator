@@ -77,7 +77,7 @@ const safeConfigJwtNestedKeys = new Map<string, ReadonlySet<string>>([
   ],
   ['payload.ui_theme.radii', new Set(['card', 'button', 'input'])],
   ['payload.ui_theme.typography', new Set(['font_family', 'base_text_size', 'font_import_url'])],
-  ['payload.ui_theme.button', new Set(['style'])],
+  ['payload.ui_theme.button', new Set(['style', 'font_weight'])],
   ['payload.ui_theme.card', new Set(['style'])],
   ['payload.ui_theme.logo', new Set(['url', 'alt', 'text', 'font_size', 'color', 'style'])],
   ['payload.registration_domain_mapping', new Set(['email_domain', 'org_id', 'team_id'])],

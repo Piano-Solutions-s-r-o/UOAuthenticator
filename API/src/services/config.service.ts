@@ -93,6 +93,8 @@ const UiThemeSchema = z
     button: z
       .object({
         style: z.enum(['solid', 'outline', 'ghost']),
+        // HUGO-1815: optional; absent renders the historical medium weight.
+        font_weight: z.enum(['medium', 'semibold', 'bold']).optional(),
       })
       .passthrough(),
     card: z

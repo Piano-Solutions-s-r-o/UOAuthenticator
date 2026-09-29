@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildThemeFromConfig } from './theme-utils.js';
+import { buildThemeClassNames, buildThemeFromConfig } from './theme-utils.js';
 
 function config(colors: Record<string, string>, cssVars?: Record<string, string>) {
   return {
@@ -50,5 +50,28 @@ describe('--uoa-color-link', () => {
   it('ignores an invalid colors.link and falls back to primary', () => {
     const theme = buildThemeFromConfig(config({ link: 'red;}body{x' }));
     expect(theme.vars['--uoa-color-link']).toBe('#FFDF2C');
+  });
+});
+
+describe('button.font_weight (HUGO-1815)', () => {
+  function withButton(button: Record<string, unknown>) {
+    const c = config({});
+    return { ui_theme: { ...c.ui_theme, button } };
+  }
+
+  it('defaults to medium when absent', () => {
+    const theme = buildThemeFromConfig(withButton({ style: 'solid' }));
+    expect(buildThemeClassNames(theme).buttonPrimary).toContain('font-medium');
+  });
+
+  it('applies semibold to primary and secondary buttons', () => {
+    const names = buildThemeClassNames(buildThemeFromConfig(withButton({ style: 'solid', font_weight: 'semibold' })));
+    expect(names.buttonPrimary).toContain('font-semibold');
+    expect(names.buttonSecondary).toContain('font-semibold');
+    expect(names.buttonPrimary).not.toContain('font-medium');
+  });
+
+  it('rejects an unknown weight like any other invalid theme value', () => {
+    expect(() => buildThemeFromConfig(withButton({ style: 'solid', font_weight: '900' }))).toThrow();
   });
 });

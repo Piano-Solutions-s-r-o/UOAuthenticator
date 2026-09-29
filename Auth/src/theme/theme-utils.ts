@@ -1,6 +1,7 @@
 import { THEME_CSS_VAR_NAMES } from './theme-defaults.js';
 import type {
   BaseTextSize,
+  ButtonFontWeight,
   ButtonStyle,
   CardStyle,
   Density,
@@ -141,6 +142,20 @@ function parseButtonStyle(value: unknown): ButtonStyle | '' {
   return '';
 }
 
+// HUGO-1815: lets a client match its own button weight; absent = the historical `medium`.
+function parseButtonFontWeight(value: unknown): ButtonFontWeight | '' {
+  if (value === undefined) return 'medium';
+  if (value === 'medium' || value === 'semibold' || value === 'bold') return value;
+  return '';
+}
+
+// Literal class names so Tailwind generates them.
+const BUTTON_FONT_WEIGHT_CLASS: Record<ButtonFontWeight, string> = {
+  medium: 'font-medium',
+  semibold: 'font-semibold',
+  bold: 'font-bold',
+};
+
 function parseCardStyle(value: unknown): CardStyle | '' {
   if (value === 'plain' || value === 'bordered' || value === 'shadow') return value;
   return '';
@@ -253,6 +268,8 @@ export function buildThemeFromConfig(config: unknown): Theme {
   const button = isRecord(uiTheme.button) ? uiTheme.button : null;
   const buttonStyle = button ? parseButtonStyle(button.style) : '';
   if (!buttonStyle) throw new Error('Invalid theme config');
+  const buttonFontWeight = parseButtonFontWeight(button?.font_weight);
+  if (!buttonFontWeight) throw new Error('Invalid theme config');
 
   const card = isRecord(uiTheme.card) ? uiTheme.card : null;
   const cardStyle = card ? parseCardStyle(card.style) : '';
@@ -281,7 +298,7 @@ export function buildThemeFromConfig(config: unknown): Theme {
     vars,
     density,
     typography: { fontFamily, baseTextSize, ...(fontImportUrl ? { fontImportUrl } : {}) },
-    button: { style: buttonStyle },
+    button: { style: buttonStyle, fontWeight: buttonFontWeight },
     card: { style: cardStyle },
     logo: {
       url: logoUrl,
@@ -333,7 +350,7 @@ function typographyClasses(typography: Theme['typography']): {
       : typography.fontFamily === 'mono'
         ? 'font-mono'
         : 'font-sans'
-    : 'font-[family-name:var(--uoa-font-family)]';
+    : 'font-[family-name:var(--uoa-font-family),ui-sans-serif,system-ui,sans-serif]';
   const baseText =
     typography.baseTextSize === 'sm'
       ? 'text-sm'
@@ -357,9 +374,9 @@ function cardClasses(style: CardStyle): string {
   return `${base} border border-[var(--uoa-color-border)] shadow-sm shadow-black/5`;
 }
 
-function buttonPrimaryClasses(style: ButtonStyle): string {
+function buttonPrimaryClasses(style: ButtonStyle, fontWeight: ButtonFontWeight): string {
   const base =
-    'inline-flex w-full items-center justify-center gap-2 rounded-[var(--uoa-radius-button)] px-4 py-2.5 font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--uoa-color-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--uoa-color-bg)] disabled:opacity-60';
+    `inline-flex w-full items-center justify-center gap-2 rounded-[var(--uoa-radius-button)] px-4 py-2.5 ${BUTTON_FONT_WEIGHT_CLASS[fontWeight]} focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--uoa-color-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--uoa-color-bg)] disabled:opacity-60`;
   if (style === 'outline') {
     return `${base} border border-[var(--uoa-color-primary)] bg-transparent text-[var(--uoa-color-link)] hover:bg-[var(--uoa-color-surface)]`;
   }
@@ -369,9 +386,9 @@ function buttonPrimaryClasses(style: ButtonStyle): string {
   return `${base} bg-[var(--uoa-color-primary)] text-[var(--uoa-color-primary-text)] hover:opacity-90`;
 }
 
-function buttonSecondaryClasses(style: ButtonStyle): string {
+function buttonSecondaryClasses(style: ButtonStyle, fontWeight: ButtonFontWeight): string {
   const base =
-    'inline-flex w-full items-center justify-center gap-2 rounded-[var(--uoa-radius-button)] px-4 py-2.5 font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--uoa-color-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--uoa-color-bg)] disabled:opacity-60';
+    `inline-flex w-full items-center justify-center gap-2 rounded-[var(--uoa-radius-button)] px-4 py-2.5 ${BUTTON_FONT_WEIGHT_CLASS[fontWeight]} focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--uoa-color-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--uoa-color-bg)] disabled:opacity-60`;
   // Secondary stays neutral regardless of primary style choice.
   void style;
   return `${base} border border-[var(--uoa-color-border)] bg-[var(--uoa-color-surface)] text-[var(--uoa-color-text)] hover:opacity-90`;
@@ -386,8 +403,8 @@ export function buildThemeClassNames(theme: Theme): ThemeClassNames {
     card: `${densityCardPadding(theme.density)} ${cardClasses(theme.card.style)}`,
     logoWrap: 'mb-6 flex items-center justify-center',
     title: t.title,
-    buttonPrimary: buttonPrimaryClasses(theme.button.style),
-    buttonSecondary: buttonSecondaryClasses(theme.button.style),
+    buttonPrimary: buttonPrimaryClasses(theme.button.style, theme.button.fontWeight),
+    buttonSecondary: buttonSecondaryClasses(theme.button.style, theme.button.fontWeight),
   };
 }
 

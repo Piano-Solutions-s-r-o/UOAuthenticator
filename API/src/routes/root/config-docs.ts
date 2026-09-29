@@ -103,6 +103,7 @@ export const configJwtDocumentation = {
         button: {
           required_keys: ['style'],
           style: 'solid | outline | ghost',
+          font_weight: 'optional: medium (default) | semibold | bold — weight of the primary and secondary buttons',
         },
         card: {
           required_keys: ['style'],

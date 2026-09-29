@@ -1,6 +1,7 @@
 export type Density = 'compact' | 'comfortable' | 'spacious';
 
 export type ButtonStyle = 'solid' | 'outline' | 'ghost';
+export type ButtonFontWeight = 'medium' | 'semibold' | 'bold';
 export type CardStyle = 'plain' | 'bordered' | 'shadow';
 
 export type FontFamilyPreset = 'sans' | 'serif' | 'mono';
@@ -19,6 +20,7 @@ export type Theme = {
   };
   button: {
     style: ButtonStyle;
+    fontWeight: ButtonFontWeight;
   };
   card: {
     style: CardStyle;
