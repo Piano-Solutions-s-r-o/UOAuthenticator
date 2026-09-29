@@ -447,7 +447,7 @@ function buttonSecondaryFilledClasses(theme: Theme): string {
   if (!theme.vars['--uoa-color-secondary']) {
     return buttonSecondaryClasses(theme.button.style, theme.button.fontWeight);
   }
-  const base = `inline-flex w-full items-center justify-center gap-2 rounded-[var(--uoa-radius-button)] px-4 py-2.5 ${BUTTON_FONT_WEIGHT_CLASS[theme.button.fontWeight]} focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--uoa-color-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--uoa-color-bg)] disabled:opacity-60`;
+  const base = `inline-flex w-full items-center justify-center gap-2 rounded-[var(--uoa-radius-button)] px-4 py-2.5 ${BUTTON_FONT_WEIGHT_CLASS[theme.button.fontWeight]} focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--uoa-color-link)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--uoa-color-bg)] disabled:opacity-60`;
   const text = theme.vars['--uoa-color-secondary-text']
     ? 'text-[var(--uoa-color-secondary-text)]'
     : 'text-[var(--uoa-color-text)]';

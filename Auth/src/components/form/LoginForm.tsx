@@ -198,7 +198,12 @@ export function LoginForm(): React.JSX.Element {
           {loading ? '...' : t('form.login.submit')}
         </Button>
         {registrationAllowed && createAccountAsButton ? (
-          <Button variant="secondaryFilled" type="button" onClick={() => setView('register')}>
+          <Button
+            variant="secondaryFilled"
+            type="button"
+            disabled={loading}
+            onClick={() => setView('register')}
+          >
             {t('nav.createAccount')}
           </Button>
         ) : null}
