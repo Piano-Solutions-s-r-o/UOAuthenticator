@@ -13,6 +13,7 @@ import {
   buildVerifyEmailSetPasswordTemplate,
 } from '../../src/services/email.templates.js';
 import type { EmailLocale } from '../../src/services/email.templates.js';
+import { registrationCopy } from '../../src/services/email.registration-copy.js';
 
 describe('buildVerifyEmailSetPasswordTemplate', () => {
   it('includes subject, text, and html with the provided link', () => {
@@ -180,12 +181,15 @@ describe('sign-in email localization (HUGO-553)', () => {
   it('renders Czech copy when locale is cs', () => {
     const tpl = buildRegistrationLinkTemplate({ link, locale: 'cs' });
 
-    expect(tpl.subject).toBe('Váš přihlašovací odkaz');
+    expect(tpl.subject).toBe('Tvůj přihlašovací odkaz do Huga');
     expect(tpl.html).toContain('<html lang="cs">');
-    expect(tpl.html).toContain('Pojďme vás přihlásit');
-    expect(tpl.html).toContain('dokončíte registraci');
+    expect(tpl.html).toContain('Pojďme tě přihlásit! 💛');
+    expect(tpl.html).toContain('dokončíš registraci');
     expect(tpl.html).toContain('Pokračovat');
-    expect(tpl.text).toContain('Pojďme vás přihlásit');
+    expect(tpl.text).toContain('Pojďme tě přihlásit! 💛');
+    expect(tpl.text).toContain('Tik ťak ⏰ odkaz platí 24 hodin a použít ho můžeš jen jednou.');
+    expect(tpl.text).toContain('Nečekáš tenhle mail? Tak na to rychle zapomeň!');
+    expect(tpl.html).toContain('Tlačítko nereaguje? Zkopíruj tuhle adresu do prohlížeče:');
     expect(tpl.text).toMatch(/odkaz platí 24 hodin/);
     expect(tpl.html).toMatch(/odkaz platí 24 hodin/);
     // No leftover English copy in the Czech email.
@@ -196,9 +200,20 @@ describe('sign-in email localization (HUGO-553)', () => {
   it('renders the exact shorter lifetime for a standalone Czech login link', () => {
     const tpl = buildLoginLinkTemplate({ link, locale: 'cs' });
 
-    expect(tpl.text).toContain('odkaz platí 30 minut');
+    expect(tpl.text).toContain('Tik ťak ⏰ odkaz platí 30 minut a použít ho můžeš jen jednou.');
     expect(tpl.html).toContain('odkaz platí 30 minut');
     expect(tpl.text).not.toContain('24 hodin');
+  });
+
+  it('agrees the Czech expiry noun with the number', () => {
+    const copy = registrationCopy('cs');
+
+    expect(copy.expiryMinutes(1)).toContain('platí 1 minutu a');
+    expect(copy.expiryMinutes(3)).toContain('platí 3 minuty a');
+    expect(copy.expiryMinutes(5)).toContain('platí 5 minut a');
+    expect(copy.expiryHours(1)).toContain('platí 1 hodinu a');
+    expect(copy.expiryHours(2)).toContain('platí 2 hodiny a');
+    expect(copy.expiryHours(24)).toContain('platí 24 hodin a');
   });
 
   it('falls back to English for an unsupported locale', () => {

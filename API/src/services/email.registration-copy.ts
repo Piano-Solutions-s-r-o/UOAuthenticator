@@ -15,6 +15,20 @@ export type RegistrationCopy = {
   ignoreLabel: string;
 };
 
+const CS_PLURAL = new Intl.PluralRules('cs');
+
+/**
+ * Czech noun form for a whole-number count (CLDR rules: 1 → one, 2–4 → few,
+ * everything else → other). The object after "platí" is accusative, so the
+ * singular is "1 hodinu" / "1 minutu"; "few" and "other" match the nominative.
+ */
+function csPlural(count: number, one: string, few: string, other: string): string {
+  const category = CS_PLURAL.select(count);
+  if (category === 'one') return one;
+  if (category === 'few') return few;
+  return other;
+}
+
 /**
  * Sign-in / registration email copy in Hugo's voice (HUGO-553). One neutral
  * template serves login-link, verify-email, set-password and account-exists,
@@ -34,15 +48,16 @@ const REGISTRATION_COPY: Record<EmailLocale, RegistrationCopy> = {
     ignoreLabel: "Wasn't you? Pretend this never happened.",
   },
   cs: {
-    subject: 'Váš přihlašovací odkaz',
-    heading: 'Pojďme vás přihlásit',
-    body: 'Jste jen jedno kliknutí od cíle. Klikněte na tlačítko níže a dostanete se ke svému účtu nebo dokončíte registraci.',
+    subject: 'Tvůj přihlašovací odkaz do Huga',
+    heading: 'Pojďme tě přihlásit! 💛',
+    body: 'Jsi jen jedno kliknutí od cíle. Tak se nestyď, klikni na tlačítko níže — dostaneš se ke svému účtu, nebo dokončíš registraci a rozjedeš to se mnou ve velkém.',
     buttonLabel: 'Pokračovat',
-    expiryHours: (hours) => `Tik ťak — odkaz platí ${hours} hodin a použít ho lze jen jednou.`,
+    expiryHours: (hours) =>
+      `Tik ťak ⏰ odkaz platí ${hours} ${csPlural(hours, 'hodinu', 'hodiny', 'hodin')} a použít ho můžeš jen jednou.`,
     expiryMinutes: (minutes) =>
-      `Tik ťak — odkaz platí ${minutes} minut a použít ho lze jen jednou.`,
-    fallbackLabel: 'Tlačítko nereaguje? Zkopírujte tuto adresu do prohlížeče:',
-    ignoreLabel: 'Tohle jste nebyl/a vy? Tak na to rychle zapomeňte.',
+      `Tik ťak ⏰ odkaz platí ${minutes} ${csPlural(minutes, 'minutu', 'minuty', 'minut')} a použít ho můžeš jen jednou.`,
+    fallbackLabel: 'Tlačítko nereaguje? Zkopíruj tuhle adresu do prohlížeče:',
+    ignoreLabel: 'Nečekáš tenhle mail? Tak na to rychle zapomeň!',
   },
 };
 
