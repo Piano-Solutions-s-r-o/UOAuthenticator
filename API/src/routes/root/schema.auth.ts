@@ -12,6 +12,8 @@ export const authEndpoints: EndpointSchema[] = [
       code_challenge_method: '"S256" when code_challenge is sent',
       ui_locales:
         'string (optional) — OIDC ui_locales: space-separated language tags in preference order. The first whose primary subtag (cs-CZ → cs) is in the config\'s language_config sets the initial page language, ahead of the config `language` claim and the first language_config entry; unsupported values are ignored. The page then sends its current language as Accept-Language on every API call, and emails are written in that language (hand-authored: en, cs).',
+      prompt:
+        'string (optional) — OIDC prompt (space-delimited). When it contains `create` ("Initiating User Registration via OpenID Connect 1.0"), the page opens on account creation instead of sign-in. Presentational only: it changes the first form shown, never what register/login allow; when the config disables registration the page shows sign-in, and a flow-specific view (signing, handoff, workspace chooser, email link, 2FA) takes precedence. Other prompt values are ignored.',
       team_hint:
         "string (optional, ≤256 chars, id/slug-safe charset) — chooser preselect / one-click workspace switch (design §11.4): when the workspace chooser renders, a team already in the verified user's own chooser payload matching this teamId or slug is auto-selected, same as the single-team auto-skip. Client-side ONLY — an invalid or non-matching value is silently ignored (chooser renders normally) and select-team's server-side product-policy + exact ACTIVE-membership check remains the sole authority; it can never select a team the user doesn't already have.",
     },

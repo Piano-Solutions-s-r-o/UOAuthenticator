@@ -93,6 +93,15 @@ export type PopupQueryParams = {
    * server-side ACTIVE-membership + domain check remains the sole authority.
    */
   teamHint: string | null;
+  /**
+   * OIDC `prompt=create` ("Initiating User Registration via OpenID Connect 1.0"): the client wants
+   * the user to land on account creation rather than sign-in (e.g. a "start free" link). Purely a
+   * presentational initial-view hint — it changes which form renders first, never what the
+   * register/login endpoints allow. `RegisterPage` still falls back to login when the config
+   * disables registration, and every flow-specific view (signing, handoff, chooser, email link,
+   * 2FA) takes precedence.
+   */
+  promptCreate: boolean;
 };
 
 export type PopupContextValue = PopupQueryParams & {
@@ -153,6 +162,7 @@ export function parsePopupQueryParams(search: string): PopupQueryParams {
       handoffTarget: null,
       loginToken: null,
       teamHint: null,
+      promptCreate: false,
     };
   }
 
@@ -183,6 +193,8 @@ export function parsePopupQueryParams(search: string): PopupQueryParams {
   // (unlike `login_token`, it isn't scoped to another marker param) — validity/membership is
   // re-checked against the verified user's own chooser payload before it can select anything.
   const teamHint = params.get('team_hint');
+  // OIDC `prompt` is a space-delimited list; only the `create` value is meaningful here.
+  const promptCreate = (params.get('prompt') ?? '').split(' ').includes('create');
 
   const validTypes = ['VERIFY_EMAIL_SET_PASSWORD', 'VERIFY_EMAIL', 'LOGIN_LINK', 'PASSWORD_RESET'] as const;
   const emailTokenType = rawType && (validTypes as readonly string[]).includes(rawType)
@@ -207,6 +219,7 @@ export function parsePopupQueryParams(search: string): PopupQueryParams {
     handoffTarget: handoffTarget && handoffTarget.trim() ? handoffTarget : null,
     loginToken: loginToken && loginToken.trim() ? loginToken : null,
     teamHint: teamHint && teamHint.trim() ? teamHint : null,
+    promptCreate,
   };
 }
 
@@ -238,6 +251,11 @@ function deriveInitialView(parsed: PopupQueryParams): AuthView {
     }
     // VERIFY_EMAIL and LOGIN_LINK are handled by auto-submission on the server; shouldn't reach here,
     // but default to login if they do.
+  }
+  if (parsed.promptCreate && !parsed.emailToken && !parsed.twoFaToken && !parsed.twoFaSetupToken) {
+    // OIDC prompt=create: open account creation first. RegisterPage itself falls back to login
+    // when the config does not allow registration.
+    return 'register';
   }
   return 'login';
 }
@@ -328,6 +346,7 @@ export function PopupProvider(props: {
       signingToken: parsed.signingToken,
       handoffTarget,
       teamHint: parsed.teamHint,
+      promptCreate: parsed.promptCreate,
       view,
       setView,
       startTwoFactorVerify,
@@ -369,6 +388,7 @@ export function PopupProvider(props: {
     parsed.signingToken,
     handoffTarget,
     parsed.teamHint,
+    parsed.promptCreate,
     view,
     setView,
     startTwoFactorVerify,
