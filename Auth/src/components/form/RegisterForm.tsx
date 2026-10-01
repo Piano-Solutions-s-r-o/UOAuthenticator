@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Button } from '../ui/Button.js';
 import { Input } from '../ui/Input.js';
 import { usePopup } from '../../hooks/use-popup.js';
+import { useTheme } from '../../hooks/use-theme.js';
 import { useTranslation } from '../../i18n/use-translation.js';
 import { postJson } from '../../utils/api.js';
 
@@ -15,6 +16,9 @@ export function RegisterForm(): React.JSX.Element {
   const [submitted, setSubmitted] = useState(false);
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Same switch as LoginForm's "create account" button: a client that styles that as a
+  // secondary button gets the way back to sign-in as a matching button under the submit.
+  const backToLoginAsButton = useTheme().theme.button.createAccount === 'secondary';
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -97,10 +101,20 @@ export function RegisterForm(): React.JSX.Element {
         onChange={(e) => setEmail(e.currentTarget.value)}
       />
 
-      <div className="mt-2">
+      <div className="mt-2 flex flex-col gap-3">
         <Button variant="primary" type="submit" disabled={loading}>
           {loading ? '...' : t('form.register.submit')}
         </Button>
+        {backToLoginAsButton ? (
+          <Button
+            variant="secondaryFilled"
+            type="button"
+            disabled={loading}
+            onClick={() => setView('login')}
+          >
+            {t('nav.backToLogin')}
+          </Button>
+        ) : null}
       </div>
     </form>
   );

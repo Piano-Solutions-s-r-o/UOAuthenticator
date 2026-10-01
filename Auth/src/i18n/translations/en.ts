@@ -23,7 +23,7 @@ export const en = {
   'form.error.generic': 'Request failed. Please try again.',
   'form.login.submit': 'Sign in',
   'form.login.error': 'Invalid email or password.',
-  'form.register.submit': 'Continue',
+  'form.register.submit': 'Register',
   'form.resetPassword.submit': 'Send reset instructions',
   'form.setPassword.submit': 'Set password and continue',
   'form.setPassword.error': 'Something went wrong. Please try again.',

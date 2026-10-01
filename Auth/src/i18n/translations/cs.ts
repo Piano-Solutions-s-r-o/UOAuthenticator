@@ -25,7 +25,7 @@ export const cs = {
   'form.error.generic': 'Požadavek se nezdařil. Zkus to prosím znovu.',
   'form.login.submit': 'Přihlásit se',
   'form.login.error': 'Neplatný e-mail nebo heslo.',
-  'form.register.submit': 'Pokračovat',
+  'form.register.submit': 'Registrovat',
   'form.resetPassword.submit': 'Odeslat pokyny k obnovení',
   'form.setPassword.submit': 'Nastavit heslo a pokračovat',
   'form.setPassword.error': 'Něco se nepodařilo. Zkus to prosím znovu.',

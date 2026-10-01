@@ -25,7 +25,7 @@ export const es = {
   'form.error.generic': 'La solicitud fallo. Intentalo de nuevo.',
   'form.login.submit': 'Iniciar sesion',
   'form.login.error': 'Correo electronico o contrasena invalidos.',
-  'form.register.submit': 'Continuar',
+  'form.register.submit': 'Registrarse',
   'form.resetPassword.submit': 'Enviar instrucciones de restablecimiento',
   'form.setPassword.submit': 'Establecer contrasena y continuar',
   'form.setPassword.error': 'Algo salio mal. Intentalo de nuevo.',

@@ -8,9 +8,11 @@ import { useTranslation } from '../i18n/use-translation.js';
 import { isRegistrationAllowed } from '../utils/auth-config.js';
 
 export function RegisterPage(): React.JSX.Element {
-  const { classNames } = useTheme();
+  const { classNames, theme } = useTheme();
   const { t } = useTranslation();
   const { config, setView } = usePopup();
+  // With a secondary create-account style, RegisterForm renders "back to sign in" as a button.
+  const backToLoginAsButton = theme.button.createAccount === 'secondary';
   const registrationAllowed = isRegistrationAllowed(config);
 
   useEffect(() => {
@@ -28,15 +30,17 @@ export function RegisterPage(): React.JSX.Element {
       <div className="mt-6">
         <SocialButtons />
       </div>
-      <div className="mt-4 text-center text-sm">
-        <button
-          type="button"
-          className="text-[var(--uoa-color-link)] hover:underline"
-          onClick={() => setView('login')}
-        >
-          {t('nav.backToLogin')}
-        </button>
-      </div>
+      {backToLoginAsButton ? null : (
+        <div className="mt-4 text-center text-sm">
+          <button
+            type="button"
+            className="text-[var(--uoa-color-link)] hover:underline"
+            onClick={() => setView('login')}
+          >
+            {t('nav.backToLogin')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
