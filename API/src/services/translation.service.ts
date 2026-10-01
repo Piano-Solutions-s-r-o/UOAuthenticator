@@ -22,7 +22,7 @@ const EN_SOURCE: TranslationFile = {
   'form.password.label': 'Password',
 
   'form.login.submit': 'Sign in',
-  'form.register.submit': 'Continue',
+  'form.register.submit': 'Register',
   'form.resetPassword.submit': 'Send reset instructions',
 
   // Used by registration and reset-password flows; must remain generic.

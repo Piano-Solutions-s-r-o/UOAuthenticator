@@ -2,15 +2,23 @@ import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { RegisterPage } from './RegisterPage.js';
+import { RegisterForm } from '../components/form/RegisterForm.js';
 import { PopupProvider } from '../hooks/use-popup.js';
 import { I18nProvider } from '../i18n/I18nProvider.js';
 import { ThemeProvider } from '../theme/ThemeProvider.js';
 
 // HUGO-1858: a client that styles "create account" as a secondary button (Hugo) gets
-// "back to sign in" as a matching button right under the register submit; every other
-// client keeps the link under the social buttons.
+// "back to sign in" as a matching filled-secondary button right under the register submit,
+// in the form AND on the "instructions sent" confirmation; every other client keeps the
+// link under the social buttons.
 
-function configWith(createAccount: 'link' | 'secondary', language: string) {
+type Style = 'link' | 'secondary';
+
+// The filled-secondary class only exists when colors.secondary is set (theme-utils).
+const SECONDARY_FILL = 'bg-[var(--uoa-color-secondary)]';
+const BACK = { cs: 'Zpět na přihlášení', en: 'Back to sign in' } as const;
+
+function configWith(createAccount: Style, language: string) {
   return {
     ui_theme: {
       colors: {
@@ -20,6 +28,7 @@ function configWith(createAccount: 'link' | 'secondary', language: string) {
         muted: '#475569',
         primary: '#2563eb',
         primary_text: '#ffffff',
+        secondary: '#e2ddd5',
         border: '#e2e8f0',
         danger: '#dc2626',
         danger_text: '#ffffff',
@@ -35,7 +44,7 @@ function configWith(createAccount: 'link' | 'secondary', language: string) {
   };
 }
 
-function renderRegister(createAccount: 'link' | 'secondary', language = 'cs'): string {
+function render(node: React.ReactNode, createAccount: Style, language = 'cs'): string {
   const config = configWith(createAccount, language);
   return renderToString(
     <ThemeProvider config={config} configUrl="">
@@ -46,35 +55,69 @@ function renderRegister(createAccount: 'link' | 'secondary', language = 'cs'): s
           initialSearch="?config_url=https%3A%2F%2Fclient.example.com%2Fauth-config"
           initialView="register"
         >
-          <RegisterPage />
+          {node}
         </PopupProvider>
       </I18nProvider>
     </ThemeProvider>,
   );
 }
 
-describe('RegisterPage call to action', () => {
-  it('labels the Czech submit "Registrovat"', () => {
-    expect(renderRegister('secondary')).toContain('>Registrovat</button>');
+/** Every <button> in document order, as { type, className, text }. */
+function buttons(html: string): { type: string; className: string; text: string }[] {
+  return [...html.matchAll(/<button([^>]*)>([\s\S]*?)<\/button>/g)].map(([, attrs, inner]) => ({
+    type: /type="([^"]*)"/.exec(attrs)?.[1] ?? '',
+    className: /class="([^"]*)"/.exec(attrs)?.[1] ?? '',
+    text: inner.replace(/<[^>]*>/g, '').trim(),
+  }));
+}
+
+describe('RegisterPage submit label', () => {
+  it.each([
+    ['cs', 'Registrovat'],
+    ['en', 'Register'],
+    ['es', 'Registrarse'],
+  ])('labels the %s submit "%s"', (language, label) => {
+    const submit = buttons(render(<RegisterPage />, 'link', language)).find(
+      (b) => b.type === 'submit',
+    );
+    expect(submit?.text).toBe(label);
+  });
+});
+
+describe('RegisterPage back to sign in — secondary style', () => {
+  it('is a filled-secondary button directly after the submit, before the social buttons', () => {
+    const all = buttons(render(<RegisterPage />, 'secondary'));
+    const submitAt = all.findIndex((b) => b.type === 'submit');
+    expect(all[submitAt + 1]).toMatchObject({ type: 'button', text: BACK.cs });
+    expect(all[submitAt + 1].className).toContain(SECONDARY_FILL);
+    expect(all.filter((b) => b.text === BACK.cs)).toHaveLength(1);
   });
 
-  it('puts "back to sign in" as a button directly under the submit for a secondary style', () => {
-    const html = renderRegister('secondary');
+  it('stays on the "instructions sent" confirmation', () => {
+    const html = render(<RegisterForm initialSubmitted />, 'secondary');
+    expect(html).toContain('role="status"');
+    const back = buttons(html).filter((b) => b.text === BACK.cs);
+    expect(back).toHaveLength(1);
+    expect(back[0]).toMatchObject({ type: 'button' });
+    expect(back[0].className).toContain(SECONDARY_FILL);
+  });
+});
+
+describe('RegisterPage back to sign in — default link style', () => {
+  it('stays a single link after the social buttons, not a button in the form', () => {
+    const html = render(<RegisterPage />, 'link', 'en');
+    const all = buttons(html);
+    const back = all.filter((b) => b.text === BACK.en);
+    expect(back).toHaveLength(1);
+    expect(back[0].className).not.toContain(SECONDARY_FILL);
+    expect(all[all.length - 1].text).toBe(BACK.en);
     const form = html.slice(html.indexOf('<form'), html.indexOf('</form>'));
-    expect(form).toContain('type="submit"');
-    expect(form).toContain('Zpět na přihlášení');
-    // Exactly one way back: no link left under the social buttons.
-    expect(html.split('Zpět na přihlášení')).toHaveLength(2);
+    expect(form).not.toContain(BACK.en);
   });
 
-  it('keeps "back to sign in" as a link below the form for the default link style', () => {
-    const html = renderRegister('link');
-    const form = html.slice(html.indexOf('<form'), html.indexOf('</form>'));
-    expect(form).not.toContain('Zpět na přihlášení');
-    expect(html.split('Zpět na přihlášení')).toHaveLength(2);
-  });
-
-  it('labels the English submit "Register"', () => {
-    expect(renderRegister('link', 'en')).toContain('>Register</button>');
+  it('adds no button to the confirmation (the page link remains the way back)', () => {
+    const html = render(<RegisterForm initialSubmitted />, 'link', 'en');
+    expect(html).toContain('role="status"');
+    expect(buttons(html)).toHaveLength(0);
   });
 });

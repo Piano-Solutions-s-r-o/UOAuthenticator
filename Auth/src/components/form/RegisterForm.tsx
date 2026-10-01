@@ -9,16 +9,36 @@ import { postJson } from '../../utils/api.js';
 
 type RegisterRequest = { email: string };
 
-export function RegisterForm(): React.JSX.Element {
+/**
+ * HUGO-1858: the single owner of "where does the way back to sign in live". With the same
+ * switch as LoginForm's create-account button (`button.create_account: secondary`), RegisterForm
+ * renders it as a secondary button in every state it shows (form and sent confirmation);
+ * otherwise RegisterPage keeps its text link below the social buttons.
+ */
+export function useBackToLoginAsButton(): boolean {
+  return useTheme().theme.button.createAccount === 'secondary';
+}
+
+export function RegisterForm(props: {
+  /** Seed for SSR tests, like PopupProvider's `initial*` props; the flow itself sets it on submit. */
+  initialSubmitted?: boolean;
+}): React.JSX.Element {
   const { t } = useTranslation();
   const { configUrl, redirectUrl, codeChallenge, codeChallengeMethod, requestAccess, setView } = usePopup();
   const [email, setEmail] = useState('');
-  const [submitted, setSubmitted] = useState(false);
+  const [submitted, setSubmitted] = useState(props.initialSubmitted ?? false);
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
   const [loading, setLoading] = useState(false);
-  // Same switch as LoginForm's "create account" button: a client that styles that as a
-  // secondary button gets the way back to sign-in as a matching button under the submit.
-  const backToLoginAsButton = useTheme().theme.button.createAccount === 'secondary';
+  const backToLoginButton = useBackToLoginAsButton() ? (
+    <Button
+      variant="secondaryFilled"
+      type="button"
+      disabled={loading}
+      onClick={() => setView('login')}
+    >
+      {t('nav.backToLogin')}
+    </Button>
+  ) : null;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -76,15 +96,18 @@ export function RegisterForm(): React.JSX.Element {
 
   if (submitted) {
     return (
-      <p
-        role="status"
-        className={[
-          'mt-6 rounded-[var(--uoa-radius-card)] border border-[var(--uoa-color-border)]',
-          'bg-[var(--uoa-color-surface)] px-3 py-2 text-sm text-[var(--uoa-color-text)]',
-        ].join(' ')}
-      >
-        {t('message.instructionsSent')}
-      </p>
+      <div className="mt-6 flex flex-col gap-3">
+        <p
+          role="status"
+          className={[
+            'rounded-[var(--uoa-radius-card)] border border-[var(--uoa-color-border)]',
+            'bg-[var(--uoa-color-surface)] px-3 py-2 text-sm text-[var(--uoa-color-text)]',
+          ].join(' ')}
+        >
+          {t('message.instructionsSent')}
+        </p>
+        {backToLoginButton}
+      </div>
     );
   }
 
@@ -105,16 +128,7 @@ export function RegisterForm(): React.JSX.Element {
         <Button variant="primary" type="submit" disabled={loading}>
           {loading ? '...' : t('form.register.submit')}
         </Button>
-        {backToLoginAsButton ? (
-          <Button
-            variant="secondaryFilled"
-            type="button"
-            disabled={loading}
-            onClick={() => setView('login')}
-          >
-            {t('nav.backToLogin')}
-          </Button>
-        ) : null}
+        {backToLoginButton}
       </div>
     </form>
   );

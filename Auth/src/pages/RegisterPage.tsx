@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 
-import { RegisterForm } from '../components/form/RegisterForm.js';
+import { RegisterForm, useBackToLoginAsButton } from '../components/form/RegisterForm.js';
 import { SocialButtons } from '../components/form/SocialButtons.js';
 import { usePopup } from '../hooks/use-popup.js';
 import { useTheme } from '../hooks/use-theme.js';
@@ -8,11 +8,11 @@ import { useTranslation } from '../i18n/use-translation.js';
 import { isRegistrationAllowed } from '../utils/auth-config.js';
 
 export function RegisterPage(): React.JSX.Element {
-  const { classNames, theme } = useTheme();
+  const { classNames } = useTheme();
   const { t } = useTranslation();
   const { config, setView } = usePopup();
-  // With a secondary create-account style, RegisterForm renders "back to sign in" as a button.
-  const backToLoginAsButton = theme.button.createAccount === 'secondary';
+  // RegisterForm owns the back-to-sign-in button in every state when this is true.
+  const backToLoginAsButton = useBackToLoginAsButton();
   const registrationAllowed = isRegistrationAllowed(config);
 
   useEffect(() => {
