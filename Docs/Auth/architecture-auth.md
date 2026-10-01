@@ -158,6 +158,7 @@ PopupContainer
 - AI-generated translations are cached server-side permanently
 - Language selector dropdown is only rendered if config provides multiple languages
 - Default language comes from the client website's selection (passed in config as optional `language`), overridden by a supported `ui_locales` query param on `/auth` (pure helper `i18n/ui-locales.ts`; `App` passes `initialSearch` to `I18nProvider`, so SSR and hydration agree)
+- Initial view: OIDC `prompt=create` on `/auth` ("Initiating User Registration via OpenID Connect 1.0") opens account creation (`register`) instead of `login` — `deriveInitialView` in `hooks/use-popup.tsx`. Presentational only; flow-specific views (signing, handoff, access-requested, workspace chooser, email link, 2FA) win, and `RegisterPage` falls back to login when the config disables registration
 - `I18nProvider` publishes the effective language to `utils/api.ts` (`setRequestLanguage`), which sends it as `Accept-Language` on every API request; the API uses it to pick the email locale (`en`/`cs`, else English)
 
 ---

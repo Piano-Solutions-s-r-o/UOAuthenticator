@@ -46,3 +46,40 @@ describe('PopupProvider — team_hint does not affect initial view on its own', 
     expect(html).toContain('workspace-chooser:design');
   });
 });
+
+describe('PopupProvider — OIDC prompt=create opens account creation', () => {
+  const base = '?config_url=https%3A%2F%2Fclient.example.com%2Fauth-config';
+
+  it('opens the register view for prompt=create', () => {
+    expect(renderWithSearch(`${base}&prompt=create`)).toContain('register:null');
+  });
+
+  it('accepts create inside a space-delimited prompt list', () => {
+    expect(renderWithSearch(`${base}&prompt=login%20create`)).toContain('register:null');
+  });
+
+  it('stays on login without prompt or for another prompt value', () => {
+    expect(renderWithSearch(base)).toContain('login:null');
+    expect(renderWithSearch(`${base}&prompt=login`)).toContain('login:null');
+    expect(renderWithSearch(`${base}&prompt=created`)).toContain('login:null');
+  });
+
+  it('never overrides a flow-specific view', () => {
+    expect(renderWithSearch(`${base}&prompt=create&flow=signatures&signing_token=cap`)).toContain(
+      'signatures:null',
+    );
+    expect(
+      renderWithSearch(`${base}&prompt=create&login_token=bridge.jwt&flow=workspace_chooser`),
+    ).toContain('workspace-chooser:null');
+    expect(
+      renderWithSearch(`${base}&prompt=create&email_token=t&email_token_type=PASSWORD_RESET`),
+    ).toContain('set-password:null');
+    expect(renderWithSearch(`${base}&prompt=create&twofa_token=t`)).toContain('login:null');
+    // Email-link and 2FA-enrollment landings never open registration, even when no earlier
+    // branch claims them (VERIFY_EMAIL falls through deriveInitialView's email-token block).
+    expect(
+      renderWithSearch(`${base}&prompt=create&email_token=t&email_token_type=VERIFY_EMAIL`),
+    ).toContain('login:null');
+    expect(renderWithSearch(`${base}&prompt=create&twofa_setup_token=s`)).toContain('login:null');
+  });
+});
