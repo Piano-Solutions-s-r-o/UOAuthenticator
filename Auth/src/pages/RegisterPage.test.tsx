@@ -64,10 +64,13 @@ function render(node: React.ReactNode, createAccount: Style, language = 'cs'): s
   );
 }
 
-/** Every <button> in document order, as { type, className, text }. */
-function buttons(html: string): { type: string; className: string; text: string }[] {
+/** Every <button> in document order, as { type, className, disabled, text }. */
+function buttons(
+  html: string,
+): { type: string; className: string; disabled: boolean; text: string }[] {
   return [...html.matchAll(/<button([^>]*)>([\s\S]*?)<\/button>/g)].map(([, attrs, inner]) => ({
     type: /type="([^"]*)"/.exec(attrs)?.[1] ?? '',
+    disabled: /\sdisabled(=|\s|$)/.test(attrs),
     className: /class="([^"]*)"/.exec(attrs)?.[1] ?? '',
     // The label is the text after the last tag (e.g. after a social button's <svg>).
     text: (inner.split('>').pop() ?? '').trim(),
@@ -95,7 +98,15 @@ describe('RegisterPage back to sign in — secondary style', () => {
     expect(all[submitAt + 1]).toMatchObject({ type: 'button', text: BACK.cs });
     expect(all[submitAt + 1].className).toContain(SECONDARY_FILL);
     expect(all.filter((b) => b.text === BACK.cs)).toHaveLength(1);
+    expect(html).toContain('/auth/social/google');
     expect(html.indexOf('/auth/social/google')).toBeGreaterThan(html.indexOf(BACK.cs));
+  });
+
+  it('stays enabled while the register request is pending (it has no timeout)', () => {
+    const all = buttons(render(<RegisterForm initialLoading />, 'secondary'));
+    expect(all.find((b) => b.type === 'submit')?.disabled).toBe(true);
+    const back = all.find((b) => b.text === BACK.cs);
+    expect(back?.disabled).toBe(false);
   });
 
   it('replaces the inline link on the "already registered" notice', () => {
@@ -123,6 +134,7 @@ describe('RegisterPage back to sign in — default link style', () => {
     const back = all.filter((b) => b.text === BACK.en);
     expect(back).toHaveLength(1);
     expect(back[0].className).not.toContain(SECONDARY_FILL);
+    expect(html).toContain('/auth/social/google');
     expect(html.lastIndexOf(BACK.en)).toBeGreaterThan(html.indexOf('/auth/social/google'));
     const form = html.slice(html.indexOf('<form'), html.indexOf('</form>'));
     expect(form).not.toContain(BACK.en);

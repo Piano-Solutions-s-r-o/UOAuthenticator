@@ -24,6 +24,7 @@ export function RegisterForm(props: {
   /** Seeds for SSR tests, like PopupProvider's `initial*` props; the flow sets them on submit. */
   initialSubmitted?: boolean;
   initialAlreadyRegistered?: boolean;
+  initialLoading?: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const { configUrl, redirectUrl, codeChallenge, codeChallengeMethod, requestAccess, setView } =
@@ -33,7 +34,7 @@ export function RegisterForm(props: {
   const [alreadyRegistered, setAlreadyRegistered] = useState(
     props.initialAlreadyRegistered ?? false,
   );
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(props.initialLoading ?? false);
   // Never disabled: while /auth/register is pending (it has no timeout) this is the only way
   // out, as the page-level link was before it.
   const backToLoginButton = useBackToLoginAsButton() ? (
