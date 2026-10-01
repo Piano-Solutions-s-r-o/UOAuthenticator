@@ -75,5 +75,11 @@ describe('PopupProvider — OIDC prompt=create opens account creation', () => {
       renderWithSearch(`${base}&prompt=create&email_token=t&email_token_type=PASSWORD_RESET`),
     ).toContain('set-password:null');
     expect(renderWithSearch(`${base}&prompt=create&twofa_token=t`)).toContain('login:null');
+    // Email-link and 2FA-enrollment landings never open registration, even when no earlier
+    // branch claims them (VERIFY_EMAIL falls through deriveInitialView's email-token block).
+    expect(
+      renderWithSearch(`${base}&prompt=create&email_token=t&email_token_type=VERIFY_EMAIL`),
+    ).toContain('login:null');
+    expect(renderWithSearch(`${base}&prompt=create&twofa_setup_token=s`)).toContain('login:null');
   });
 });
