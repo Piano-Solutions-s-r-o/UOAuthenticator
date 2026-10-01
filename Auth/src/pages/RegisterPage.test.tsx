@@ -41,6 +41,8 @@ function configWith(createAccount: Style, language: string) {
       logo: { url: '', alt: 'Logo' },
     },
     language_config: language,
+    // Social sign-in renders <a> links after the form; the order assertions need them present.
+    enabled_auth_methods: ['email_password', 'google'],
   };
 }
 
@@ -87,11 +89,21 @@ describe('RegisterPage submit label', () => {
 
 describe('RegisterPage back to sign in — secondary style', () => {
   it('is a filled-secondary button directly after the submit, before the social buttons', () => {
-    const all = buttons(render(<RegisterPage />, 'secondary'));
+    const html = render(<RegisterPage />, 'secondary');
+    const all = buttons(html);
     const submitAt = all.findIndex((b) => b.type === 'submit');
     expect(all[submitAt + 1]).toMatchObject({ type: 'button', text: BACK.cs });
     expect(all[submitAt + 1].className).toContain(SECONDARY_FILL);
     expect(all.filter((b) => b.text === BACK.cs)).toHaveLength(1);
+    expect(html.indexOf('/auth/social/google')).toBeGreaterThan(html.indexOf(BACK.cs));
+  });
+
+  it('replaces the inline link on the "already registered" notice', () => {
+    const html = render(<RegisterForm initialAlreadyRegistered />, 'secondary');
+    expect(html).toContain('role="status"');
+    const back = buttons(html).filter((b) => b.text === BACK.cs);
+    expect(back).toHaveLength(1);
+    expect(back[0].className).toContain(SECONDARY_FILL);
   });
 
   it('stays on the "instructions sent" confirmation', () => {
@@ -111,7 +123,7 @@ describe('RegisterPage back to sign in — default link style', () => {
     const back = all.filter((b) => b.text === BACK.en);
     expect(back).toHaveLength(1);
     expect(back[0].className).not.toContain(SECONDARY_FILL);
-    expect(all[all.length - 1].text).toBe(BACK.en);
+    expect(html.lastIndexOf(BACK.en)).toBeGreaterThan(html.indexOf('/auth/social/google'));
     const form = html.slice(html.indexOf('<form'), html.indexOf('</form>'));
     expect(form).not.toContain(BACK.en);
   });
