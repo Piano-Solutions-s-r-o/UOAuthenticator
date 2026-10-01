@@ -67,7 +67,8 @@ function buttons(html: string): { type: string; className: string; text: string 
   return [...html.matchAll(/<button([^>]*)>([\s\S]*?)<\/button>/g)].map(([, attrs, inner]) => ({
     type: /type="([^"]*)"/.exec(attrs)?.[1] ?? '',
     className: /class="([^"]*)"/.exec(attrs)?.[1] ?? '',
-    text: inner.replace(/<[^>]*>/g, '').trim(),
+    // The label is the text after the last tag (e.g. after a social button's <svg>).
+    text: (inner.split('>').pop() ?? '').trim(),
   }));
 }
 
