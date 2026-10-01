@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 
-import { RegisterForm } from '../components/form/RegisterForm.js';
+import { RegisterForm, useBackToLoginAsButton } from '../components/form/RegisterForm.js';
 import { SocialButtons } from '../components/form/SocialButtons.js';
 import { usePopup } from '../hooks/use-popup.js';
 import { useTheme } from '../hooks/use-theme.js';
@@ -11,6 +11,8 @@ export function RegisterPage(): React.JSX.Element {
   const { classNames } = useTheme();
   const { t } = useTranslation();
   const { config, setView } = usePopup();
+  // RegisterForm owns the back-to-sign-in button in every state when this is true.
+  const backToLoginAsButton = useBackToLoginAsButton();
   const registrationAllowed = isRegistrationAllowed(config);
 
   useEffect(() => {
@@ -28,15 +30,17 @@ export function RegisterPage(): React.JSX.Element {
       <div className="mt-6">
         <SocialButtons />
       </div>
-      <div className="mt-4 text-center text-sm">
-        <button
-          type="button"
-          className="text-[var(--uoa-color-link)] hover:underline"
-          onClick={() => setView('login')}
-        >
-          {t('nav.backToLogin')}
-        </button>
-      </div>
+      {backToLoginAsButton ? null : (
+        <div className="mt-4 text-center text-sm">
+          <button
+            type="button"
+            className="text-[var(--uoa-color-link)] hover:underline"
+            onClick={() => setView('login')}
+          >
+            {t('nav.backToLogin')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

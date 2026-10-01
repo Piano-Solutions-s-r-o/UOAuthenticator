@@ -84,7 +84,7 @@ export const configJwtDocumentation = {
           ],
           optional_keys: {
             link: 'Colour of text links and outline/ghost button text on the page background. Defaults to primary. Set it when primary is a fill colour that is unreadable as text (e.g. a light yellow on white).',
-            secondary: 'Fill of a filled secondary action such as the "Create account" button (button.create_account: secondary). Without it that button uses the outlined secondary style.',
+            secondary: 'Fill of a filled secondary action such as the "Create account" and register-page "Back to sign in" buttons (button.create_account: secondary). Without it those buttons use the outlined secondary style.',
             secondary_text: 'Text colour on colors.secondary. Defaults to text.',
           },
           value_format: 'hex color only (#RGB, #RGBA, #RRGGBB, #RRGGBBAA) or transparent',
@@ -107,7 +107,7 @@ export const configJwtDocumentation = {
           required_keys: ['style'],
           style: 'solid | outline | ghost',
           font_weight: 'optional: medium (default) | semibold | bold — weight of the primary and secondary buttons',
-          create_account: 'optional: link (default) | secondary — show "Create account" as a text link or as a secondary button under the sign-in button',
+          create_account: 'optional: link (default) | secondary — show "Create account" as a text link or as a secondary button under the sign-in button; with secondary the register page also shows "Back to sign in" as a secondary button under its submit (in the form and after it is sent) instead of a link below the social buttons',
         },
         layout:
           'optional: default | centered — centered centres the card vertically, puts the language switch in the page corner, shows a 150px-wide logo and a centred 3xl page heading',
