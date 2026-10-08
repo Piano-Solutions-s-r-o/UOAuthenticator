@@ -45,6 +45,7 @@ export const en = {
   // Navigation links between auth views.
   'nav.forgotPassword': 'Forgot your password?',
   'nav.createAccount': 'Create an account',
+  'auth.login.restartRequired': 'Continue to the application to start a new secure sign-in. If you already set a password, use it to sign in; you do not need to register again.',
   'nav.backToLogin': 'Back to sign in',
   'nav.resetPassword': 'Reset password',
   'nav.emailMeCode': 'Email me a sign-in code',
