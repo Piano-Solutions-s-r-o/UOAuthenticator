@@ -45,6 +45,7 @@ export const cs = {
 
   'nav.forgotPassword': 'Zapomenuté heslo?',
   'nav.createAccount': 'Vytvořit účet',
+  'auth.login.restartRequired': 'Pokračuj do aplikace a začni nové bezpečné přihlášení. Pokud už máš nastavené heslo, přihlas se s ním; znovu se registrovat nemusíš.',
   'nav.backToLogin': 'Zpět na přihlášení',
   'nav.resetPassword': 'Obnovit heslo',
   'nav.emailMeCode': 'Poslat mi přihlašovací kód e-mailem',

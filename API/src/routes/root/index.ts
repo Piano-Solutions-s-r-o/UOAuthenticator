@@ -52,6 +52,7 @@ export function registerRootRoute(app: FastifyInstance): void {
       home: '/',
       docs: '/llm',
       api: '/api',
+      // Includes the signed login_restart_url recovery contract.
       config_jwt: configJwtDocumentation,
       access_token: accessTokenDocumentation,
       confidential_token_exchange: confidentialTokenExchangeDocumentation,
