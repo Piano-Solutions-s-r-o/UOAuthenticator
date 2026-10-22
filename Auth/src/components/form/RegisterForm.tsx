@@ -12,8 +12,8 @@ type RegisterRequest = { email: string };
 /**
  * HUGO-1858: the single owner of "where does the way back to sign in live". With the same
  * switch as LoginForm's create-account button (`button.create_account: secondary`), RegisterForm
- * renders it as a secondary button in every state it shows (form, sent confirmation and
- * already-registered);
+ * renders it as a secondary button in every state it shows (form and already-registered; the
+ * "check your email" screen is RegistrationVerificationPage, which uses the same switch);
  * otherwise RegisterPage keeps its text link below the social buttons.
  */
 export function useBackToLoginAsButton(): boolean {
@@ -22,20 +22,26 @@ export function useBackToLoginAsButton(): boolean {
 
 export function RegisterForm(props: {
   /** Seeds for SSR tests, like PopupProvider's `initial*` props; the flow sets them on submit. */
-  initialSubmitted?: boolean;
   initialAlreadyRegistered?: boolean;
   initialLoading?: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
-  const { configUrl, redirectUrl, codeChallenge, codeChallengeMethod, requestAccess, setView } =
-    usePopup();
+  const {
+    configUrl,
+    redirectUrl,
+    codeChallenge,
+    codeChallengeMethod,
+    requestAccess,
+    setView,
+    beginRegistration,
+  } = usePopup();
   const [email, setEmail] = useState('');
-  const [submitted, setSubmitted] = useState(props.initialSubmitted ?? false);
+  const [error, setError] = useState(false);
   const [alreadyRegistered, setAlreadyRegistered] = useState(
     props.initialAlreadyRegistered ?? false,
   );
   const [loading, setLoading] = useState(props.initialLoading ?? false);
-  // Never disabled: while /auth/register is pending (it has no timeout) this is the only way
+  // Never disabled: while /auth/registration/start is pending (it has no timeout) this is the only way
   // out, as the page-level link was before it.
   const backToLoginButton = useBackToLoginAsButton() ? (
     <Button variant="secondaryFilled" type="button" onClick={() => setView('login')}>
@@ -46,6 +52,7 @@ export function RegisterForm(props: {
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
+    setError(false);
 
     const query: Record<string, string | boolean | null> = { config_url: configUrl };
     if (redirectUrl) query.redirect_url = redirectUrl;
@@ -58,13 +65,21 @@ export function RegisterForm(props: {
     // Most clients keep the default no-enumeration response. A signed config
     // may opt into EMAIL_ALREADY_REGISTERED for products that prefer inline
     // sign-in guidance over a login-link email.
-    const result = await postJson<RegisterRequest, unknown>('/auth/register', { email }, query);
+    const result = await postJson<RegisterRequest, { registration_id: string }>(
+      '/auth/registration/start',
+      { email },
+      query,
+    );
     setLoading(false);
     if (!result.ok && result.code === 'EMAIL_ALREADY_REGISTERED') {
       setAlreadyRegistered(true);
       return;
     }
-    setSubmitted(true);
+    if (!result.ok || typeof result.data?.registration_id !== 'string') {
+      setError(true);
+      return;
+    }
+    beginRegistration({ id: result.data.registration_id, email });
   }
 
   if (alreadyRegistered) {
@@ -102,23 +117,6 @@ export function RegisterForm(props: {
     );
   }
 
-  if (submitted) {
-    return (
-      <div className="mt-6 flex flex-col gap-3">
-        <p
-          role="status"
-          className={[
-            'rounded-[var(--uoa-radius-card)] border border-[var(--uoa-color-border)]',
-            'bg-[var(--uoa-color-surface)] px-3 py-2 text-sm text-[var(--uoa-color-text)]',
-          ].join(' ')}
-        >
-          {t('message.instructionsSent')}
-        </p>
-        {backToLoginButton}
-      </div>
-    );
-  }
-
   return (
     <form className="mt-6 flex flex-col gap-4" onSubmit={handleSubmit}>
       <Input
@@ -131,6 +129,12 @@ export function RegisterForm(props: {
         value={email}
         onChange={(e) => setEmail(e.currentTarget.value)}
       />
+
+      {error ? (
+        <p role="alert" className="text-sm text-[var(--uoa-color-danger)]">
+          {t('form.error.generic')}
+        </p>
+      ) : null}
 
       <div className="mt-2 flex flex-col gap-3">
         <Button variant="primary" type="submit" disabled={loading}>

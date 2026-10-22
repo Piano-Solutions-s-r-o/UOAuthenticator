@@ -27,6 +27,7 @@ export function SetPasswordForm(): React.JSX.Element {
     startTwoFactorVerify,
     startTwoFactorSetup,
     requestAccess,
+    beginRegistration,
   } = usePopup();
 
   const [password, setPassword] = useState('');
@@ -142,6 +143,7 @@ export function SetPasswordForm(): React.JSX.Element {
       startTwoFactorSetup,
     });
     if (!applied) setError(t('form.setPassword.error'));
+    else beginRegistration(null);
   }
 
   if (success) {

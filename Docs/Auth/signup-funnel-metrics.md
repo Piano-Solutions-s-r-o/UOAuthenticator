@@ -16,11 +16,11 @@ the window or submitting the form twice counts twice.
 | Step | Recorded when | Outcomes |
 | --- | --- | --- |
 | `flow_started` | `GET /auth` renders the window for a product starting a flow. Mid-flow re-renders (2FA, workspace chooser, email-token continuations) and `HEAD` requests are not counted; a manual reload after the Auth window has stripped its continuation token can be. | `shown` (sign-in screen), `shown_register` (the product sent OIDC `prompt=create`, HUGO-1850, so the window opened on registration) |
-| `register_submitted` | `POST /auth/register` (the "Create account" form). | `valid_email`, `invalid_email` |
+| `register_submitted` | `POST /auth/register` and `POST /auth/registration/start` (the hosted "Create account" form uses the latter). | `valid_email`, `invalid_email` |
 | `email_start_submitted` | `POST /auth/start` (email-first form, products with email codes). | `valid_email`, `invalid_email` |
 | `login_submitted` | `POST /auth/login` (email + password). | `succeeded` (credentials accepted; 2FA or a team choice may still follow), `failed` |
 | `registration_email` | What UOA did with a submitted address behind the generic reply. `*_sent` means the email provider accepted the message, not that it arrived. | `verification_sent`, `verification_failed`, `login_link_sent`, `login_link_failed` (existing account), `existing_user_inline` (product opted into `inline_sign_in`; no email), `blocked` (registration not allowed or banned; no email), `error` |
-| `email_link_opened` | `GET /auth/email/link`, the link in that email. `HEAD` requests (mail scanners pre-checking links) are not counted. | `valid_set_password`, `valid_verify_email`, `valid_login_link`, `expired`, `already_used`, `invalid` (unknown, wrong client, or already pruned), `invalid_pkce` / `missing_pkce` (damaged link) |
+| `email_link_opened` | `GET /auth/email/link`, the link in that email, or — for the browser-bound email — `POST /auth/registration/link`, the explicit confirmation on its landing page. `HEAD` requests (mail scanners pre-checking links) are not counted. | `registration_verified` (browser-bound link confirmed) and `already_used` (that link replayed), plus the outcomes of `GET /auth/email/link`: `valid_set_password`, `valid_verify_email`, `valid_login_link`, `expired`, `already_used`, `invalid` (unknown, wrong client, or already pruned), `invalid_pkce` / `missing_pkce` (damaged link) |
 | `set_password` | `POST /auth/verify-email` from the set-password form. | `succeeded` (set-password token: account created), `succeeded_<token type>` (another token type, only from direct API calls), `password_rejected`, `expired`, `already_used`, `failed` |
 | `social_started` | `GET /auth/social/:provider` redirects to the provider. | provider key (`google`, `apple`, …) |
 | `sign_in_completed` | A sign-in finished: UOA returned an authorization code or recorded an access request. Recorded next to every login-log write, so each password, email-link, email-code and social sign-in counts once, after any 2FA or workspace choice. Where the login log is written inside the authentication transaction, the counter is written after that transaction commits. | auth method (`email_password`, `verify_email_set_password`, `login_link`, `google`, `email_code`, …) |
@@ -67,3 +67,17 @@ For Hugo on sso.hugopos.eu (`enabled_auth_methods: ["email_password", "google"]`
 5. UOA redirects back to Hugo with an authorization code; Hugo's backend exchanges it.
 
 Each of those is a separate step above, so the funnel shows where people stop.
+
+### Browser-bound verification (2026-10-22)
+
+The hosted form now uses `/auth/registration/start`; it records the same
+`register_submitted` and `registration_email` counters through the same
+`recordAuthFunnelStep` writer as `/auth/register` (a given submission uses one
+endpoint, so nothing is counted twice). Its link and code last 15
+minutes. `/auth/registration/link` records `email_link_opened` only after the
+explicit confirmation POST succeeds, outside the verification transaction; a GET,
+scanner prefetch or status/WebSocket subscription never counts as mailbox proof.
+Code verification is an alternative to opening the link and does not increment
+the link counter. Both methods still reach the existing `set_password`,
+`sign_in_completed` and `code_exchange` writers. A cross-device confirmation alone
+neither authenticates the original flow nor counts a completed sign-in.

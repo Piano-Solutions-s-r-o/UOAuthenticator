@@ -5,6 +5,7 @@ import { AccessRequestedPage } from '../../pages/AccessRequestedPage.js';
 import { CodeEntryPage } from '../../pages/CodeEntryPage.js';
 import { LoginPage } from '../../pages/LoginPage.js';
 import { RegisterPage } from '../../pages/RegisterPage.js';
+import { RegistrationVerificationPage } from '../../pages/RegistrationVerificationPage.js';
 import { ResetPasswordPage } from '../../pages/ResetPasswordPage.js';
 import { SetPasswordPage } from '../../pages/SetPasswordPage.js';
 import { SignedInPage } from '../../pages/SignedInPage.js';
@@ -31,6 +32,8 @@ function PopupContent(): React.JSX.Element {
   switch (popup.view) {
     case 'register':
       return <RegisterPage />;
+    case 'registration-verification':
+      return <RegistrationVerificationPage />;
     case 'reset-password':
       return <ResetPasswordPage />;
     case 'set-password':

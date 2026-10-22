@@ -27,6 +27,7 @@ describe('retention-pruning.service', () => {
     const now = new Date('2026-04-20T12:00:00.000Z');
     const calls: Record<string, unknown> = {};
     const prisma = {
+      pendingRegistration: { deleteMany: async (args: unknown) => { calls.pendingRegistration = args; return { count: 13 }; } },
       refreshToken: {
         deleteMany: async (args: unknown) => {
           calls.refreshToken = args;
@@ -99,6 +100,7 @@ describe('retention-pruning.service', () => {
       where: { createdAt: { lt: new Date('2026-01-20T12:00:00.000Z') } },
     });
     expect(result).toEqual({
+      pendingRegistrationsDeleted: 13,
       authorizationCodesDeleted: 2,
       confidentialAssertionUsesDeleted: 6,
       handshakeErrorLogsDeleted: 5,

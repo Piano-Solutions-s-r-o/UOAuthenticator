@@ -27,6 +27,7 @@ import { finalizeWithTwoFaPolicy } from '../../services/workspace-finalize.servi
 import { lockProductWorkspacePolicyShared } from '../../services/product-workspace-policy-lock.service.js';
 import { parseRequiredPkceChallenge } from '../../utils/pkce.js';
 import { tokenConsumeRateLimiter } from './rate-limit-keys.js';
+import { assertPendingRegistrationCompletion } from '../../services/pending-registration.service.js';
 
 function setPasswordFailureOutcome(err: unknown): string {
   const message = isAppError(err) ? err.message : '';
@@ -77,6 +78,18 @@ export function registerAuthVerifyEmailRoute(app: FastifyInstance): void {
       if (!config || !configUrl) {
         throw new AppError('BAD_REQUEST', 400, 'MISSING_CONFIG');
       }
+      await assertPendingRegistrationCompletion(
+        {
+          token,
+          cookies: request.cookies,
+          config,
+          configUrl,
+          redirectUrl: redirect_url,
+          requestAccess: parseRequestAccessFlag(request_access),
+          ...pkce,
+        },
+        request.adminDb,
+      );
 
       const recordSetPassword = (outcome: string) =>
         recordAuthFunnelStep(
@@ -112,7 +125,8 @@ export function registerAuthVerifyEmailRoute(app: FastifyInstance): void {
         throw err;
       });
       const { userId, credentialEpoch, type, twoFaEnabled, acceptedInvite } = verified;
-      // Only a set-password token creates an account here; the form never sends the other types.
+      // Only set-password tokens create password accounts. Browser-authorized
+      // registration can also continue an existing-account or passwordless proof.
       await recordSetPassword(
         type === 'VERIFY_EMAIL_SET_PASSWORD' ? 'succeeded' : `succeeded_${type.toLowerCase()}`,
       );

@@ -16,6 +16,7 @@ import {
   sendLoginLinkEmail,
   sendVerifyEmailEmail,
   sendVerifyEmailSetPasswordEmail,
+  sendRegistrationVerificationEmail,
 } from './email.service.js';
 import { extractEmailDomain } from '../utils/email-domain.js';
 import { generateEmailToken, hashEmailToken } from '../utils/verification-token.js';
@@ -151,6 +152,7 @@ export async function requestRegistrationInstructions(
     // Piano (HUGO-626/553): localized transactional email; upstream: ban-policy IP.
     locale?: EmailLocale;
     ip?: string | null;
+    browserRegistration?: { completionToken: string; link: string; code: string; expiresAt: Date };
   },
   deps?: RegisterDeps,
 ): Promise<RegistrationInstructionResult> {
@@ -202,7 +204,7 @@ export async function requestRegistrationInstructions(
     return { status: 'sent', delivery: 'blocked' };
   }
 
-  const token = deps?.generateEmailToken ? deps.generateEmailToken() : generateEmailToken();
+  const token = params.browserRegistration?.completionToken ?? (deps?.generateEmailToken ? deps.generateEmailToken() : generateEmailToken());
   const sharedSecret = deps?.sharedSecret ?? requireEnv('SHARED_SECRET').SHARED_SECRET;
   const tokenHash = deps?.hashEmailToken
     ? deps.hashEmailToken(token, sharedSecret)
@@ -212,7 +214,9 @@ export async function requestRegistrationInstructions(
   // Both branches of the public registration flow must have the same lifetime.
   // A shorter existing-user token would make account existence observable from
   // the email copy or from when the otherwise-neutral link stops working.
-  const expiresAt = new Date(now.getTime() + REGISTRATION_EMAIL_TOKEN_TTL_MS);
+  // A browser-bound registration supplies its own deadline (the pending row's expiry).
+  const expiresAt =
+    params.browserRegistration?.expiresAt ?? new Date(now.getTime() + REGISTRATION_EMAIL_TOKEN_TTL_MS);
 
   const type = existing
     ? 'LOGIN_LINK'
@@ -239,6 +243,15 @@ export async function requestRegistrationInstructions(
 
   const theme = extractEmailTheme(params.config);
   const locale = params.locale;
+
+  if (params.browserRegistration) {
+    const delivered = await sendRegistrationVerificationEmail({
+      to: email, link: params.browserRegistration.link, code: params.browserRegistration.code, theme,
+    });
+    return { status: 'sent', delivery: existing
+      ? (delivered === false ? 'login_link_failed' : 'login_link_sent')
+      : (delivered === false ? 'verification_failed' : 'verification_sent') };
+  }
 
   if (existing) {
     const link = buildRegistrationEmailLandingLink({

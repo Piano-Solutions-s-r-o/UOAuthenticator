@@ -8,6 +8,15 @@ For the full product spec, see [brief.md](./brief.md). For tech stack, see [tech
 
 ## Guiding Principles
 
+Browser registration uses `routes/auth/registration.ts`, `registration-context.ts`
+and `registration-websocket.ts`; `pending-registration.service.ts` owns the durable
+mailbox/browser state and immutable OAuth binding, `registration-credentials.ts`
+the scoped cryptographic helpers, and `registration-events.service.ts` non-secret
+local hints. Connected replicas recheck the database every five seconds. The isolated
+`registration-link-page.service.ts` removes fragment secrets before confirmation.
+`email.templates.registration.ts`, `root/schema.registration.ts` and
+`root/llm-registration.ts` publish the shared email and API contracts.
+
 - **No code file longer than 500 lines.** If a file approaches this limit, split it.
 - **One responsibility per file.** A route file handles routing. A service file handles logic. They don't mix.
 - **Thin routes, fat services.** Route handlers validate input, call a service, and return a response. Business logic lives in services.
