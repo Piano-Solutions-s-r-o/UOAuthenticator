@@ -40,12 +40,15 @@ function getProvider(): EmailProvider {
   return cachedProvider;
 }
 
-async function dispatchEmail(message: EmailMessage, options?: { swallowFailures?: boolean }): Promise<void> {
+// Resolves true once the provider accepted the message and false when a swallowed failure stopped
+// it, so callers that report delivery (the sign-up funnel) can tell the two apart.
+async function dispatchEmail(message: EmailMessage, options?: { swallowFailures?: boolean }): Promise<boolean> {
   const env = getEnv();
   const provider = getProvider();
 
   try {
     await provider.send(message);
+    return true;
   } catch (err) {
     // Brief 11 / 13: never leak specifics. Email sending failures should not reveal anything to users.
     // Avoid logging bearer links/tokens; include only minimal metadata.
@@ -67,6 +70,7 @@ async function dispatchEmail(message: EmailMessage, options?: { swallowFailures?
     if (options?.swallowFailures === false) {
       throw new Error('EMAIL_DISPATCH_FAILED', { cause: err });
     }
+    return false;
   }
 }
 
@@ -142,10 +146,10 @@ export async function sendVerifyEmailSetPasswordEmail(params: {
   link: string;
   theme?: Partial<EmailTheme>;
   locale?: EmailLocale;
-}): Promise<void> {
+}): Promise<boolean> {
   const env = getEnv();
   const template = buildVerifyEmailSetPasswordTemplate({ link: params.link, theme: params.theme, locale: params.locale });
-  await dispatchEmail({
+  return dispatchEmail({
     to: params.to,
     from: env.EMAIL_FROM,
     replyTo: env.EMAIL_REPLY_TO,
@@ -160,10 +164,10 @@ export async function sendVerifyEmailEmail(params: {
   link: string;
   theme?: Partial<EmailTheme>;
   locale?: EmailLocale;
-}): Promise<void> {
+}): Promise<boolean> {
   const env = getEnv();
   const template = buildVerifyEmailTemplate({ link: params.link, theme: params.theme, locale: params.locale });
-  await dispatchEmail({
+  return dispatchEmail({
     to: params.to,
     from: env.EMAIL_FROM,
     replyTo: env.EMAIL_REPLY_TO,
@@ -196,10 +200,10 @@ export async function sendAccountExistsEmail(params: {
   link: string;
   theme?: Partial<EmailTheme>;
   locale?: EmailLocale;
-}): Promise<void> {
+}): Promise<boolean> {
   const env = getEnv();
   const template = buildAccountExistsTemplate({ link: params.link, theme: params.theme, locale: params.locale });
-  await dispatchEmail({
+  return dispatchEmail({
     to: params.to,
     from: env.EMAIL_FROM,
     replyTo: env.EMAIL_REPLY_TO,

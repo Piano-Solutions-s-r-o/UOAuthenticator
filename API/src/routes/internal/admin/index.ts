@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 
 import { registerInternalAdminApiKeyRoutes } from './api-keys.js';
 import { registerInternalAdminAppRoutes } from './apps.js';
+import { registerInternalAdminAuthFunnelRoutes } from './auth-funnel.js';
 import { registerInternalAdminBanRoutes } from './bans.js';
 import { registerInternalAdminBillingStripeUsageRoute } from './billing-stripe-usage.js';
 import { registerInternalAdminBillingContractInvoiceRoutes } from './billing-contract-invoices.js';
@@ -25,6 +26,7 @@ export function registerInternalAdminRoutes(app: FastifyInstance): void {
   registerInternalAdminConfigRoute(app);
   registerInternalAdminTokenRoute(app);
   registerInternalAdminReadRoutes(app);
+  registerInternalAdminAuthFunnelRoutes(app);
   registerInternalAdminOrganisationRoutes(app);
   registerInternalAdminAppRoutes(app);
   registerInternalAdminBanRoutes(app);

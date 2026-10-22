@@ -5,6 +5,7 @@ import { getAuthServiceIdentifier, requireEnv } from '../../config/env.js';
 import { configVerifier } from '../../middleware/config-verifier.js';
 import { runWithRequestAdminTransaction } from '../../plugins/tenant-context.plugin.js';
 import { recordLoginLog } from '../../services/login-log.service.js';
+import { recordAuthFunnelStep } from '../../services/auth-funnel.service.js';
 import { finalizeAuthenticatedUser } from '../../services/access-request-flow.service.js';
 import { lockAndAssertAuthenticationEpoch } from '../../services/authentication-epoch.service.js';
 import { lockProductWorkspacePolicyShared } from '../../services/product-workspace-policy-lock.service.js';
@@ -55,6 +56,8 @@ export function registerTwoFactorVerifyRoute(app: FastifyInstance): void {
         throw new AppError('UNAUTHORIZED', 401, 'AUTHENTICATION_FAILED');
       }
 
+      // Set inside the transaction, recorded after it committed (Docs/Auth/signup-funnel-metrics.md).
+      let completedAuthMethod: string | undefined;
       const finalResult = await runWithRequestAdminTransaction(request, async (prisma) => {
         await lockProductWorkspacePolicyShared(prisma);
         await lockAndAssertAuthenticationEpoch(
@@ -118,8 +121,15 @@ export function registerTwoFactorVerifyRoute(app: FastifyInstance): void {
           request.log.error({ err }, 'failed to record login log');
         }
 
+        completedAuthMethod = lockedChallenge.authMethod;
         return decision;
       });
+      if (completedAuthMethod) {
+        await recordAuthFunnelStep(
+          { domain: config.domain, step: 'sign_in_completed', outcome: completedAuthMethod },
+          { prisma: request.adminDb },
+        );
+      }
 
       reply.status(200).send({
         ok: true,

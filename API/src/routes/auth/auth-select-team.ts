@@ -13,6 +13,7 @@ import {
 import { consumeLoginSession } from '../../services/login-session-use.service.js';
 import { parseRequestAccessFlag } from '../../services/access-request-flow.service.js';
 import { recordLoginLog } from '../../services/login-log.service.js';
+import { recordAuthFunnelStep } from '../../services/auth-funnel.service.js';
 import { selectRedirectUrl } from '../../services/authorization-code.service.js';
 import {
   acceptTeamInviteWithinTransaction,
@@ -312,6 +313,11 @@ export function registerAuthSelectTeamRoute(app: FastifyInstance): void {
       } catch (err) {
         request.log.error({ err }, 'failed to record login log');
       }
+      // Recorded with the login log, after the transaction committed (Docs/Auth/signup-funnel-metrics.md).
+      await recordAuthFunnelStep(
+        { domain: config.domain, step: 'sign_in_completed', outcome: outcome.authMethod },
+        { prisma: request.adminDb },
+      );
 
       reply.status(200).send({
         ok: true,
