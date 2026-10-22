@@ -79,5 +79,5 @@ explicit confirmation POST succeeds, outside the verification transaction; a GET
 scanner prefetch or status/WebSocket subscription never counts as mailbox proof.
 Code verification is an alternative to opening the link and does not increment
 the link counter. Both methods still reach the existing `set_password`,
-`sign_in_completed` and `code_exchange` writers. A cross-device confirmation alone
-neither authenticates the original flow nor counts a completed sign-in.
+`sign_in_completed` and `code_exchange` writers. A confirmation on another device
+advances the original window (#124) but does not itself count a completed sign-in.
