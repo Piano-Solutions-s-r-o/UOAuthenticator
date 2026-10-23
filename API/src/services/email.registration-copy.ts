@@ -77,7 +77,7 @@ const REGISTRATION_VERIFICATION_COPY: Record<EmailLocale, RegistrationVerificati
     buttonLabel: 'Verify email address',
     codeLabel: 'Or enter this verification code:',
     expiry: (hours) => `The link and code expire in ${hours} hours. The link can only be used once.`,
-    note: 'Opening it on another device does not sign that device in.',
+    note: 'If you open the link on another device, registration continues in the window where it started. That device is not signed in.',
     ignoreLabel: 'If you did not request this, ignore this email.',
   },
   cs: {
