@@ -123,6 +123,8 @@ describe('RegisterPage back to sign in — secondary style', () => {
   it('stays on the "check your email" code-entry screen', () => {
     const html = render(<RegistrationVerificationPage />, 'secondary');
     expect(html).toContain('a@b.cz');
+    expect(html).toContain('Zkontroluj e-mail');
+    expect(html).toContain('jsme ti poslali');
     const back = buttons(html).filter((b) => b.text === BACK.cs);
     expect(back).toHaveLength(1);
     expect(back[0]).toMatchObject({ type: 'button' });

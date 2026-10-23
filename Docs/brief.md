@@ -24,7 +24,10 @@ the original registration cookie can advance that exact flow. A cross-device cli
 does not authorize the initiating browser: it still needs the emailed code. This
 prevents an attacker-initiated registration from acquiring credentials when the
 mailbox owner clicks. No extra pairing code is sent. Codes work only in the requesting
-browser's registration, expire after 15 minutes, and allow five persisted guesses.
+browser's registration, expire after 24 hours (the registration email lifetime,
+`REGISTRATION_EMAIL_TOKEN_TTL_MS`), and allow five persisted guesses. The email and
+the link confirmation page are English or Czech by the request's Accept-Language,
+and the email states the lifetime in hours.
 Authenticated WebSocket hints and polling recheck database state; refresh retains
 only public flow metadata. Existing epoch, scope, TOTP and agreement gates remain.
 The complete contract is published by `/api` and `/llm` under `/auth/registration/*`.

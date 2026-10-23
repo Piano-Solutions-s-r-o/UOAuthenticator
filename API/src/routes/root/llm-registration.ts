@@ -1,3 +1,5 @@
+import { registrationTokenTtlHours } from '../../services/email.registration-copy.js';
+
 export const llmRegistrationMarkdown = `
 ## Browser-bound registration verification
 
@@ -5,7 +7,7 @@ The hosted registration screen uses POST /auth/registration/start with {email},
 the verified config_url and original OAuth context (S256 challenge, callback
 and access-request flag). Its generic response includes registration_id
 and expires_at for every ordinary account/eligibility outcome; the signed
-inline_sign_in opt-in still permits EMAIL_ALREADY_REGISTERED. A 15-minute,
+inline_sign_in opt-in still permits EMAIL_ALREADY_REGISTERED. A ${registrationTokenTtlHours()}-hour,
 registration-specific HttpOnly cookie owns the flow. Public IDs are not credentials.
 
 The email contains a secret link and the same six-character code displayed for
@@ -13,6 +15,9 @@ entry on the requesting screen. Codes use ABCDEFGHJKLMNPQRSTUVWXYZ23456789,
 are hashed with a server pepper, and allow five persisted guesses per registration.
 POST /auth/registration/code accepts {id,code} only with that browser's cookie
 and exact original OAuth/config context. Link and code converge atomically.
+The email and the confirmation page are English or Czech, chosen from the
+Accept-Language of the request that produced them; the email states its
+lifetime in hours.
 
 GET /auth/registration/link is an isolated confirmation page. Its URL fragment
 holds the 256-bit link secret, so the secret never reaches access logs or

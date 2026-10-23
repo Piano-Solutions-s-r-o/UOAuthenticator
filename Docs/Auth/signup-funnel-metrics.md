@@ -73,8 +73,8 @@ Each of those is a separate step above, so the funnel shows where people stop.
 The hosted form now uses `/auth/registration/start`; it records the same
 `register_submitted` and `registration_email` counters through the same
 `recordAuthFunnelStep` writer as `/auth/register` (a given submission uses one
-endpoint, so nothing is counted twice). Its link and code last 15
-minutes. `/auth/registration/link` records `email_link_opened` only after the
+endpoint, so nothing is counted twice). Its link and code last 24
+hours (`REGISTRATION_EMAIL_TOKEN_TTL_MS`). `/auth/registration/link` records `email_link_opened` only after the
 explicit confirmation POST succeeds, outside the verification transaction; a GET,
 scanner prefetch or status/WebSocket subscription never counts as mailbox proof.
 Code verification is an alternative to opening the link and does not increment

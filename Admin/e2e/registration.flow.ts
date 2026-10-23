@@ -1,32 +1,40 @@
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { renderRegistrationLinkPage } from '../../API/src/services/registration-link-page.service.js';
+import { resolveEmailLocale } from '../../API/src/utils/email-locale.js';
 import { buildRegistrationVerificationTemplate } from '../../API/src/services/email.templates.registration.js';
 import { buildVerifyEmailSetPasswordTemplate } from '../../API/src/services/email.templates.js';
 
 const id = '9466e365-206c-49cb-a8d5-aa1342bdd613';
 const search = '?config_url=https%3A%2F%2Fproduct.example%2Fconfig&code_challenge=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ&code_challenge_method=S256';
-async function configure(page: Page) {
-  await page.addInitScript(() => {
+// `secondary` styles "create account" (and so "back to sign in", HUGO-1858) as a filled button.
+type Variant = { language: 'en' | 'cs'; secondary: boolean };
+async function configure(page: Page, variant: Partial<Variant> = {}) {
+  await page.addInitScript(({ language = 'en', secondary = false }) => {
     Object.assign(window, {
       __UOA_CLIENT_CONFIG__: {
-        app_name: 'Example product', enabled_auth_methods: ['email_password'], language_config: 'en',
+        app_name: 'Example product', enabled_auth_methods: ['email_password'], language_config: language,
         ui_theme: {
-          colors: { bg: '#f8fafc', surface: '#ffffff', text: '#0f172a', muted: '#475569', primary: '#2563eb', primary_text: '#ffffff', border: '#e2e8f0', danger: '#dc2626', danger_text: '#ffffff' },
+          colors: { bg: '#f8fafc', surface: '#ffffff', text: '#0f172a', muted: '#475569', primary: '#2563eb', primary_text: '#ffffff', ...(secondary ? { secondary: '#e2ddd5' } : {}), border: '#e2e8f0', danger: '#dc2626', danger_text: '#ffffff' },
           radii: { card: '16px', input: '8px', button: '8px' }, density: 'comfortable',
           typography: { font_family: 'sans', base_text_size: 'md' },
-          button: { style: 'solid' }, card: { style: 'bordered' }, logo: { url: '', alt: 'Example product' },
+          button: { style: 'solid', ...(secondary ? { create_account: 'secondary' } : {}) }, card: { style: 'bordered' }, logo: { url: '', alt: 'Example product' },
         },
       }, __UOA_CONFIG_URL__: 'https://product.example/config',
     });
-  });
+  }, variant);
 }
-async function start(page: Page) {
+const labels = {
+  en: { create: 'Create an account', email: 'Email', submit: 'Register', heading: 'Check your email' },
+  cs: { create: 'Vytvořit účet', email: 'E-mail', submit: 'Registrovat', heading: 'Zkontroluj e-mail' },
+};
+async function start(page: Page, language: 'en' | 'cs' = 'en') {
+  const text = labels[language];
   await page.goto(`/${search}`);
-  await page.getByRole('button', { name: 'Create an account', exact: true }).click();
-  await page.getByLabel('Email', { exact: true }).fill('person@example.com');
-  await page.getByRole('button', { name: 'Register', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+  await page.getByRole('button', { name: text.create, exact: true }).click();
+  await page.getByLabel(text.email, { exact: true }).fill('person@example.com');
+  await page.getByRole('button', { name: text.submit, exact: true }).click();
+  await expect(page.getByRole('heading', { name: text.heading })).toBeVisible();
 }
 async function backend(page: Page) {
   let status = 'pending';
@@ -319,4 +327,100 @@ test('verification email shows the link and a large, spaced alternative code', a
   await expect(page.getByText('AB3K7M', { exact: true })).toHaveCSS('font-weight', '700');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath('after-email.png'), fullPage: true });
+});
+
+test('the Czech registration screen keeps the way back to sign in as a filled-secondary button', async ({ page }, info) => {
+  await configure(page, { language: 'cs', secondary: true }); await backend(page); await start(page, 'cs');
+  await expect(page.getByText(/Na person@example.com jsme ti poslali ověřovací odkaz a šestimístný kód\./)).toBeVisible();
+  await expect(page.getByText('Otevři odkaz na jakémkoli zařízení, nebo pokračuj zadáním kódu níže.')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: /Ověřovací kód \d \/ 6/ })).toHaveCount(6);
+  await expect(page.getByRole('button', { name: 'Poslat nový e-mail' })).toBeVisible();
+  const back = page.getByRole('button', { name: 'Zpět na přihlášení', exact: true });
+  await expect(back).toHaveCount(1);
+  await expect(back).toHaveClass(/uoa-color-secondary/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('czech-registration.png'), fullPage: true });
+  await back.click();
+  await expect(page.getByRole('heading', { name: 'Přihlášení' })).toBeVisible();
+});
+
+test('without a secondary theme the code-entry screen offers a plain back-to-sign-in link', async ({ page }) => {
+  await configure(page); await backend(page); await start(page);
+  const back = page.getByRole('button', { name: 'Back to sign in', exact: true });
+  await expect(back).toHaveCount(1);
+  await expect(back).not.toHaveClass(/uoa-color-secondary/);
+  await back.click();
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+});
+
+// The browser context locale is what makes Chromium send `Accept-Language: cs` (extra HTTP headers
+// cannot override it).
+test.describe('Czech mailbox landing', () => {
+test.use({ locale: 'cs' });
+test('the Czech confirmation page follows Accept-Language: cs through verify, retry and final failures', async ({ page }, info) => {
+  expect(await page.evaluate(() => navigator.languages[0])).toBe('cs');
+  let postStatus = 200;
+  let failNetwork = false;
+  let expectedToken = 'synthetic-link-secret';
+  await page.route('**/auth/registration/link', async route => {
+    if (route.request().method() === 'POST') {
+      expect(route.request().postDataJSON()).toEqual({ token: expectedToken });
+      if (failNetwork) return route.abort();
+      return route.fulfill({ status: postStatus, json: postStatus === 200 ? { status: 'verified' } : { error: 'Request failed' } });
+    }
+    // Same resolution as the API route: the GET request's Accept-Language picks the language.
+    const locale = resolveEmailLocale((await route.request().allHeaders())['accept-language']);
+    return route.fulfill({ contentType: 'text/html', body: renderRegistrationLinkPage('synthetic-nonce', locale) });
+  });
+  await page.goto('/auth/registration/link#synthetic-link-secret');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'cs');
+  await expect(page.getByRole('heading', { name: 'Potvrď svůj e-mail' })).toBeVisible();
+  await expect(page.getByText('Potvrzuj jen registraci, kterou zakládáš ty.')).toBeVisible();
+  await page.screenshot({ path: info.outputPath('link-cs-confirmation.png'), fullPage: true });
+  const verify = page.getByRole('button', { name: 'Ověřit e-mail', exact: true });
+  failNetwork = true;
+  await verify.click();
+  await expect(page.getByRole('status')).toContainText('Nepodařilo se spojit se serverem. Zkontroluj připojení a zkus to znovu.');
+  await expect(verify).toBeEnabled();
+  failNetwork = false; postStatus = 503;
+  await verify.click();
+  await expect(page.getByRole('status')).toContainText('Odkaz teď nejde ověřit. Zkus to za chvíli znovu.');
+  await expect(verify).toBeEnabled();
+  postStatus = 200;
+  await verify.click();
+  await expect(page.getByRole('heading', { name: 'E-mail je ověřený' })).toBeVisible();
+  await expect(page.getByText('Tvoje e-mailová adresa je potvrzená.')).toBeVisible();
+  await expect(page.getByRole('status')).toHaveText('Registrace v původním okně teď sama pokračuje. Toto zařízení se nepřihlásilo.');
+  await expect(verify).toHaveCount(0);
+  expect(await page.context().cookies()).toHaveLength(0);
+  await page.screenshot({ path: info.outputPath('link-cs-success.png'), fullPage: true });
+  postStatus = 400; expectedToken = 'synthetic-expired-secret';
+  await page.goto('about:blank');
+  await page.goto('/auth/registration/link#synthetic-expired-secret');
+  await page.getByRole('button', { name: 'Ověřit e-mail', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('Odkaz vypršel nebo už neplatí. Nový e-mail si nech poslat z okna registrace.');
+  await expect(page.getByRole('button', { name: 'Ověřit e-mail' })).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('link-cs-error.png'), fullPage: true });
+  await page.goto('about:blank');
+  await page.goto('/auth/registration/link');
+  await page.getByRole('button', { name: 'Ověřit e-mail', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('Tenhle odkaz nejde použít. Nový e-mail si nech poslat z okna registrace.');
+  await page.screenshot({ path: info.outputPath('link-cs-missing-secret.png'), fullPage: true });
+});
+});
+
+test('the Czech verification email keeps the button, the link and the large spaced code', async ({ page }, info) => {
+  const link = 'https://auth.example.com/auth/registration/link#synthetic-link-secret';
+  await page.setContent(buildRegistrationVerificationTemplate({ link, code: 'AB3K7M', locale: 'cs' }).html);
+  await expect(page.locator('html')).toHaveAttribute('lang', 'cs');
+  await expect(page.getByRole('heading', { name: 'Ověř svůj e-mail' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Ověřit e-mail' })).toHaveAttribute('href', link);
+  await expect(page.getByText('Nebo zadej tento kód:')).toBeVisible();
+  await expect(page.getByText('AB3K7M', { exact: true })).toHaveCSS('font-size', '32px');
+  await expect(page.getByText('AB3K7M', { exact: true })).toHaveCSS('font-weight', '700');
+  await expect(page.getByText(/Odkaz i kód platí 24 hodin\. Odkaz jde použít jen jednou\./)).toBeVisible();
+  await expect(page.getByText(/Toto zařízení se nepřihlásí\./)).toBeVisible();
+  await expect(page.getByText('Pokud o registraci nevíš, e-mail klidně ignoruj.')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('after-email-cs.png'), fullPage: true });
 });

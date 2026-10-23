@@ -246,7 +246,7 @@ export async function requestRegistrationInstructions(
 
   if (params.browserRegistration) {
     const delivered = await sendRegistrationVerificationEmail({
-      to: email, link: params.browserRegistration.link, code: params.browserRegistration.code, theme,
+      to: email, link: params.browserRegistration.link, code: params.browserRegistration.code, theme, locale,
     });
     return { status: 'sent', delivery: existing
       ? (delivered === false ? 'login_link_failed' : 'login_link_sent')

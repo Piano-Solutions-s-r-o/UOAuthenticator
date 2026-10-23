@@ -33,7 +33,7 @@ export {
 let cachedProvider: EmailProvider | undefined;
 
 export async function sendRegistrationVerificationEmail(params: {
-  to: string; link: string; code: string; theme?: Partial<EmailTheme>;
+  to: string; link: string; code: string; theme?: Partial<EmailTheme>; locale?: EmailLocale;
 }): Promise<boolean> {
   const env = getEnv();
   return dispatchEmail({

@@ -2242,7 +2242,7 @@ paths:
       tags: [Auth]
       operationId: startBrowserRegistration
       summary: Start browser-bound registration verification
-      description: Creates a 15-minute pending flow and sets an HttpOnly SameSite=Lax cookie (Secure on HTTPS). Sends one neutral email with a secret link and six-character code. Normal responses do not reveal account eligibility or existence; the signed inline_sign_in opt-in retains its explicit 409 response. Same-origin browser request required.
+      description: Creates a 24-hour pending flow and sets an HttpOnly SameSite=Lax cookie (Secure on HTTPS). Sends one neutral email with a secret link and six-character code, in English or Czech by the request Accept-Language. Normal responses do not reveal account eligibility or existence; the signed inline_sign_in opt-in retains its explicit 409 response. Same-origin browser request required.
       parameters:
         - $ref: '#/components/parameters/configUrl'
         - $ref: '#/components/parameters/registrationChallenge'
@@ -2363,7 +2363,7 @@ paths:
       tags: [Auth]
       operationId: showRegistrationLinkConfirmation
       summary: Show an isolated email confirmation page on any device
-      description: Secret is carried in the URL fragment, removed immediately and never sent in the GET request. This read has no verification effect. The page has no third-party resources and uses no-referrer plus a restrictive CSP.
+      description: Secret is carried in the URL fragment, removed immediately and never sent in the GET request. This read has no verification effect. The page is English or Czech by the request Accept-Language. The page has no third-party resources and uses no-referrer plus a restrictive CSP.
       responses:
         '200':
           description: Explicit confirmation page, followed by a clear verification-success view without OAuth redirect or login.

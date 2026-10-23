@@ -10,6 +10,7 @@ import { requireEnv } from '../config/env.js';
 import { requestRegistrationInstructions, type RegistrationDelivery } from './auth-register.service.js';
 import { recordAuthFunnelStep } from './auth-funnel.service.js';
 import type { ClientConfig } from './config.service.js';
+import type { EmailLocale } from './email.templates.js';
 import { fingerprintClientConfig } from './login-session.service.js';
 import { readVerificationTokenEpoch } from './verification-token-epoch.service.js';
 import {
@@ -44,7 +45,7 @@ function assertBrowser(row: PendingRegistration | null, credential: string, cont
     !equalRegistrationDigest(contextHash(context), row.contextHash)) refuse();
 }
 
-export async function startPendingRegistration(params: RegistrationContext & { email: string | null; ip?: string }, prisma: PrismaClient) {
+export async function startPendingRegistration(params: RegistrationContext & { email: string | null; ip?: string; locale?: EmailLocale }, prisma: PrismaClient) {
   const id = randomUUID();
   const credential = registrationSecret();
   const linkToken = registrationSecret();

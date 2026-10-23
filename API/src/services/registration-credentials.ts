@@ -1,8 +1,12 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 
+import { REGISTRATION_EMAIL_TOKEN_TTL_MS } from '../config/constants.js';
 import { requireEnv } from '../config/env.js';
 
-export const REGISTRATION_TTL_MS = 15 * 60 * 1000;
+// One lifetime for the link, the code, the HttpOnly cookie and the pending row (HUGO-2261): the
+// same constant HUGO-1636 set for every registration email, so nothing can expire earlier than
+// the email says.
+export const REGISTRATION_TTL_MS = REGISTRATION_EMAIL_TOKEN_TTL_MS;
 export const REGISTRATION_MAX_ATTEMPTS = 5;
 export const REGISTRATION_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 

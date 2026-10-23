@@ -7,6 +7,7 @@ import { requireSameOriginBrowserRequest } from '../../middleware/same-origin-br
 import { pendingRegistrationState, startPendingRegistration, verifyPendingRegistrationCode, verifyPendingRegistrationLink } from '../../services/pending-registration.service.js';
 import { registrationCookieName, REGISTRATION_TTL_MS } from '../../services/registration-credentials.js';
 import { renderRegistrationLinkPage } from '../../services/registration-link-page.service.js';
+import { resolveEmailLocale } from '../../utils/email-locale.js';
 import { registerRateLimiter, tokenConsumeRateLimiter, verifyCodeRateLimiter } from './rate-limit-keys.js';
 import { registrationContext } from './registration-context.js';
 import { recordAuthFunnelStep } from '../../services/auth-funnel.service.js';
@@ -23,7 +24,8 @@ export function registerPendingRegistrationRoutes(app: FastifyInstance): void {
     await recordAuthFunnelStep({ domain: context.config.domain, step: 'register_submitted', outcome: parsed.success ? 'valid_email' : 'invalid_email' }, { prisma: request.adminDb });
     let result: Awaited<ReturnType<typeof startPendingRegistration>>;
     try {
-      result = await startPendingRegistration({ ...context, email: parsed.success ? parsed.data.email : null, ip: request.ip }, request.adminDb);
+      result = await startPendingRegistration({ ...context, email: parsed.success ? parsed.data.email : null, ip: request.ip,
+        locale: resolveEmailLocale(request.headers['accept-language']) }, request.adminDb);
     } catch (error) {
       await recordAuthFunnelStep({ domain: context.config.domain, step: 'registration_email', outcome: 'error' }, { prisma: request.adminDb });
       throw error;
@@ -58,11 +60,12 @@ export function registerPendingRegistrationRoutes(app: FastifyInstance): void {
     return pendingRegistrationState(context, request.adminDb);
   });
 
-  app.get('/auth/registration/link', async (_request, reply) => {
+  app.get('/auth/registration/link', async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     reply.header('Referrer-Policy', 'no-referrer');
     reply.header('Content-Security-Policy', `default-src 'none'; script-src 'nonce-${reply.cspNonce?.script}'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`);
-    return reply.type('text/html; charset=utf-8').send(renderRegistrationLinkPage(reply.cspNonce?.script ?? ''));
+    return reply.type('text/html; charset=utf-8').send(renderRegistrationLinkPage(
+      reply.cspNonce?.script ?? '', resolveEmailLocale(request.headers['accept-language'])));
   });
   app.post('/auth/registration/link', {
     preHandler: [requireSameOriginBrowserRequest, tokenConsumeRateLimiter],

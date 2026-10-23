@@ -21,7 +21,12 @@ the scoped cryptographic helpers, and `registration-events.service.ts` non-secre
 local hints. Connected replicas recheck the database every five seconds. The isolated
 `registration-link-page.service.ts` removes fragment secrets before confirmation.
 `email.templates.registration.ts`, `root/schema.registration.ts` and
-`root/llm-registration.ts` publish the shared email and API contracts.
+`root/llm-registration.ts` publish the shared email and API contracts. The pending
+lifetime is `REGISTRATION_EMAIL_TOKEN_TTL_MS` (`REGISTRATION_TTL_MS` is that
+constant), which the cookie, the row, the WebSocket deadline, retention pruning and
+the email's "hours" copy all follow. The email (`registrationVerificationCopy`) and
+the link page are English or Czech by the request's Accept-Language
+(`resolveEmailLocale`).
 
 - **No code file longer than 500 lines.** If a file approaches this limit, split it.
 - **One responsibility per file.** A route file handles routing. A service file handles logic. They don't mix.
