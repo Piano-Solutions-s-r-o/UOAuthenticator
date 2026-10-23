@@ -3,6 +3,13 @@ import { registrationTokenTtlHours } from '../../services/email.registration-cop
 export const llmRegistrationMarkdown = `
 ## Browser-bound registration verification
 
+This flow is opt-in per product: it is used only when the signed config sets
+\`login_flow.registration_code_enabled: true\`. Off or absent (the default), the Create
+account form keeps using POST /auth/register and its link email, and
+/auth/registration/start, /status, /code and /events answer 400 REGISTRATION_UNAVAILABLE
+without creating a row or sending an email. The link page below needs no flag: its tokens
+exist only for registrations started with the flow on.
+
 The hosted registration screen uses POST /auth/registration/start with {email},
 the verified config_url and original OAuth context (S256 challenge, callback
 and access-request flag). Its generic response includes registration_id

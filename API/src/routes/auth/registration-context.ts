@@ -17,6 +17,12 @@ const contextQuery = z.object({
 export function registrationContext(request: FastifyRequest): RegistrationContext {
   const query = contextQuery.parse(request.query);
   if (!request.config || !request.configUrl) throw new AppError('BAD_REQUEST', 400, 'MISSING_CONFIG');
+  // HUGO-2261: shipped switched off. Every entry point (start, status, code, events) builds its
+  // context here, before any row, email or counter, so a product that has not opted in through
+  // its signed config gets the same generic refusal the flow itself uses.
+  if (request.config.login_flow?.registration_code_enabled !== true) {
+    throw new AppError('BAD_REQUEST', 400, 'REGISTRATION_UNAVAILABLE');
+  }
   const pkce = parseRequiredPkceChallenge({ codeChallenge: query.code_challenge, codeChallengeMethod: query.code_challenge_method });
   return {
     config: request.config, configUrl: request.configUrl, redirectUrl: query.redirect_url,

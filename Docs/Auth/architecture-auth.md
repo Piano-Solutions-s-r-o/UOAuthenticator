@@ -15,7 +15,9 @@ hint triggers the existing status read and automatic next-step transition; no
 code is required after link approval. The original cookie and immutable OAuth
 context still gate completion, and the confirming browser only shows success.
 
-`RegistrationVerificationPage` uses the six-field `RegistrationCodeInput` and
+`RegistrationVerificationPage` (reached only when the signed config sets
+`login_flow.registration_code_enabled`; otherwise `RegisterForm` keeps the original
+`/auth/register` confirmation) uses the six-field `RegistrationCodeInput` and
 `use-registration-status` for authenticated WSS hints plus authoritative reads and
 polling. `utils/pending-registration.ts` stores only a public ID and display email
 per original OAuth context; the owning credential is an HttpOnly cookie. A cross-device

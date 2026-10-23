@@ -2242,7 +2242,7 @@ paths:
       tags: [Auth]
       operationId: startBrowserRegistration
       summary: Start browser-bound registration verification
-      description: Creates a 24-hour pending flow and sets an HttpOnly SameSite=Lax cookie (Secure on HTTPS). Sends one neutral email with a secret link and six-character code, in English or Czech by the request Accept-Language. Normal responses do not reveal account eligibility or existence; the signed inline_sign_in opt-in retains its explicit 409 response. Same-origin browser request required.
+      description: Opt-in per product - only when the signed config sets `login_flow.registration_code_enabled` to true (default false); otherwise 400 REGISTRATION_UNAVAILABLE with no row, email or counter, and the hosted form keeps using POST /auth/register. Creates a 24-hour pending flow and sets an HttpOnly SameSite=Lax cookie (Secure on HTTPS). Sends one neutral email with a secret link and six-character code, in English or Czech by the request Accept-Language. Normal responses do not reveal account eligibility or existence; the signed inline_sign_in opt-in retains its explicit 409 response. Same-origin browser request required.
       parameters:
         - $ref: '#/components/parameters/configUrl'
         - $ref: '#/components/parameters/registrationChallenge'
@@ -2281,7 +2281,7 @@ paths:
       tags: [Auth]
       operationId: getBrowserRegistrationStatus
       summary: Read current registration state
-      description: Requires the original cookie and exact original signed config/OAuth context. Recheck on load, focus and WebSocket reconnect; poll every 10 seconds when needed. A verified mailbox alone never grants a completion proof.
+      description: Same opt-in as registration/start (`login_flow.registration_code_enabled`; otherwise 400 REGISTRATION_UNAVAILABLE). Requires the original cookie and exact original signed config/OAuth context. Recheck on load, focus and WebSocket reconnect; poll every 10 seconds when needed. A verified mailbox alone never grants a completion proof.
       security: [{ registrationBrowser: [] }]
       parameters:
         - $ref: '#/components/parameters/configUrl'
@@ -2304,7 +2304,7 @@ paths:
       tags: [Auth]
       operationId: verifyBrowserRegistrationCode
       summary: Verify the code in the requesting browser
-      description: Code and link resolve to the same pending flow. Five failed guesses exhaust the code across replicas; failed guesses commit before error. The original cookie and exact OAuth/config context are required. Lowercase is normalized.
+      description: Same opt-in as registration/start (`login_flow.registration_code_enabled`; otherwise 400 REGISTRATION_UNAVAILABLE). Code and link resolve to the same pending flow. Five failed guesses exhaust the code across replicas; failed guesses commit before error. The original cookie and exact OAuth/config context are required. Lowercase is normalized.
       security: [{ registrationBrowser: [] }]
       parameters:
         - $ref: '#/components/parameters/configUrl'
@@ -2343,7 +2343,7 @@ paths:
       tags: [Auth]
       operationId: subscribeBrowserRegistrationEvents
       summary: Subscribe to non-secret registration hints over WebSocket
-      description: Requires the original cookie, exact OAuth/config context and exact canonical Origin before upgrade. Events contain only {type:"registration.email_verified",status:"verified"}. Clients recheck status after each hint. Local publication is immediate; other replicas recheck the database every five seconds. Maximum two subscriptions per registration and 256 per instance. A ten-second client poll covers blocked upgrades or lost hints.
+      description: Same opt-in as registration/start (`login_flow.registration_code_enabled`; otherwise 400 REGISTRATION_UNAVAILABLE before upgrade). Requires the original cookie, exact OAuth/config context and exact canonical Origin before upgrade. Events contain only {type:"registration.email_verified",status:"verified"}. Clients recheck status after each hint. Local publication is immediate; other replicas recheck the database every five seconds. Maximum two subscriptions per registration and 256 per instance. A ten-second client poll covers blocked upgrades or lost hints.
       security: [{ registrationBrowser: [] }]
       parameters:
         - $ref: '#/components/parameters/configUrl'

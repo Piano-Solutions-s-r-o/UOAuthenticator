@@ -16,3 +16,15 @@ export function isEmailCodeEnabled(config: unknown): boolean {
   if (!loginFlow || typeof loginFlow !== 'object') return false;
   return (loginFlow as Record<string, unknown>).email_code_enabled === true;
 }
+
+/**
+ * HUGO-2261: whether the product opted in (signed config `login_flow.registration_code_enabled`) to
+ * browser-bound registration — an emailed code or a link confirmed on any device. Off or absent
+ * keeps the original `/auth/register` link email and its confirmation screen.
+ */
+export function isRegistrationCodeEnabled(config: unknown): boolean {
+  if (!config || typeof config !== 'object') return false;
+  const loginFlow = (config as Record<string, unknown>).login_flow;
+  if (!loginFlow || typeof loginFlow !== 'object') return false;
+  return (loginFlow as Record<string, unknown>).registration_code_enabled === true;
+}

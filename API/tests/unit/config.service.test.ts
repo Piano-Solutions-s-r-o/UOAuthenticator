@@ -20,7 +20,11 @@ describe('validateConfigFields', () => {
     expect(cfg.registration_mode).toBe('password_required');
     expect(cfg.allowed_registration_domains).toBeUndefined();
     expect(cfg.registration_domain_mapping).toBeUndefined();
-    expect(cfg.login_flow).toEqual({ email_code_enabled: false, workspace_selection: 'off' });
+    expect(cfg.login_flow).toEqual({
+      email_code_enabled: false,
+      registration_code_enabled: false,
+      workspace_selection: 'off',
+    });
   });
 
   it('parses login_flow when provided', () => {
@@ -32,7 +36,37 @@ describe('validateConfigFields', () => {
       },
     });
 
-    expect(cfg.login_flow).toEqual({ email_code_enabled: true, workspace_selection: 'auto' });
+    expect(cfg.login_flow).toEqual({
+      email_code_enabled: true,
+      registration_code_enabled: false,
+      workspace_selection: 'auto',
+    });
+  });
+
+  it('keeps registration_code_enabled off unless the signed config turns it on', () => {
+    for (const loginFlow of [undefined, {}, { email_code_enabled: true }, { registration_code_enabled: false }]) {
+      const cfg = validateConfigFields({ ...basePayload(), ...(loginFlow ? { login_flow: loginFlow } : {}) });
+      expect(cfg.login_flow.registration_code_enabled).toBe(false);
+    }
+    const on = validateConfigFields({ ...basePayload(), login_flow: { registration_code_enabled: true } });
+    expect(on.login_flow).toEqual({
+      email_code_enabled: false,
+      registration_code_enabled: true,
+      workspace_selection: 'off',
+    });
+  });
+
+  it('still accepts and strips an unknown key inside login_flow', () => {
+    const cfg = validateConfigFields({
+      ...basePayload(),
+      login_flow: { registration_code_enabled: true, rollout_percentage: 50 },
+    });
+    expect(cfg.login_flow).toEqual({
+      email_code_enabled: false,
+      registration_code_enabled: true,
+      workspace_selection: 'off',
+    });
+    expect(cfg.login_flow).not.toHaveProperty('rollout_percentage');
   });
 
   it('parses optional fields when provided', () => {

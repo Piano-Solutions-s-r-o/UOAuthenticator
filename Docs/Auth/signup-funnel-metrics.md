@@ -70,7 +70,7 @@ Each of those is a separate step above, so the funnel shows where people stop.
 
 ### Browser-bound verification (2026-10-22)
 
-The hosted form now uses `/auth/registration/start`; it records the same
+With `login_flow.registration_code_enabled: true` in the signed config the hosted form uses `/auth/registration/start`; it records the same
 `register_submitted` and `registration_email` counters through the same
 `recordAuthFunnelStep` writer as `/auth/register` (a given submission uses one
 endpoint, so nothing is counted twice). Its link and code last 24

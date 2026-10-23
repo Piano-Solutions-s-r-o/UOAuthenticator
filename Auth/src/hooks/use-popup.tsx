@@ -6,6 +6,7 @@ import {
   savePendingRegistration,
   type PendingRegistration,
 } from '../utils/pending-registration.js';
+import { isRegistrationCodeEnabled } from '../utils/auth-config.js';
 
 export type AuthView =
   | 'login'
@@ -321,7 +322,9 @@ export function PopupProvider(props: {
 
   useEffect(() => {
     // A refresh resumes a pending registration only from a fresh sign-in or registration entry
-    // (`prompt=create` opens on 'register'); any flow-specific landing keeps its own view.
+    // (`prompt=create` opens on 'register'); any flow-specific landing keeps its own view. A
+    // product that has not opted in (HUGO-2261) never has one to resume.
+    if (!isRegistrationCodeEnabled(props.config)) return;
     const initial = deriveInitialView(parsed);
     if (initial !== 'login' && initial !== 'register') return;
     const pending = readPendingRegistration(storageKey);
@@ -329,7 +332,7 @@ export function PopupProvider(props: {
       setPendingRegistration(pending);
       setViewState('registration-verification');
     }
-  }, [parsed, storageKey]);
+  }, [parsed, storageKey, props.config]);
 
   const beginRegistration = useCallback(
     (value: PendingRegistration | null) => {

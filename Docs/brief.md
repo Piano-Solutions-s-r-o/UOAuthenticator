@@ -17,7 +17,9 @@ approval to another flow. Existing expiry, attempt and completion gates remain.
 
 ## Browser-bound registration verification (2026-10-22)
 
-The hosted email registration screen offers one verification link and a six-character
+The hosted email registration screen offers (when the product's signed config sets
+`login_flow.registration_code_enabled: true`; it is off by default and the original
+`/auth/register` link email stays in use otherwise) one verification link and a six-character
 uppercase alphanumeric code. The secret link confirms the mailbox on any device and
 shows an isolated success page without signing that device in. A link confirmed with
 the original registration cookie can advance that exact flow. A cross-device click

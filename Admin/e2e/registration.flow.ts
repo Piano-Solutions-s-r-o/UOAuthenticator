@@ -8,12 +8,14 @@ import { buildVerifyEmailSetPasswordTemplate } from '../../API/src/services/emai
 const id = '9466e365-206c-49cb-a8d5-aa1342bdd613';
 const search = '?config_url=https%3A%2F%2Fproduct.example%2Fconfig&code_challenge=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ&code_challenge_method=S256';
 // `secondary` styles "create account" (and so "back to sign in", HUGO-1858) as a filled button.
-type Variant = { language: 'en' | 'cs'; secondary: boolean };
+// `registrationCode: false` leaves `login_flow` out, as every product's config is until it opts in.
+type Variant = { language: 'en' | 'cs'; secondary: boolean; registrationCode: boolean };
 async function configure(page: Page, variant: Partial<Variant> = {}) {
-  await page.addInitScript(({ language = 'en', secondary = false }) => {
+  await page.addInitScript(({ language = 'en', secondary = false, registrationCode = true }) => {
     Object.assign(window, {
       __UOA_CLIENT_CONFIG__: {
         app_name: 'Example product', enabled_auth_methods: ['email_password'], language_config: language,
+        ...(registrationCode ? { login_flow: { registration_code_enabled: true } } : {}),
         ui_theme: {
           colors: { bg: '#f8fafc', surface: '#ffffff', text: '#0f172a', muted: '#475569', primary: '#2563eb', primary_text: '#ffffff', ...(secondary ? { secondary: '#e2ddd5' } : {}), border: '#e2e8f0', danger: '#dc2626', danger_text: '#ffffff' },
           radii: { card: '16px', input: '8px', button: '8px' }, density: 'comfortable',
@@ -28,13 +30,15 @@ const labels = {
   en: { create: 'Create an account', email: 'Email', submit: 'Register', heading: 'Check your email' },
   cs: { create: 'Vytvořit účet', email: 'E-mail', submit: 'Registrovat', heading: 'Zkontroluj e-mail' },
 };
-async function start(page: Page, language: 'en' | 'cs' = 'en') {
+// Resolves once the screen after submit shows: the code-entry heading, or `sentText` for the original flow.
+async function start(page: Page, language: 'en' | 'cs' = 'en', sentText?: string) {
   const text = labels[language];
   await page.goto(`/${search}`);
   await page.getByRole('button', { name: text.create, exact: true }).click();
   await page.getByLabel(text.email, { exact: true }).fill('person@example.com');
   await page.getByRole('button', { name: text.submit, exact: true }).click();
-  await expect(page.getByRole('heading', { name: text.heading })).toBeVisible();
+  if (sentText) await expect(page.getByText(sentText, { exact: true })).toBeVisible();
+  else await expect(page.getByRole('heading', { name: text.heading })).toBeVisible();
 }
 async function backend(page: Page) {
   let status = 'pending';
@@ -423,4 +427,24 @@ test('the Czech verification email keeps the button, the link and the large spac
   await expect(page.getByText('Pokud o registraci nevíš, e-mail klidně ignoruj.')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath('after-email-cs.png'), fullPage: true });
+});
+
+test('without login_flow.registration_code_enabled Create account keeps the original /auth/register flow', async ({ page }, info) => {
+  await configure(page, { registrationCode: false });
+  const requests: string[] = [];
+  await page.route('**/auth/regist*', route => {
+    const path = new URL(route.request().url()).pathname;
+    requests.push(path);
+    if (path !== '/auth/register') return route.fulfill({ status: 500, json: { error: 'Request failed' } });
+    expect(route.request().postDataJSON()).toEqual({ email: 'person@example.com' });
+    return route.fulfill({ json: { message: 'We sent instructions to your email' } });
+  });
+  await start(page, 'en', 'We sent instructions to your email');
+  await expect(page.getByRole('textbox', { name: /Verification code/ })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('original-flow-sent.png'), fullPage: true });
+  // The page-level link is still the way back to sign in, exactly as before.
+  await page.getByRole('button', { name: 'Back to sign in', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+  expect(requests).toEqual(['/auth/register']);
 });

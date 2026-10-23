@@ -12,7 +12,7 @@ vi.mock('../../src/services/ban-policy.service.js', async importOriginal => ({
 
 import { createApp } from '../../src/app.js';
 import { createTestDb } from '../helpers/test-db.js';
-import { createTestConfigFetchHandler, signTestConfigJwt } from '../helpers/test-config.js';
+import { baseClientConfigPayload, createTestConfigFetchHandler, signTestConfigJwt } from '../helpers/test-config.js';
 import { disconnectPrisma } from '../../src/db/prisma.js';
 import { registrationCookieName } from '../../src/services/registration-credentials.js';
 
@@ -25,6 +25,7 @@ describe('browser-bound pending registration', () => {
   const query = new URLSearchParams({ config_url: 'https://client.example.com/auth-config',
     code_challenge: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ', code_challenge_method: 'S256' });
   const origin = 'http://127.0.0.1:38571';
+  const offConfigUrl = 'https://client.example.com/auth-config-off';
   let sequence = 0;
 
   beforeAll(async () => {
@@ -34,8 +35,12 @@ describe('browser-bound pending registration', () => {
     process.env.DATABASE_URL = db.databaseUrl;
     process.env.DATABASE_ADMIN_URL = db.databaseUrl;
     process.env.PUBLIC_BASE_URL = origin;
-    const jwt = await signTestConfigJwt();
-    vi.stubGlobal('fetch', vi.fn(await createTestConfigFetchHandler(jwt)));
+    // The flow ships off (HUGO-2261): one product opts in through its signed config, another does not.
+    const on = await signTestConfigJwt(baseClientConfigPayload({ login_flow: { registration_code_enabled: true } }));
+    const off = await signTestConfigJwt();
+    vi.stubGlobal('fetch', vi.fn(await createTestConfigFetchHandler({
+      'https://client.example.com/auth-config': on, [offConfigUrl]: off,
+    })));
     app = await createApp(); await app.ready();
   });
   beforeEach(() => { mailbox.messages.length = 0; });
@@ -75,6 +80,21 @@ describe('browser-bound pending registration', () => {
       payload: { id: flow.id, code: value }, headers: { cookie, origin, 'x-forwarded-for': `192.0.2.${sequence}` } });
   }
 
+  it('refuses every browser-bound endpoint, without a row or an email, when the product has not opted in', async () => {
+    const off = new URLSearchParams(query); off.set('config_url', offConfigUrl);
+    const unknown = '00000000-0000-4000-8000-000000000000';
+    const start = await app.inject({ method: 'POST', url: `/auth/registration/start?${off}`, payload: { email: 'off@example.com' },
+      headers: { origin, 'x-forwarded-for': '192.0.2.200' } });
+    expect(start.statusCode).toBe(400);
+    expect(start.headers['set-cookie']).toBeUndefined();
+    expect(mailbox.messages).toHaveLength(0);
+    expect(await db.prisma.pendingRegistration.count()).toBe(0);
+    expect((await app.inject({ method: 'GET', url: `/auth/registration/status?${off}&id=${unknown}`, headers: { origin } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: `/auth/registration/code?${off}`, payload: { id: unknown, code: 'AB3K7M' },
+      headers: { origin, 'x-forwarded-for': '192.0.2.201' } })).statusCode).toBe(400);
+    await expect(app.injectWS(`/auth/registration/events?${off}&id=${unknown}`, { headers: { origin } })).rejects.toThrow();
+    expect(await db.prisma.authFunnelDailyCount.findMany({ where: { domain: 'client.example.com' } })).toEqual([]);
+  });
   it('notifies and authorizes the original browser when another device confirms, without signing that device in', async () => {
     const flow = await start();
     let resolveMessage!: (value: string) => void;

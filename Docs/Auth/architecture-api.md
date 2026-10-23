@@ -14,7 +14,11 @@ publishes a WebSocket hint. Reading or consuming completion proof still requires
 the initiating browser's cookie and exact OAuth/config context. The confirmation
 response contains no login credentials or redirect; GET never approves a flow.
 
-Browser registration uses `routes/auth/registration.ts`, `registration-context.ts`
+Browser registration is opt-in per product through the signed config's
+`login_flow.registration_code_enabled` (default false): `registration-context.ts` refuses
+every start/status/code/events request with 400 `REGISTRATION_UNAVAILABLE` before any row,
+email or counter unless it is true, and the hosted form keeps using `/auth/register`.
+It uses `routes/auth/registration.ts`, `registration-context.ts`
 and `registration-websocket.ts`; `pending-registration.service.ts` owns the durable
 mailbox/browser state and immutable OAuth binding, `registration-credentials.ts`
 the scoped cryptographic helpers, and `registration-events.service.ts` non-secret

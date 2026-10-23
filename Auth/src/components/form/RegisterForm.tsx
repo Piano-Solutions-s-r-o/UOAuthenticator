@@ -6,14 +6,16 @@ import { usePopup } from '../../hooks/use-popup.js';
 import { useTheme } from '../../hooks/use-theme.js';
 import { useTranslation } from '../../i18n/use-translation.js';
 import { postJson } from '../../utils/api.js';
+import { isRegistrationCodeEnabled } from '../../utils/auth-config.js';
 
 type RegisterRequest = { email: string };
 
 /**
  * HUGO-1858: the single owner of "where does the way back to sign in live". With the same
  * switch as LoginForm's create-account button (`button.create_account: secondary`), RegisterForm
- * renders it as a secondary button in every state it shows (form and already-registered; the
- * "check your email" screen is RegistrationVerificationPage, which uses the same switch);
+ * renders it as a secondary button in every state it shows (form, sent confirmation and
+ * already-registered; with the registration code flow on, the "check your email" screen is
+ * RegistrationVerificationPage, which uses the same switch);
  * otherwise RegisterPage keeps its text link below the social buttons.
  */
 export function useBackToLoginAsButton(): boolean {
@@ -22,11 +24,13 @@ export function useBackToLoginAsButton(): boolean {
 
 export function RegisterForm(props: {
   /** Seeds for SSR tests, like PopupProvider's `initial*` props; the flow sets them on submit. */
+  initialSubmitted?: boolean;
   initialAlreadyRegistered?: boolean;
   initialLoading?: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const {
+    config,
     configUrl,
     redirectUrl,
     codeChallenge,
@@ -36,12 +40,16 @@ export function RegisterForm(props: {
     beginRegistration,
   } = usePopup();
   const [email, setEmail] = useState('');
+  // HUGO-2261: off (the default) is the original flow — /auth/register, a link email and the
+  // "instructions sent" confirmation below; on is the code + any-device link flow.
+  const registrationCode = isRegistrationCodeEnabled(config);
+  const [submitted, setSubmitted] = useState(props.initialSubmitted ?? false);
   const [error, setError] = useState(false);
   const [alreadyRegistered, setAlreadyRegistered] = useState(
     props.initialAlreadyRegistered ?? false,
   );
   const [loading, setLoading] = useState(props.initialLoading ?? false);
-  // Never disabled: while /auth/registration/start is pending (it has no timeout) this is the only way
+  // Never disabled: while the register request is pending (it has no timeout) this is the only way
   // out, as the page-level link was before it.
   const backToLoginButton = useBackToLoginAsButton() ? (
     <Button variant="secondaryFilled" type="button" onClick={() => setView('login')}>
@@ -65,14 +73,18 @@ export function RegisterForm(props: {
     // Most clients keep the default no-enumeration response. A signed config
     // may opt into EMAIL_ALREADY_REGISTERED for products that prefer inline
     // sign-in guidance over a login-link email.
-    const result = await postJson<RegisterRequest, { registration_id: string }>(
-      '/auth/registration/start',
+    const result = await postJson<RegisterRequest, { registration_id?: string }>(
+      registrationCode ? '/auth/registration/start' : '/auth/register',
       { email },
       query,
     );
     setLoading(false);
     if (!result.ok && result.code === 'EMAIL_ALREADY_REGISTERED') {
       setAlreadyRegistered(true);
+      return;
+    }
+    if (!registrationCode) {
+      setSubmitted(true);
       return;
     }
     if (!result.ok || typeof result.data?.registration_id !== 'string') {
@@ -112,6 +124,23 @@ export function RegisterForm(props: {
             </button>
           </div>
         </div>
+        {backToLoginButton}
+      </div>
+    );
+  }
+
+  if (submitted) {
+    return (
+      <div className="mt-6 flex flex-col gap-3">
+        <p
+          role="status"
+          className={[
+            'rounded-[var(--uoa-radius-card)] border border-[var(--uoa-color-border)]',
+            'bg-[var(--uoa-color-surface)] px-3 py-2 text-sm text-[var(--uoa-color-text)]',
+          ].join(' ')}
+        >
+          {t('message.instructionsSent')}
+        </p>
         {backToLoginButton}
       </div>
     );
