@@ -16,7 +16,8 @@ import { baseClientConfigPayload, createTestConfigFetchHandler, signTestConfigJw
 import { disconnectPrisma } from '../../src/db/prisma.js';
 import { registrationCookieName } from '../../src/services/registration-credentials.js';
 
-describe('browser-bound pending registration', () => {
+// The DB-less CI step runs every test file; DB-backed files skip themselves without DATABASE_URL.
+describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration', () => {
   let db: NonNullable<Awaited<ReturnType<typeof createTestDb>>>;
   let app: Awaited<ReturnType<typeof createApp>>;
   const originalDb = process.env.DATABASE_URL;
