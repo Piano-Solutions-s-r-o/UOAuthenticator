@@ -117,21 +117,23 @@ export async function verifyPendingRegistrationCode(params: RegistrationContext 
 export async function verifyPendingRegistrationLink(token: string, prisma: PrismaClient): Promise<void> {
   const initial = await prisma.pendingRegistration.findUnique({ where: { linkHash: registrationDigest('link', token) } });
   if (!initial) refuse();
-  await runInTransaction(prisma, async tx => {
+  // Decided under the lock, so two simultaneous confirmations count one verification.
+  const newlyVerified = await runInTransaction(prisma, async tx => {
     const row = await lockRegistration(tx, initial.id);
     const now = new Date();
     if (!row || row.expiresAt <= now || row.attempts >= REGISTRATION_MAX_ATTEMPTS) refuse();
     // Approval belongs to the link's original pending flow. Replays cannot
     // transfer it to the browser opening the link or to another registration.
-    if (row.linkUsedAt) return;
+    if (row.linkUsedAt) return false;
     await tx.pendingRegistration.update({ where: { id: row.id }, data: {
       emailVerifiedAt: row.emailVerifiedAt ?? now, linkUsedAt: now,
       browserAuthorizedAt: now,
     } });
+    return true;
   });
   publishRegistrationChange(initial.id);
-  await recordAuthFunnelStep({ domain: initial.domain, step: 'email_link_opened', outcome: initial.linkUsedAt
-    ? 'already_used' : 'registration_verified' }, { prisma });
+  await recordAuthFunnelStep({ domain: initial.domain, step: 'email_link_opened', outcome: newlyVerified
+    ? 'registration_verified' : 'already_used' }, { prisma });
 }
 
 /** The existing completion endpoint remains the single account/session writer. */

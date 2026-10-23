@@ -43,7 +43,7 @@ describe('validateConfigFields', () => {
       expect('registration_code_enabled' in cfg.login_flow).toBe(false);
     }
     const off = validateConfigFields({ ...basePayload(), login_flow: { registration_code_enabled: false } });
-    expect(off.login_flow.registration_code_enabled).toBe(false);
+    expect(off.login_flow.registration_code_enabled).toBeUndefined();
     const on = validateConfigFields({ ...basePayload(), login_flow: { registration_code_enabled: true } });
     expect(on.login_flow).toEqual({
       email_code_enabled: false,
@@ -72,6 +72,9 @@ describe('validateConfigFields', () => {
     const beforeTheFlag = { ...parsed, login_flow: { email_code_enabled: false, workspace_selection: 'off' as const } };
     expect(fingerprintClientConfig(parsed)).toBe(fingerprintClientConfig(beforeTheFlag));
     expect(JSON.stringify(parsed.login_flow)).toBe('{"email_code_enabled":false,"workspace_selection":"off"}');
+    // An explicit false is stripped by older builds as an unknown key, so it must fingerprint the same.
+    const explicitOff = validateConfigFields({ ...basePayload(), login_flow: { registration_code_enabled: false } });
+    expect(fingerprintClientConfig(explicitOff)).toBe(fingerprintClientConfig(beforeTheFlag));
     // Opting in is a real config change and does change the binding.
     const optedIn = validateConfigFields({ ...basePayload(), login_flow: { registration_code_enabled: true } });
     expect(fingerprintClientConfig(optedIn)).not.toBe(fingerprintClientConfig(parsed));

@@ -232,8 +232,13 @@ const ClientConfigSchema = RequiredConfigSchema.extend({
       // HUGO-2261: opt-in browser-bound registration (emailed code or a link confirmed on any
       // device). Deliberately `.optional()` with no default: a default would add a key to every
       // parsed config and so change fingerprintClientConfig (the login_token's config binding)
-      // across a rolling deploy. Absent means off; every reader checks `=== true`.
-      registration_code_enabled: z.boolean().optional(),
+      // across a rolling deploy. An explicit `false` becomes undefined for the same reason (the
+      // fingerprint skips undefined values, and older builds strip the unknown key). Absent means
+      // off; every reader checks `=== true`.
+      registration_code_enabled: z
+        .boolean()
+        .optional()
+        .transform((value) => (value === true ? true : undefined)),
       workspace_selection: z.enum(['off', 'auto']).default('off'),
     })
     .optional()
