@@ -34,6 +34,7 @@ import {
 } from '../../services/social/social-state-cookie.js';
 import { setSocialCallbackDebugContext } from '../../services/auth-debug-page.service.js';
 import { recordLoginLog } from '../../services/login-log.service.js';
+import { recordAuthFunnelStep } from '../../services/auth-funnel.service.js';
 import { lockProductWorkspacePolicyShared } from '../../services/product-workspace-policy-lock.service.js';
 import { sendDeepLinkHandoff } from '../../services/auth-ui.service.js';
 import { isCustomSchemeUrl } from '../../utils/http-url.js';
@@ -432,6 +433,8 @@ async function handleSocialCallback(
 
         return finalized;
       });
+      // After the transaction committed, never inside it (Docs/Auth/signup-funnel-metrics.md).
+      if (outcome.kind === 'granted') await recordAuthFunnelStep({ domain: config.domain, step: 'sign_in_completed', outcome: provider }, { prisma: request.adminDb });
 
       if (outcome.kind === 'auth_failed') {
         redirectNoStore(reply, buildAuthFailedRedirectUrl(redirectUrl));

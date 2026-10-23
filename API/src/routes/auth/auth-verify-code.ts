@@ -11,6 +11,7 @@ import { verifyLoginCode } from '../../services/login-code.service.js';
 import { signLoginSession } from '../../services/login-session.service.js';
 import { parseRequestAccessFlag } from '../../services/access-request-flow.service.js';
 import { recordLoginLog } from '../../services/login-log.service.js';
+import { recordAuthFunnelStep } from '../../services/auth-funnel.service.js';
 import { resolveProductWorkspaceBeforeTwoFa } from '../../services/required-workspace-placement.service.js';
 import { selectRedirectUrl } from '../../services/authorization-code.service.js';
 import { finalizeWithTwoFaPolicy } from '../../services/workspace-finalize.service.js';
@@ -166,6 +167,13 @@ export function registerAuthVerifyCodeRoute(app: FastifyInstance): void {
 
         return result;
       });
+      // After the transaction committed, never inside it (Docs/Auth/signup-funnel-metrics.md).
+      if (outcome.kind === 'granted') {
+        await recordAuthFunnelStep(
+          { domain: config.domain, step: 'sign_in_completed', outcome: 'email_code' },
+          { prisma: request.adminDb },
+        );
+      }
 
       if (outcome.kind === 'twofa') {
         reply

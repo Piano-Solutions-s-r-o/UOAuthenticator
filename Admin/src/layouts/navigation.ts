@@ -17,7 +17,10 @@ export type NavSection = {
 export const navSections: NavSection[] = [
   {
     label: 'Overview',
-    items: [{ label: 'Dashboard', path: '/dashboard', icon: 'grid' }],
+    items: [
+      { label: 'Dashboard', path: '/dashboard', icon: 'grid' },
+      { label: 'Sign-up funnel', path: '/signup-funnel', icon: 'logs' },
+    ],
   },
   {
     label: 'Configuration',

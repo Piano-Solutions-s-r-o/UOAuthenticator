@@ -10,6 +10,7 @@ import { ConnectionErrorsPage } from '../pages/ConnectionErrorsPage';
 import { FeatureAudienceGroupPage } from '../pages/FeatureAudienceGroupPage';
 import { FeatureFlagDetailPage } from '../pages/FeatureFlagDetailPage';
 import { FeatureFlagsPage } from '../pages/FeatureFlagsPage';
+import { SignupFunnelPage } from '../pages/SignupFunnelPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { DirectoryDomainsPage } from '../pages/DirectoryDomainsPage';
 import { DomainDetailPage } from '../pages/DomainDetailPage';
@@ -41,6 +42,7 @@ export function App() {
       >
         <Route index element={<DashboardPage />} />
         <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="signup-funnel" element={<SignupFunnelPage />} />
         <Route path="integrations" element={<IntegrationRequestsPage />} />
         <Route path="domains" element={<DirectoryDomainsPage />} />
         <Route path="domains/:domainId" element={<DomainDetailPage />} />

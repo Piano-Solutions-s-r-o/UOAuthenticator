@@ -21,6 +21,8 @@ import {
   confidentialTokenExchangeDomainRateLimiter,
   tokenExchangePreAuthRateLimiter,
 } from './rate-limit-keys.js';
+import { recordAuthFunnelStep, type AuthFunnelWritePrisma } from '../../services/auth-funnel.service.js';
+import { AuthorizationCodeRejectedError } from '../../services/authorization-code.service.js';
 
 const AuthorizationCodeGrantSchema = z
   .object({
@@ -82,6 +84,15 @@ function parseTokenExchangeBody(body: unknown): TokenExchangeBody {
   }
 
   throw new AppError('BAD_REQUEST', 400, 'INVALID_TOKEN_REQUEST');
+}
+
+// Sign-up funnel: the product redeeming its authorization code (Docs/Auth/signup-funnel-metrics.md).
+function recordCodeExchange(
+  domain: string,
+  prisma: AuthFunnelWritePrisma,
+  outcome: string,
+): Promise<void> {
+  return recordAuthFunnelStep({ domain, step: 'code_exchange', outcome }, { prisma });
 }
 
 export function registerAuthTokenExchangeRoute(app: FastifyInstance): void {
@@ -175,6 +186,19 @@ export function registerAuthTokenExchangeRoute(app: FastifyInstance): void {
                 authenticatedClientDomainId: request.domainAuthClientDomainId,
               },
               { prisma: request.adminDb, adminPrisma: request.adminDb },
+            ).then(
+              async (pair) => {
+                await recordCodeExchange(config.domain, request.adminDb, 'succeeded');
+                return pair;
+              },
+              async (err: unknown) => {
+                await recordCodeExchange(
+                  config.domain,
+                  request.adminDb,
+                  err instanceof AuthorizationCodeRejectedError ? `rejected_${err.reason}` : 'failed',
+                );
+                throw err;
+              },
             );
 
       // Keep response OAuth-ish without being overly strict about fields.
