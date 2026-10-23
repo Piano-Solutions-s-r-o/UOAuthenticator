@@ -24,17 +24,28 @@ export function useRegistrationStatus(params: {
     let retry: ReturnType<typeof setTimeout> | undefined;
     let delay = 1000;
     const query = { ...params.query, id: params.id };
+    // Retain a low-frequency safety check even on a connected socket. This
+    // covers dropped events and provides a fallback on proxies blocking WSS.
+    const poll = setInterval(() => { void check(); }, 10000);
+    // A terminal state never changes again (24 h validity could otherwise mean a day of 10 s
+    // polling and reconnects): stop the timers and the socket, and never reconnect.
+    function stop() {
+      stopped = true;
+      clearInterval(poll); clearTimeout(retry);
+      socket?.close();
+    }
     async function check() {
       if (stopped) return;
       if (checking) { recheck = true; return; }
       checking = true;
       const response = await getJson<RegistrationState>('/auth/registration/status', query);
       checking = false;
-      if (!stopped && response.ok) callback.current(response.data);
-      else if (!stopped && !response.ok && [400, 401, 403].includes(response.status)) {
+      if (!stopped && response.ok) {
+        callback.current(response.data);
+        if (response.data.status === 'expired' || response.data.status === 'complete') stop();
+      } else if (!stopped && !response.ok && [400, 401, 403].includes(response.status)) {
         callback.current({ status: 'expired' });
-        stopped = true;
-        socket?.close();
+        stop();
       }
       if (recheck && !stopped) { recheck = false; void check(); }
     }
@@ -57,18 +68,13 @@ export function useRegistrationStatus(params: {
     }
     void check();
     connect();
-    // Retain a low-frequency safety check even on a connected socket. This
-    // covers dropped events and provides a fallback on proxies blocking WSS.
-    const poll = setInterval(() => { void check(); }, 10000);
     const focus = () => { if (document.visibilityState !== 'hidden') void check(); };
     window.addEventListener('focus', focus);
     document.addEventListener('visibilitychange', focus);
     return () => {
-      stopped = true;
-      clearInterval(poll); clearTimeout(retry);
+      stop();
       window.removeEventListener('focus', focus);
       document.removeEventListener('visibilitychange', focus);
-      socket?.close();
     };
   }, [params.id, params.query]);
 }

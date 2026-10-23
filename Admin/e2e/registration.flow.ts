@@ -1,11 +1,18 @@
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { renderRegistrationLinkPage } from '../../API/src/services/registration-link-page.service.js';
+import { registrationLinkPageCsp, renderRegistrationLinkPage } from '../../API/src/services/registration-link-page.service.js';
 import { resolveEmailLocale } from '../../API/src/utils/email-locale.js';
 import { buildRegistrationVerificationTemplate } from '../../API/src/services/email.templates.registration.js';
 import { buildVerifyEmailSetPasswordTemplate } from '../../API/src/services/email.templates.js';
 
 const id = '9466e365-206c-49cb-a8d5-aa1342bdd613';
+// The mailbox page exactly as the API serves it: its own nonce, and its own restrictive policy, so
+// the browser blocks the confirmation script if the nonce and the policy ever disagree.
+const mailboxPage = (locale?: 'en' | 'cs') => ({
+  contentType: 'text/html',
+  headers: { 'content-security-policy': registrationLinkPageCsp('synthetic-nonce') },
+  body: renderRegistrationLinkPage('synthetic-nonce', locale),
+});
 const search = '?config_url=https%3A%2F%2Fproduct.example%2Fconfig&code_challenge=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ&code_challenge_method=S256';
 // `secondary` styles "create account" (and so "back to sign in", HUGO-1858) as a filled button.
 // `registrationCode: false` leaves `login_flow` out, as every product's config is until it opts in.
@@ -126,7 +133,7 @@ test('confirmation in another browser advances the original over websocket witho
         await server.notify('authorized');
         return route.fulfill({ json: { status: 'verified' } });
       }
-      return route.fulfill({ contentType: 'text/html', body: renderRegistrationLinkPage('synthetic-nonce') });
+      return route.fulfill(mailboxPage());
     });
     await otherPage.goto('http://127.0.0.1:5275/auth/registration/link#synthetic-link-secret');
     await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
@@ -177,7 +184,7 @@ test('same-browser link confirmation advances the original registration tab', as
       await server.notify('authorized');
       return route.fulfill({ json: { status: 'verified' } });
     }
-    return route.fulfill({ contentType: 'text/html', body: renderRegistrationLinkPage('synthetic-nonce') });
+    return route.fulfill(mailboxPage());
   });
   await linkPage.goto('http://127.0.0.1:5275/auth/registration/link#synthetic-link-secret');
   await linkPage.screenshot({ path: info.outputPath('same-browser-confirmation.png'), fullPage: true });
@@ -221,7 +228,7 @@ test('a rejected link shows its error without signing in or redirecting', async 
   let postStatus = 503;
   await page.route('**/auth/registration/link', route => route.request().method() === 'POST'
     ? route.fulfill({ status: postStatus, json: { error: 'Request failed' } })
-    : route.fulfill({ contentType: 'text/html', body: renderRegistrationLinkPage('synthetic-nonce') }));
+    : route.fulfill(mailboxPage()));
   await page.goto('/auth/registration/link#synthetic-expired-secret');
   const verify = page.getByRole('button', { name: 'Verify email address' });
   await verify.click();
@@ -282,7 +289,7 @@ test('another-device link displays success without navigation or authentication'
       await confirmation;
       return route.fulfill({ json: { status: 'verified' } });
     }
-    return route.fulfill({ contentType: 'text/html', body: renderRegistrationLinkPage('synthetic-nonce') });
+    return route.fulfill(mailboxPage());
   });
   await page.goto('/auth/registration/link#synthetic-link-secret');
   await expect(page).toHaveURL(/\/auth\/registration\/link$/);
@@ -355,6 +362,10 @@ test('without a secondary theme the code-entry screen offers a plain back-to-sig
   await expect(back).not.toHaveClass(/uoa-color-secondary/);
   await back.click();
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+  // Going back forgot the pending registration: a refresh opens sign-in, not the code screen.
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toHaveCount(0);
 });
 
 // The browser context locale is what makes Chromium send `Accept-Language: cs` (extra HTTP headers
@@ -374,7 +385,7 @@ test('the Czech confirmation page follows Accept-Language: cs through verify, re
     }
     // Same resolution as the API route: the GET request's Accept-Language picks the language.
     const locale = resolveEmailLocale((await route.request().allHeaders())['accept-language']);
-    return route.fulfill({ contentType: 'text/html', body: renderRegistrationLinkPage('synthetic-nonce', locale) });
+    return route.fulfill(mailboxPage(locale));
   });
   await page.goto('/auth/registration/link#synthetic-link-secret');
   await expect(page.locator('html')).toHaveAttribute('lang', 'cs');

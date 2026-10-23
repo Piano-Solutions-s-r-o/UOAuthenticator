@@ -36,7 +36,6 @@ function reply() {
   const headers: Record<string, string> = {};
   const state = { cookie: undefined as undefined | { name: string; options: Record<string, unknown> }, body: '', type: '' };
   const object = {
-    cspNonce: { script: 'nonce-abc' },
     header: (name: string, value: string) => { headers[name] = value; return object; },
     setCookie: (name: string, _value: string, options: Record<string, unknown>) => { state.cookie = { name, options }; return object; },
     code: () => object,
@@ -79,12 +78,15 @@ describe('registration link page', () => {
     const answer = reply();
     await page()({ headers: { 'accept-language': 'cs' } }, answer.object);
     expect(answer.state.body).toContain('<html lang="cs">');
-    expect(answer.state.body).toContain('<script nonce="nonce-abc">');
+    const nonce = /script-src 'nonce-([0-9a-f]{32})'/.exec(answer.headers['Content-Security-Policy'] ?? '')?.[1];
+    expect(nonce).toBeTruthy();
+    expect(answer.state.body).toContain(`<script nonce="${nonce}">`);
+    expect(answer.headers['Content-Language']).toBe('cs');
+    expect(answer.headers.Vary).toBe('Accept-Language');
     expect(answer.state.type).toBe('text/html; charset=utf-8');
     expect(answer.headers['Referrer-Policy']).toBe('no-referrer');
     expect(answer.headers['Cache-Control']).toBe('no-store');
     expect(answer.headers['Content-Security-Policy']).toContain("default-src 'none'");
-    expect(answer.headers['Content-Security-Policy']).toContain("script-src 'nonce-nonce-abc'");
     expect(answer.headers['Set-Cookie']).toBeUndefined();
   });
 

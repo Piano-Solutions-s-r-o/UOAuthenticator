@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { renderRegistrationLinkPage } from '../../src/services/registration-link-page.service.js';
+import { registrationLinkPageCsp, renderRegistrationLinkPage } from '../../src/services/registration-link-page.service.js';
 
 describe('registration link confirmation page', () => {
   it('defaults to English and keeps the nonce, fragment removal and no third-party assets', () => {
@@ -41,5 +41,17 @@ describe('registration link confirmation page', () => {
     expect(script).toContain('response.status === 429 || response.status >= 500');
     expect(script).toContain('finish(copy.rejected)');
     expect(script).toContain("credentials: 'same-origin'");
+  });
+
+  it('never renders a script without a usable nonce', () => {
+    for (const bad of ['', 'undefined"', 'a b', '"><script>']) {
+      expect(() => renderRegistrationLinkPage(bad)).toThrow('A CSP nonce is required');
+    }
+  });
+
+  it('allows exactly its own nonce-bearing script, this origin for the confirmation call and nothing else', () => {
+    expect(registrationLinkPageCsp('abc123')).toBe(
+      "default-src 'none'; script-src 'nonce-abc123'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    );
   });
 });

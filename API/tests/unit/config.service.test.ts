@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { JWTPayload } from 'jose';
 
 import { validateConfigFields } from '../../src/services/config.service.js';
+import { fingerprintClientConfig } from '../../src/services/login-session.service.js';
 import { setAppLogger } from '../../src/utils/app-logger.js';
 import { baseClientConfigPayload } from '../helpers/test-config.js';
 
@@ -20,11 +21,7 @@ describe('validateConfigFields', () => {
     expect(cfg.registration_mode).toBe('password_required');
     expect(cfg.allowed_registration_domains).toBeUndefined();
     expect(cfg.registration_domain_mapping).toBeUndefined();
-    expect(cfg.login_flow).toEqual({
-      email_code_enabled: false,
-      registration_code_enabled: false,
-      workspace_selection: 'off',
-    });
+    expect(cfg.login_flow).toEqual({ email_code_enabled: false, workspace_selection: 'off' });
   });
 
   it('parses login_flow when provided', () => {
@@ -36,18 +33,17 @@ describe('validateConfigFields', () => {
       },
     });
 
-    expect(cfg.login_flow).toEqual({
-      email_code_enabled: true,
-      registration_code_enabled: false,
-      workspace_selection: 'auto',
-    });
+    expect(cfg.login_flow).toEqual({ email_code_enabled: true, workspace_selection: 'auto' });
   });
 
-  it('keeps registration_code_enabled off unless the signed config turns it on', () => {
-    for (const loginFlow of [undefined, {}, { email_code_enabled: true }, { registration_code_enabled: false }]) {
+  it('leaves registration_code_enabled absent unless the signed config sets it', () => {
+    for (const loginFlow of [undefined, {}, { email_code_enabled: true }]) {
       const cfg = validateConfigFields({ ...basePayload(), ...(loginFlow ? { login_flow: loginFlow } : {}) });
-      expect(cfg.login_flow.registration_code_enabled).toBe(false);
+      expect(cfg.login_flow.registration_code_enabled).toBeUndefined();
+      expect('registration_code_enabled' in cfg.login_flow).toBe(false);
     }
+    const off = validateConfigFields({ ...basePayload(), login_flow: { registration_code_enabled: false } });
+    expect(off.login_flow.registration_code_enabled).toBe(false);
     const on = validateConfigFields({ ...basePayload(), login_flow: { registration_code_enabled: true } });
     expect(on.login_flow).toEqual({
       email_code_enabled: false,
@@ -67,6 +63,18 @@ describe('validateConfigFields', () => {
       workspace_selection: 'off',
     });
     expect(cfg.login_flow).not.toHaveProperty('rollout_percentage');
+  });
+
+  it('fingerprints a config without the key exactly as before the flag existed', () => {
+    // login_token continuity across a rolling deploy: the parsed shape piano/main produced for the
+    // same payload has no registration_code_enabled key, and neither does ours.
+    const parsed = validateConfigFields(basePayload());
+    const beforeTheFlag = { ...parsed, login_flow: { email_code_enabled: false, workspace_selection: 'off' as const } };
+    expect(fingerprintClientConfig(parsed)).toBe(fingerprintClientConfig(beforeTheFlag));
+    expect(JSON.stringify(parsed.login_flow)).toBe('{"email_code_enabled":false,"workspace_selection":"off"}');
+    // Opting in is a real config change and does change the binding.
+    const optedIn = validateConfigFields({ ...basePayload(), login_flow: { registration_code_enabled: true } });
+    expect(fingerprintClientConfig(optedIn)).not.toBe(fingerprintClientConfig(parsed));
   });
 
   it('parses optional fields when provided', () => {

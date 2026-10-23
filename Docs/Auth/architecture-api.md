@@ -31,6 +31,11 @@ constant), which the cookie, the row, the WebSocket deadline, retention pruning 
 the email's "hours" copy all follow. The email (`registrationVerificationCopy`) and
 the link page are English or Czech by the request's Accept-Language
 (`resolveEmailLocale`).
+The link page owns its Content-Security-Policy nonce (the fork's app has no global nonce
+hook): one fresh value per response, shared by the header (`registrationLinkPageCsp`) and the
+script tag, plus `Vary: Accept-Language` and `Content-Language`. Start, code and link use
+their own rate-limit namespaces (`registrationStartRateLimiter`, `registrationCodeRateLimiter`,
+`registrationLinkRateLimiter`) rather than sharing the register, sign-in code or token budgets.
 
 - **No code file longer than 500 lines.** If a file approaches this limit, split it.
 - **One responsibility per file.** A route file handles routing. A service file handles logic. They don't mix.

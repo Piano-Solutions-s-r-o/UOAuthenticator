@@ -84,8 +84,18 @@ function renderCard(locale: EmailLocale, copy: LinkPageCopy): string {
 </html>`;
 }
 
+/**
+ * The page's own Content-Security-Policy (it replaces the global helmet one): only the inline
+ * confirmation script carrying this response's nonce may run, and it may only call this origin.
+ */
+export function registrationLinkPageCsp(nonce: string): string {
+  return `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`;
+}
+
 /** Isolated mailbox landing: no config fetch, third-party assets or OAuth redirect. */
 export function renderRegistrationLinkPage(nonce: string, locale: EmailLocale = 'en'): string {
+  // An empty nonce would render a script the browser blocks (the button would do nothing).
+  if (!/^[A-Za-z0-9+/=_-]+$/.test(nonce)) throw new Error('A CSP nonce is required');
   const copy = LINK_PAGE_COPY[locale] ?? LINK_PAGE_COPY.en;
   // Static copy only, but `<` is escaped so no string can ever close the script element.
   const strings = JSON.stringify(copy).replaceAll('<', '\\u003c');

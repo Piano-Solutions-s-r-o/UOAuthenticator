@@ -425,8 +425,11 @@ model VerificationToken {
   @@map("verification_tokens")
 }
 
-// Browser ownership and mailbox proof are independent. A cross-device link never
-// grants browserAuthorizedAt; only the emailed code or a same-browser link can.
+// Mailbox proof and browser authority are separate facts. Explicit confirmation of the secret
+// link on ANY device approves continuation of this one pending flow (sets both timestamps); the
+// confirming browser receives nothing. Only the original browser - holding the HttpOnly cookie
+// and the exact config/OAuth context bound by contextHash - can read or consume the completion
+// proof. The emailed code is an alternative that authorizes the requesting browser itself.
 model PendingRegistration {
   id                    String    @id
   domain                String

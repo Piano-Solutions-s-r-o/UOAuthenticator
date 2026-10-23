@@ -23,6 +23,14 @@ vi.mock('../../src/services/auth-funnel.service.js', () => ({ recordAuthFunnelSt
 import { registerPendingRegistrationRoutes } from '../../src/routes/auth/registration.js';
 import { registerRegistrationWebSocket } from '../../src/routes/auth/registration-websocket.js';
 import { registrationContext } from '../../src/routes/auth/registration-context.js';
+import {
+  registerRateLimiter,
+  registrationCodeRateLimiter,
+  registrationLinkRateLimiter,
+  registrationStartRateLimiter,
+  tokenConsumeRateLimiter,
+  verifyCodeRateLimiter,
+} from '../../src/routes/auth/rate-limit-keys.js';
 
 type Handler = (request: unknown, reply: unknown) => Promise<unknown>;
 
@@ -146,5 +154,27 @@ describe('with the flag on', () => {
     const [, , afterConfig] = eventsPreHandlers();
     await afterConfig!(request(enabled, { query: { id } }));
     expect(mocks.state).toHaveBeenCalledOnce();
+  });
+});
+
+describe('rate-limit namespaces', () => {
+  function limiterOf(path: string): unknown {
+    let options: { preHandler?: unknown[] } | undefined;
+    const record = (route: string, o: unknown) => { if (route === path) options = o as typeof options; };
+    registerPendingRegistrationRoutes({
+      get: (route: string, o: unknown) => record(route, o),
+      post: (route: string, o: unknown) => record(route, o),
+    } as unknown as FastifyInstance);
+    // preHandler order is [same-origin check, limiter, config verifier] (the link: [same-origin, limiter]).
+    return options?.preHandler?.[1];
+  }
+
+  it('gives start, code and link their own budgets instead of the register, verify-code and token ones', () => {
+    expect(limiterOf('/auth/registration/start')).toBe(registrationStartRateLimiter);
+    expect(limiterOf('/auth/registration/start')).not.toBe(registerRateLimiter);
+    expect(limiterOf('/auth/registration/code')).toBe(registrationCodeRateLimiter);
+    expect(limiterOf('/auth/registration/code')).not.toBe(verifyCodeRateLimiter);
+    expect(limiterOf('/auth/registration/link')).toBe(registrationLinkRateLimiter);
+    expect(limiterOf('/auth/registration/link')).not.toBe(tokenConsumeRateLimiter);
   });
 });

@@ -70,6 +70,12 @@ export function RegistrationVerificationPage(): React.JSX.Element {
     popup.beginRegistration({ id: result.data.registration_id, email: pending.email });
   }
 
+  // Leaving also forgets the pending registration, so a refresh opens sign-in and not this screen.
+  function backToLogin() {
+    popup.beginRegistration(null);
+    popup.setView('login');
+  }
+
   if (!pending) return <div />;
   const unavailable = status === 'expired' || status === 'complete';
   const [beforeEmail, afterEmail] = t('registration.sent', { email: '{email}' }).split('{email}');
@@ -105,12 +111,12 @@ export function RegistrationVerificationPage(): React.JSX.Element {
       {sendError ? <p role="alert" className="mt-3 text-sm text-[var(--uoa-color-danger)]">{t('form.error.generic')}</p> : null}
       {/* HUGO-1858: the way back to sign in, with the same switch RegisterForm uses. */}
       {backToLoginAsButton ? (
-        <Button variant="secondaryFilled" type="button" className="mt-4" onClick={() => popup.setView('login')}>
+        <Button variant="secondaryFilled" type="button" className="mt-4" onClick={backToLogin}>
           {t('nav.backToLogin')}
         </Button>
       ) : (
         <button type="button" className="mt-4 block text-sm text-[var(--uoa-color-link)] hover:underline"
-          onClick={() => popup.setView('login')}>
+          onClick={backToLogin}>
           {t('nav.backToLogin')}
         </button>
       )}

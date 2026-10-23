@@ -230,16 +230,14 @@ const ClientConfigSchema = RequiredConfigSchema.extend({
     .object({
       email_code_enabled: z.boolean().default(false),
       // HUGO-2261: opt-in browser-bound registration (emailed code or a link confirmed on any
-      // device). Off keeps the original /auth/register link email and its confirmation screen.
-      registration_code_enabled: z.boolean().default(false),
+      // device). Deliberately `.optional()` with no default: a default would add a key to every
+      // parsed config and so change fingerprintClientConfig (the login_token's config binding)
+      // across a rolling deploy. Absent means off; every reader checks `=== true`.
+      registration_code_enabled: z.boolean().optional(),
       workspace_selection: z.enum(['off', 'auto']).default('off'),
     })
     .optional()
-    .default({
-      email_code_enabled: false,
-      registration_code_enabled: false,
-      workspace_selection: 'off',
-    }),
+    .default({ email_code_enabled: false, workspace_selection: 'off' }),
   // Docs/Auth/avatars.md §4: optional per-domain default for generated avatars. Absent means the
   // stable per-user pseudo-random pick; an unknown value rejects the config like any other invalid
   // claim. A `?style=` query parameter on the avatar endpoints still overrides this.

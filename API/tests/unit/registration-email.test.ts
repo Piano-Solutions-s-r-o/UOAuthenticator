@@ -20,7 +20,9 @@ describe('registration verification email', () => {
     expect(template.html).toContain('font-size:32px;font-weight:700;letter-spacing:8px');
     expect(template.text).toContain('AB3K7M'); expect(template.html).toContain('AB3K7M');
     expect(template.text).toContain(`expire in ${hours} hours`); expect(template.html).toContain(`expire in ${hours} hours`);
-    expect(template.text).toContain('another device does not sign');
+    for (const body of [template.text, template.html]) {
+      expect(body).toContain('If you open the link on another device, registration continues in the window where it started. That device is not signed in.');
+    }
   });
 
   it('is written in informal Czech for a Czech request and keeps the button, link and large code', () => {
