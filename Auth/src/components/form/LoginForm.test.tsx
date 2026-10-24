@@ -75,8 +75,10 @@ describe('LoginForm failure message', () => {
     vi.unstubAllGlobals();
   });
 
-  async function renderForm(language: 'cs' | 'en'): Promise<void> {
-    const config = TEST_CONFIG(language);
+  async function renderForm(language: 'cs' | 'en', allowRegistration = true): Promise<void> {
+    const config = allowRegistration
+      ? TEST_CONFIG(language)
+      : { ...TEST_CONFIG(language), allow_registration: false };
     await act(async () => {
       root.render(
         <ThemeProvider config={config} configUrl="">
@@ -169,6 +171,25 @@ describe('LoginForm failure message', () => {
 
       expect(shownError()).toBeNull();
       expect(container.querySelector('output')?.textContent).toBe('workspace-chooser');
+    });
+
+    // Without registration (which includes MCP) there is no "Create account" control,
+    // so the failure keeps the plain message instead of pointing at it.
+    it('keeps the plain message when registration is off', async () => {
+      fetchMock.mockResolvedValue(reply(401, { error: 'Request failed' }));
+      await renderForm(language, false);
+      await signIn();
+
+      expect(container.textContent).not.toContain(text['nav.createAccount']);
+      expect(shownError()).toBe(text['form.login.errorPlain']);
+    });
+
+    it('still says "paused" for a 429 when registration is off', async () => {
+      fetchMock.mockResolvedValue(reply(429, { error: 'Request failed' }));
+      await renderForm(language, false);
+      await signIn();
+
+      expect(shownError()).toBe(text['form.login.rateLimited']);
     });
   });
 

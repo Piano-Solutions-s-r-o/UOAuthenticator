@@ -74,6 +74,9 @@ export function LoginForm(): React.JSX.Element {
     setWorkspaceChoices,
   } = usePopup();
   const registrationAllowed = isRegistrationAllowed(config);
+  // The failure copy points at "Create account"; where that control is not rendered
+  // (registration off, which includes MCP), keep the plain message instead.
+  const failureKey = registrationAllowed ? 'form.login.error' : 'form.login.errorPlain';
   const createAccountAsButton = useTheme().theme.button.createAccount === 'secondary';
   const emailCodeEnabled = isEmailCodeEnabled(config);
   const { rememberMeEnabled, rememberMeDefault } = readSessionConfig(config);
@@ -122,7 +125,7 @@ export function LoginForm(): React.JSX.Element {
     if (!result.ok) {
       // 429 = the rate limiter paused sign-in (per IP / per email, whether or not the account
       // exists). Say so; every other failure keeps the same non-revealing "doesn't match" copy.
-      setError(result.status === 429 ? t('form.login.rateLimited') : t('form.login.error'));
+      setError(result.status === 429 ? t('form.login.rateLimited') : t(failureKey));
       return;
     }
 
@@ -141,7 +144,7 @@ export function LoginForm(): React.JSX.Element {
       startTwoFactorVerify,
       startTwoFactorSetup,
     });
-    if (!applied) setError(t('form.login.error'));
+    if (!applied) setError(t(failureKey));
   }
 
   async function handleEmailCode() {

@@ -24,6 +24,7 @@ export const en = {
   'form.login.submit': 'Sign in',
   'form.login.error':
     "That email and password don't match. No account yet? Create one with the button below. You can reset your password with Forgot your password.",
+  'form.login.errorPlain': 'Invalid email or password.',
   'form.login.rateLimited':
     'Too many attempts in a row, so sign-in is paused for a moment. Try again in 15 minutes at most, or reset your password with Forgot your password in the meantime.',
   'form.register.submit': 'Register',
