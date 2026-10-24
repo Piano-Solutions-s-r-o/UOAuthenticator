@@ -120,7 +120,9 @@ export function LoginForm(): React.JSX.Element {
     setLoading(false);
 
     if (!result.ok) {
-      setError(t('form.login.error'));
+      // 429 = the rate limiter paused sign-in (per IP / per email, whether or not the account
+      // exists). Say so; every other failure keeps the same non-revealing "doesn't match" copy.
+      setError(result.status === 429 ? t('form.login.rateLimited') : t('form.login.error'));
       return;
     }
 
