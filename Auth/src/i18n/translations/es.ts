@@ -24,7 +24,11 @@ export const es = {
   'form.password.requirement.minLength': 'Tener al menos 8 caracteres',
   'form.error.generic': 'La solicitud fallo. Intentalo de nuevo.',
   'form.login.submit': 'Iniciar sesion',
-  'form.login.error': 'Correo electronico o contrasena invalidos.',
+  'form.login.error':
+    'El correo electrónico y la contraseña no coinciden. ¿Aún no tienes cuenta? Créala con el botón de abajo. Puedes restablecer tu contraseña con Olvidaste tu contraseña.',
+  'form.login.errorPlain': 'Correo electronico o contrasena invalidos.',
+  'form.login.rateLimited':
+    'Demasiados intentos seguidos, así que el inicio de sesión está en pausa un momento. Inténtalo de nuevo en 15 minutos como máximo, o mientras tanto restablece tu contraseña con Olvidaste tu contraseña.',
   'form.register.submit': 'Registrarse',
   'form.resetPassword.submit': 'Enviar instrucciones de restablecimiento',
   'form.setPassword.submit': 'Establecer contrasena y continuar',
