@@ -53,3 +53,45 @@ export function registrationCopy(locale?: EmailLocale): RegistrationCopy {
 export function registrationTokenTtlHours(): number {
   return Math.max(1, Math.round(REGISTRATION_EMAIL_TOKEN_TTL_MS / (60 * 60 * 1000)));
 }
+
+export type RegistrationVerificationCopy = {
+  subject: string;
+  heading: string;
+  body: string;
+  buttonLabel: string;
+  codeLabel: string;
+  expiry: (hours: number) => string;
+  note: string;
+  ignoreLabel: string;
+};
+
+/**
+ * The browser-bound registration email (link on any device, or a code typed into the window where
+ * registration began). English keeps the upstream UOA wording; Czech is informal (tykání).
+ */
+const REGISTRATION_VERIFICATION_COPY: Record<EmailLocale, RegistrationVerificationCopy> = {
+  en: {
+    subject: 'Verify your email address',
+    heading: 'Confirm your email',
+    body: 'Click the button on any device, or enter the code on the registration screen that requested it.',
+    buttonLabel: 'Verify email address',
+    codeLabel: 'Or enter this verification code:',
+    expiry: (hours) => `The link and code expire in ${hours} hours. The link can only be used once.`,
+    note: 'If you open the link on another device, registration continues in the window where it started. That device is not signed in.',
+    ignoreLabel: 'If you did not request this, ignore this email.',
+  },
+  cs: {
+    subject: 'Ověř svůj e-mail',
+    heading: 'Ověř svůj e-mail',
+    body: 'Klikni na tlačítko na jakémkoli zařízení, nebo opiš kód do okna, kde registrace začala.',
+    buttonLabel: 'Ověřit e-mail',
+    codeLabel: 'Nebo zadej tento kód:',
+    expiry: (hours) => `Odkaz i kód platí ${hours} hodin. Odkaz jde použít jen jednou.`,
+    note: 'Když odkaz otevřeš na jiném zařízení, registrace pokračuje v okně, kde začala. Toto zařízení se nepřihlásí.',
+    ignoreLabel: 'Pokud o registraci nevíš, e-mail klidně ignoruj.',
+  },
+};
+
+export function registrationVerificationCopy(locale?: EmailLocale): RegistrationVerificationCopy {
+  return REGISTRATION_VERIFICATION_COPY[locale ?? 'en'] ?? REGISTRATION_VERIFICATION_COPY.en;
+}

@@ -1,5 +1,39 @@
 # Central OAuth & Auth Service — Full Build Brief
 
+## Cross-device continuation clarification (2026-10-22)
+
+This clarification supersedes the code-after-link requirement in the earlier
+registration section below. Confirming the secret email link on any device
+approves the exact pending registration that sent it. Its original screen receives
+the WebSocket notification, rechecks authoritative state with its original HttpOnly
+cookie and immutable OAuth/config context, and advances without code entry.
+The confirming browser only displays success; it receives no login, completion
+credential or redirect. The six-character code is an alternative to the link.
+The existing confirmation page makes approval of the initiating flow explicit and
+asks users to confirm only registrations they requested. GET and link previews
+have no effect. An explicit approval authorizes that original flow; it cannot
+prove that the mailbox owner personally initiated it. Replay cannot transfer
+approval to another flow. Existing expiry, attempt and completion gates remain.
+
+## Browser-bound registration verification (2026-10-22)
+
+The hosted email registration screen offers (when the product's signed config sets
+`login_flow.registration_code_enabled: true`; it is off by default and the original
+`/auth/register` link email stays in use otherwise) one verification link and a six-character
+uppercase alphanumeric code. The secret link confirms the mailbox on any device and
+shows an isolated success page without signing that device in. A link confirmed with
+the original registration cookie can advance that exact flow. A cross-device click
+does not authorize the initiating browser: it still needs the emailed code. This
+prevents an attacker-initiated registration from acquiring credentials when the
+mailbox owner clicks. No extra pairing code is sent. Codes work only in the requesting
+browser's registration, expire after 24 hours (the registration email lifetime,
+`REGISTRATION_EMAIL_TOKEN_TTL_MS`), and allow five persisted guesses. The email and
+the link confirmation page are English or Czech by the request's Accept-Language,
+and the email states the lifetime in hours.
+Authenticated WebSocket hints and polling recheck database state; refresh retains
+only public flow metadata. Existing epoch, scope, TOTP and agreement gates remain.
+The complete contract is published by `/api` and `/llm` under `/auth/registration/*`.
+
 ## 1. Purpose
 
 Build a **centralized OAuth / authentication service** used by multiple products (4–5+), providing:

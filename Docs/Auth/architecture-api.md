@@ -8,6 +8,35 @@ For the full product spec, see [brief.md](./brief.md). For tech stack, see [tech
 
 ## Guiding Principles
 
+Registration link approval is independent of the confirming browser's cookies.
+It atomically verifies and authorizes only the link's original pending flow, then
+publishes a WebSocket hint. Reading or consuming completion proof still requires
+the initiating browser's cookie and exact OAuth/config context. The confirmation
+response contains no login credentials or redirect; GET never approves a flow.
+
+Browser registration is opt-in per product through the signed config's
+`login_flow.registration_code_enabled` (default false): `registration-context.ts` refuses
+every start/status/code/events request with 400 `REGISTRATION_UNAVAILABLE` before any row,
+email or counter unless it is true, and the hosted form keeps using `/auth/register`.
+It uses `routes/auth/registration.ts`, `registration-context.ts`
+and `registration-websocket.ts`; `pending-registration.service.ts` owns the durable
+mailbox/browser state and immutable OAuth binding, `registration-credentials.ts`
+the scoped cryptographic helpers, and `registration-events.service.ts` non-secret
+local hints. Connected replicas recheck the database every five seconds. The isolated
+`registration-link-page.service.ts` removes fragment secrets before confirmation.
+`email.templates.registration.ts`, `root/schema.registration.ts` and
+`root/llm-registration.ts` publish the shared email and API contracts. The pending
+lifetime is `REGISTRATION_EMAIL_TOKEN_TTL_MS` (`REGISTRATION_TTL_MS` is that
+constant), which the cookie, the row, the WebSocket deadline, retention pruning and
+the email's "hours" copy all follow. The email (`registrationVerificationCopy`) and
+the link page are English or Czech by the request's Accept-Language
+(`resolveEmailLocale`).
+The link page owns its Content-Security-Policy nonce (the fork's app has no global nonce
+hook): one fresh value per response, shared by the header (`registrationLinkPageCsp`) and the
+script tag, plus `Vary: Accept-Language` and `Content-Language`. Start, code and link use
+their own rate-limit namespaces (`registrationStartRateLimiter`, `registrationCodeRateLimiter`,
+`registrationLinkRateLimiter`) rather than sharing the register, sign-in code or token budgets.
+
 - **No code file longer than 500 lines.** If a file approaches this limit, split it.
 - **One responsibility per file.** A route file handles routing. A service file handles logic. They don't mix.
 - **Thin routes, fat services.** Route handlers validate input, call a service, and return a response. Business logic lives in services.

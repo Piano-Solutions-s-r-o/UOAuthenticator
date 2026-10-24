@@ -84,6 +84,21 @@ export const authStartRateLimiter = composeRateLimiters(
   bodyRateLimiter('auth:start', 'email', 5, HOUR_MS),
 );
 
+// HUGO-2261: browser-bound registration has its own budgets, so it never shares one with
+// /auth/register (start), the sign-in /auth/verify-code (code) or the other token consumers
+// (link). The code body carries the pending registration id, not an email.
+export const registrationStartRateLimiter = composeRateLimiters(
+  ipRateLimiter('auth:registration-start', 10, MINUTE_MS),
+  bodyRateLimiter('auth:registration-start', 'email', 5, HOUR_MS),
+);
+
+export const registrationCodeRateLimiter = composeRateLimiters(
+  ipRateLimiter('auth:registration-code', 10, 15 * MINUTE_MS),
+  bodyRateLimiter('auth:registration-code', 'id', 10, 15 * MINUTE_MS),
+);
+
+export const registrationLinkRateLimiter = ipRateLimiter('auth:registration-link', 10, MINUTE_MS);
+
 // Phase 3b (design §8): /auth/verify-code is IP- and email-keyed, tighter than login since a
 // 6-digit code has a much smaller search space than a password.
 export const verifyCodeRateLimiter = composeRateLimiters(

@@ -1,6 +1,18 @@
 import type { Translations } from './en.js';
 
 export const cs = {
+  'registration.checkEmail': 'Zkontroluj e-mail',
+  'registration.sent': 'Na {email} jsme ti poslali ověřovací odkaz a šestimístný kód.',
+  'registration.instructions': 'Otevři odkaz na jakémkoli zařízení, nebo pokračuj zadáním kódu níže.',
+  'registration.verifiedElsewhere':
+    'Tvůj e-mail je ověřený. Pro bezpečné pokračování v tomto prohlížeči zadej kód z e-mailu.',
+  'registration.code': 'Ověřovací kód',
+  'registration.error':
+    'Kód se nepodařilo ověřit. Zkontroluj ho a zkus to znovu, nebo si nech poslat nový e-mail.',
+  'registration.verifying': 'Ověřuji…',
+  'registration.expired': 'V téhle registraci už nejde pokračovat. Nech si poslat nový e-mail.',
+  'registration.restart': 'Poslat nový e-mail',
+  'registration.sending': 'Posílám e-mail…',
   'auth.login.title': 'Přihlášení',
   'auth.register.title': 'Vytvoření účtu',
   'auth.resetPassword.title': 'Obnovení hesla',

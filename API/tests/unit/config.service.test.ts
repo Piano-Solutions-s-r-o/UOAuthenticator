@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { JWTPayload } from 'jose';
 
 import { validateConfigFields } from '../../src/services/config.service.js';
+import { fingerprintClientConfig } from '../../src/services/login-session.service.js';
 import { setAppLogger } from '../../src/utils/app-logger.js';
 import { baseClientConfigPayload } from '../helpers/test-config.js';
 
@@ -33,6 +34,50 @@ describe('validateConfigFields', () => {
     });
 
     expect(cfg.login_flow).toEqual({ email_code_enabled: true, workspace_selection: 'auto' });
+  });
+
+  it('leaves registration_code_enabled absent unless the signed config sets it', () => {
+    for (const loginFlow of [undefined, {}, { email_code_enabled: true }]) {
+      const cfg = validateConfigFields({ ...basePayload(), ...(loginFlow ? { login_flow: loginFlow } : {}) });
+      expect(cfg.login_flow.registration_code_enabled).toBeUndefined();
+      expect('registration_code_enabled' in cfg.login_flow).toBe(false);
+    }
+    const off = validateConfigFields({ ...basePayload(), login_flow: { registration_code_enabled: false } });
+    expect(off.login_flow.registration_code_enabled).toBeUndefined();
+    const on = validateConfigFields({ ...basePayload(), login_flow: { registration_code_enabled: true } });
+    expect(on.login_flow).toEqual({
+      email_code_enabled: false,
+      registration_code_enabled: true,
+      workspace_selection: 'off',
+    });
+  });
+
+  it('still accepts and strips an unknown key inside login_flow', () => {
+    const cfg = validateConfigFields({
+      ...basePayload(),
+      login_flow: { registration_code_enabled: true, rollout_percentage: 50 },
+    });
+    expect(cfg.login_flow).toEqual({
+      email_code_enabled: false,
+      registration_code_enabled: true,
+      workspace_selection: 'off',
+    });
+    expect(cfg.login_flow).not.toHaveProperty('rollout_percentage');
+  });
+
+  it('fingerprints a config without the key exactly as before the flag existed', () => {
+    // login_token continuity across a rolling deploy: the parsed shape piano/main produced for the
+    // same payload has no registration_code_enabled key, and neither does ours.
+    const parsed = validateConfigFields(basePayload());
+    const beforeTheFlag = { ...parsed, login_flow: { email_code_enabled: false, workspace_selection: 'off' as const } };
+    expect(fingerprintClientConfig(parsed)).toBe(fingerprintClientConfig(beforeTheFlag));
+    expect(JSON.stringify(parsed.login_flow)).toBe('{"email_code_enabled":false,"workspace_selection":"off"}');
+    // An explicit false is stripped by older builds as an unknown key, so it must fingerprint the same.
+    const explicitOff = validateConfigFields({ ...basePayload(), login_flow: { registration_code_enabled: false } });
+    expect(fingerprintClientConfig(explicitOff)).toBe(fingerprintClientConfig(beforeTheFlag));
+    // Opting in is a real config change and does change the binding.
+    const optedIn = validateConfigFields({ ...basePayload(), login_flow: { registration_code_enabled: true } });
+    expect(fingerprintClientConfig(optedIn)).not.toBe(fingerprintClientConfig(parsed));
   });
 
   it('parses optional fields when provided', () => {

@@ -3,14 +3,16 @@ import { describe, expect, it } from 'vitest';
 
 import { RegisterPage } from './RegisterPage.js';
 import { RegisterForm } from '../components/form/RegisterForm.js';
+import { RegistrationVerificationPage } from './RegistrationVerificationPage.js';
 import { PopupProvider } from '../hooks/use-popup.js';
 import { I18nProvider } from '../i18n/I18nProvider.js';
 import { ThemeProvider } from '../theme/ThemeProvider.js';
 
 // HUGO-1858: a client that styles "create account" as a secondary button (Hugo) gets
 // "back to sign in" as a matching filled-secondary button right under the register submit,
-// in the form AND on the "instructions sent" confirmation; every other client keeps the
-// link under the social buttons.
+// in the form AND on the "instructions sent" confirmation (the original flow, which stays the
+// default) or on the "check your email" code-entry screen (login_flow.registration_code_enabled,
+// HUGO-2261); every other client keeps a link (under the social buttons, or under the screen).
 
 type Style = 'link' | 'secondary';
 
@@ -56,6 +58,7 @@ function render(node: React.ReactNode, createAccount: Style, language = 'cs'): s
           config={config}
           initialSearch="?config_url=https%3A%2F%2Fclient.example.com%2Fauth-config"
           initialView="register"
+          initialPendingRegistration={{ id: '00000000-0000-4000-8000-000000000000', email: 'a@b.cz' }}
         >
           {node}
         </PopupProvider>
@@ -117,9 +120,20 @@ describe('RegisterPage back to sign in — secondary style', () => {
     expect(back[0].className).toContain(SECONDARY_FILL);
   });
 
-  it('stays on the "instructions sent" confirmation', () => {
+  it('stays on the "instructions sent" confirmation of the original flow', () => {
     const html = render(<RegisterForm initialSubmitted />, 'secondary');
     expect(html).toContain('role="status"');
+    const back = buttons(html).filter((b) => b.text === BACK.cs);
+    expect(back).toHaveLength(1);
+    expect(back[0]).toMatchObject({ type: 'button' });
+    expect(back[0].className).toContain(SECONDARY_FILL);
+  });
+
+  it('stays on the "check your email" code-entry screen', () => {
+    const html = render(<RegistrationVerificationPage />, 'secondary');
+    expect(html).toContain('a@b.cz');
+    expect(html).toContain('Zkontroluj e-mail');
+    expect(html).toContain('jsme ti poslali');
     const back = buttons(html).filter((b) => b.text === BACK.cs);
     expect(back).toHaveLength(1);
     expect(back[0]).toMatchObject({ type: 'button' });
@@ -140,9 +154,17 @@ describe('RegisterPage back to sign in — default link style', () => {
     expect(form).not.toContain(BACK.en);
   });
 
-  it('adds no button to the confirmation (the page link remains the way back)', () => {
+  it('adds no button to the original confirmation (the page link remains the way back)', () => {
     const html = render(<RegisterForm initialSubmitted />, 'link', 'en');
     expect(html).toContain('role="status"');
     expect(buttons(html)).toHaveLength(0);
+  });
+
+  it('keeps a plain link, not a filled-secondary button, on the code-entry screen', () => {
+    const back = buttons(render(<RegistrationVerificationPage />, 'link', 'en')).filter(
+      (b) => b.text === BACK.en,
+    );
+    expect(back).toHaveLength(1);
+    expect(back[0].className).not.toContain(SECONDARY_FILL);
   });
 });
