@@ -6,7 +6,7 @@ describe('signed login restart config', () => {
   it('preserves an allowed initiation URI', () => {
     expect(validateConfigFields({ ...payload(), login_restart_url: 'https://app.example.com/login?start=1' }).login_restart_url).toBe('https://app.example.com/login?start=1');
   });
-  it.each(['https://other.example.com/login', 'http://app.example.com/login', 'javascript:alert(1)', 'https://user:pass@app.example.com/login', 'https://app.example.com/login#token', 'https://app.example.com:8443/login'])('rejects unsafe restart %s', (url) => {
+  it.each(['https://other.example.com/login', 'http://app.example.com/login', 'javascript:alert(1)', 'https://user:pass@app.example.com/login', 'https://app.example.com/login#token', 'https://app.example.com:8443/login', 'blob:https://app.example.com/x'])('rejects unsafe restart %s', (url) => {
     expect(() => validateConfigFields({ ...payload(), login_restart_url: url })).toThrow();
   });
   // Custom-scheme redirects and javascript:/data: URLs all have the opaque origin "null".
