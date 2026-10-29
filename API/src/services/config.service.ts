@@ -202,7 +202,7 @@ const AccessRequestConfigSchema = z
   });
 
 const ClientConfigSchema = RequiredConfigSchema.extend({
-  login_restart_url: z.string().url().optional(),
+  login_restart_url: z.string().trim().url().optional(),
   // Task 2.5: optional config fields.
   //
   // Note: property name starts with a digit, so it must be accessed using bracket notation.

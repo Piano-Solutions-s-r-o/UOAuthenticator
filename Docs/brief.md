@@ -2332,7 +2332,7 @@ Summary of what changes and what does not:
   `Team.iconUrl` keeps its current meaning and is never written by the avatar endpoints,
   exactly as `User.avatarUrl` is not.
 
-### 2026-10-08 — password-reset login recovery (HUGO-1961)
+## 2026-10-08 — password-reset login recovery (HUGO-1961)
 
 A client may advertise signed optional `login_restart_url`: its sign-in initiation
 URL, on the same origin as one of `redirect_urls`, HTTPS except HTTP loopback

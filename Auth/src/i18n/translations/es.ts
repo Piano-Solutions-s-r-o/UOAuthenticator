@@ -49,7 +49,7 @@ export const es = {
 
   'nav.forgotPassword': 'Olvidaste tu contrasena?',
   'nav.createAccount': 'Crear una cuenta',
-  'auth.login.restartRequired': 'Continúa a la aplicación para iniciar una nueva sesión segura. Si ya estableciste una contraseña, úsala para iniciar sesión; no necesitas registrarte de nuevo.',
+  'auth.login.restartRequired': 'Hay que volver a iniciar sesión. Si ya tienes una contraseña, inicia sesión con ella; no necesitas registrarte de nuevo.',
   'nav.backToLogin': 'Volver a iniciar sesion',
   'nav.resetPassword': 'Restablecer contrasena',
   'nav.emailMeCode': 'Enviarme un codigo de acceso',
