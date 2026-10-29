@@ -8,12 +8,41 @@ import {
   sendAuthHtml,
 } from '../../services/auth-ui.service.js';
 import { configFetchRateLimiter } from './rate-limit-keys.js';
+import { recordAuthFunnelStep } from '../../services/auth-funnel.service.js';
 
 // Gap-fix B Task 2 (design §11.4): `team_hint` is a client-side chooser preselect ONLY — it never
 // grants anything server-side (select-team's ACTIVE-membership + domain check remains the sole
 // authority). Bound to a conservative id/slug-safe charset; anything else is silently dropped
 // before the querystring reaches the SPA bootstrap rather than rejecting the whole request.
 const TEAM_HINT_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
+
+// UOA re-renders this window mid-flow (2FA, team chooser, invite and email-link continuations). Only
+// a render without any of these is a product starting a flow, which is what the funnel counts.
+const CONTINUATION_QUERY_KEYS = [
+  'email_token',
+  'enterprise_link_intent',
+  'flow',
+  'handoff_target',
+  'invite_token',
+  'login_token',
+  'management_org_id',
+  'request_access_status',
+  'signing_token',
+  'twofa_enroll_required',
+  'twofa_setup_token',
+  'twofa_token',
+] as const;
+
+/**
+ * The funnel outcome for a render of the window, or null for a mid-flow re-render. HUGO-1850:
+ * `prompt=create` opens account creation first, so those starts are counted apart.
+ */
+export function flowStartOutcome(query: unknown): 'shown' | 'shown_register' | null {
+  const params = query && typeof query === 'object' ? (query as Record<string, unknown>) : {};
+  if (CONTINUATION_QUERY_KEYS.some((key) => key in params)) return null;
+  const prompt = typeof params.prompt === 'string' ? params.prompt : '';
+  return prompt.split(' ').includes('create') ? 'shown_register' : 'shown';
+}
 
 /**
  * Strips an invalid `team_hint` from the raw request URL before it becomes the SPA's initial
@@ -55,6 +84,13 @@ export function registerAuthEntrypointRoute(app: FastifyInstance): void {
         configUrl: request.configUrl,
         requestUrl,
       });
+      const outcome = request.method === 'HEAD' ? null : flowStartOutcome(request.query);
+      if (outcome) {
+        await recordAuthFunnelStep(
+          { domain: request.config.domain, step: 'flow_started', outcome },
+          { prisma: request.adminDb },
+        );
+      }
       sendAuthHtml(reply, html);
     },
   );

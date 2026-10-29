@@ -4,6 +4,7 @@ import { billingEndpoints } from './schema.billing.js';
 import { configDebugEndpoints } from './schema.config-debug.js';
 import { integrationsEndpoints } from './schema.integrations.js';
 import { internalAdminEndpoints } from './schema.internal-admin.js';
+import { internalAdminAuthFunnelEndpoints } from './schema.internal-admin-auth-funnel.js';
 import { oauthEndpoints } from './schema.oauth.js';
 import { appEndpoints, baseEndpoints, domainEndpoints, emailEndpoints } from './schema.platform.js';
 import { signatureEndpoints } from './schema.signatures.js';
@@ -478,6 +479,7 @@ export const endpoints: EndpointSchema[] = [
   ...withOrgContract(orgEndpoints),
   ...integrationsEndpoints,
   ...internalAdminEndpoints,
+  ...internalAdminAuthFunnelEndpoints,
   ...oauthEndpoints,
   ...signatureEndpoints,
 ];

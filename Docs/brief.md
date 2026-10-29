@@ -2332,7 +2332,6 @@ Summary of what changes and what does not:
   `Team.iconUrl` keeps its current meaning and is never written by the avatar endpoints,
   exactly as `User.avatarUrl` is not.
 
-
 ### 2026-10-08 — password-reset login recovery (HUGO-1961)
 
 A client may advertise signed optional `login_restart_url`: its sign-in initiation
@@ -2343,3 +2342,17 @@ After resetting a password, the sign-in button returns there. A login view
 without PKCE (including stale reset-email landings) offers the same restart
 instead of a form that cannot authenticate. Omitted claim retains legacy behavior.
 Password reset never issues an authorization code and PKCE remains mandatory.
+
+## 2026-10-22 Sign-up funnel metrics (HUGO-2166)
+
+UOA counts the steps of sign-up and sign-in per client domain and UTC day so the
+owner can see where people sent by a product stop (window opened, on registration
+when the product sent `prompt=create`; form submitted; registration email sent or
+failed; email link valid/expired/used; password set; social sign-in started;
+returned with a code; code redeemed by the product). Only aggregate counts are
+stored: never an email, IP, user id, token or flow id. Recording is best-effort,
+happens outside authentication transactions and never changes a public response;
+the internal reason behind an opaque `INVALID_AUTH_CODE` is counted but not
+disclosed. Platform superusers read it in Admin → Sign-up funnel or
+`GET /internal/admin/auth-funnel`. See
+[signup funnel metrics](Auth/signup-funnel-metrics.md).

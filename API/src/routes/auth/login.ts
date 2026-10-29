@@ -6,6 +6,7 @@ import { requireEnv } from '../../config/env.js';
 import { configVerifier } from '../../middleware/config-verifier.js';
 import { runWithRequestAdminTransaction } from '../../plugins/tenant-context.plugin.js';
 import { loginWithEmailPassword } from '../../services/auth-login.service.js';
+import { recordAuthFunnelStep } from '../../services/auth-funnel.service.js';
 import { lockAndAssertAuthenticationEpoch } from '../../services/authentication-epoch.service.js';
 import { parseRequestAccessFlag } from '../../services/access-request-flow.service.js';
 import {
@@ -66,6 +67,9 @@ export function registerAuthLoginRoute(app: FastifyInstance): void {
       if (!configUrl) {
         throw new Error('missing request.configUrl');
       }
+
+      const recordFunnelStep = (step: 'login_submitted' | 'sign_in_completed', outcome: string) =>
+        recordAuthFunnelStep({ domain: config.domain, step, outcome }, { prisma: request.adminDb });
 
       // The shared policy fence and its BYPASSRLS policy re-read must use the
       // same transaction as challenge/setup/code issuance.
@@ -173,7 +177,13 @@ export function registerAuthLoginRoute(app: FastifyInstance): void {
         }
 
         return finalized;
+      }).catch(async (err: unknown) => {
+        // Funnel counters are written after the transaction, never inside it.
+        await recordFunnelStep('login_submitted', 'failed');
+        throw err;
       });
+      await recordFunnelStep('login_submitted', 'succeeded');
+      if (outcome.kind === 'granted') await recordFunnelStep('sign_in_completed', 'email_password');
 
       if (outcome.kind === 'twofa') {
         reply

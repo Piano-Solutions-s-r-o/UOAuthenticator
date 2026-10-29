@@ -11,6 +11,7 @@ import { finalizeAuthenticatedUser } from '../../services/access-request-flow.se
 import { lockAndAssertAuthenticationEpoch } from '../../services/authentication-epoch.service.js';
 import { verifyAccessToken, type AccessTokenClaims } from '../../services/access-token.service.js';
 import { recordLoginLog } from '../../services/login-log.service.js';
+import { recordAuthFunnelStep } from '../../services/auth-funnel.service.js';
 import { selectRedirectUrl } from '../../services/authorization-code.service.js';
 import { lockProductWorkspacePolicyShared } from '../../services/product-workspace-policy-lock.service.js';
 import { disableTwoFactorForUser } from '../../services/twofactor-disable.service.js';
@@ -200,6 +201,8 @@ export function registerTwoFactorSelfServiceRoutes(app: FastifyInstance): void {
         request.accessTokenClaims = claims;
       }
 
+      // Set inside the transaction, recorded after it committed (Docs/Auth/signup-funnel-metrics.md).
+      let completedAuthMethod: string | undefined;
       const finalResult = await runWithRequestAdminTransaction(request, async (prisma) => {
         await lockProductWorkspacePolicyShared(prisma);
         await lockAndAssertAuthenticationEpoch(
@@ -277,8 +280,15 @@ export function registerTwoFactorSelfServiceRoutes(app: FastifyInstance): void {
           request.log.error({ err }, 'failed to record login log');
         }
 
+        completedAuthMethod = lockedSetup.authMethod ?? 'email_password';
         return result;
       });
+      if (completedAuthMethod) {
+        await recordAuthFunnelStep(
+          { domain: config.domain, step: 'sign_in_completed', outcome: completedAuthMethod },
+          { prisma: request.adminDb },
+        );
+      }
 
       reply.status(200).send({
         ok: true,

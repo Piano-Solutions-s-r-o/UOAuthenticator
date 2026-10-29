@@ -36,6 +36,9 @@ const PRODUCTION_PUBLIC_ERROR_CODES = new Set([
   'INVALID_TOKEN_USER',
   'TOKEN_EXPIRED',
   'TOKEN_ALREADY_USED',
+  // A superuser's sign-up funnel period is malformed, reversed or too long; Admin asks for a valid
+  // range. Only the superuser-only /internal/admin/auth-funnel route throws it.
+  'INVALID_DATE_RANGE',
 ]);
 
 function defaultExplanation(code: string, statusCode: number): PublicExplanation {

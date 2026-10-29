@@ -20,6 +20,7 @@ import { selectRedirectUrl } from '../../services/authorization-code.service.js'
 import { AppError } from '../../utils/errors.js';
 import { parseRequiredPkceChallenge } from '../../utils/pkce.js';
 import { configFetchRateLimiter } from './rate-limit-keys.js';
+import { recordAuthFunnelStep } from '../../services/auth-funnel.service.js';
 
 const ParamsSchema = z.object({
   provider: z.enum(['google', 'apple', 'facebook', 'github', 'linkedin']),
@@ -75,6 +76,10 @@ export function registerAuthSocialRoute(app: FastifyInstance): void {
         codeChallenge: code_challenge,
         codeChallengeMethod: code_challenge_method,
       });
+      await recordAuthFunnelStep(
+        { domain: config.domain, step: 'social_started', outcome: provider },
+        { prisma: request.adminDb },
+      );
 
       const env = getEnv();
 
