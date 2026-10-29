@@ -20,7 +20,7 @@ export function LoginPage(): React.JSX.Element {
         <h1 className={`text-balance ${classNames.title}`}>{t('auth.login.title')}</h1>
         <p className="mt-4 text-sm">{t('auth.login.restartRequired')}</p>
         <div className="mt-6">
-          <Button type="button" onClick={() => redirectTo(restartUrl)}>{t('nav.backToLogin')}</Button>
+          <Button type="button" onClick={() => redirectTo(restartUrl)}>{t('auth.login.restartButton')}</Button>
         </div>
       </div>
     );

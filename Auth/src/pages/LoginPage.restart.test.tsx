@@ -33,8 +33,8 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
 });
-function button(): HTMLButtonElement {
-  const found = Array.from(container.querySelectorAll('button')).find((node) => node.textContent === 'nav.backToLogin');
+function button(label: string): HTMLButtonElement {
+  const found = Array.from(container.querySelectorAll('button')).find((node) => node.textContent === label);
   if (!found) throw new Error('Missing recovery button');
   return found;
 }
@@ -61,7 +61,7 @@ describe('password reset client restart', () => {
       { token: 'synthetic-reset', password: 'SyntheticPassword123' },
       { config_url: 'https://api.example.com/config' },
     );
-    await act(async () => button().click());
+    await act(async () => button('nav.backToLogin').click());
     expect(mocks.redirect).toHaveBeenCalledWith(RESTART_URL);
     expect(mocks.view).not.toHaveBeenCalled();
     expect(mocks.post).toHaveBeenCalledTimes(1);
@@ -70,7 +70,7 @@ describe('password reset client restart', () => {
     await act(async () => root.render(<LoginPage />));
     expect(container.querySelector('form')).toBeNull();
     expect(container.textContent).toContain('auth.login.restartRequired');
-    await act(async () => button().click());
+    await act(async () => button('auth.login.restartButton').click());
     expect(mocks.redirect).toHaveBeenCalledWith(RESTART_URL);
   });
   it('treats a challenge without S256 as unusable', async () => {
