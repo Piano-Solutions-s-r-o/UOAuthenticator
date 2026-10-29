@@ -49,6 +49,8 @@ export const cs = {
 
   'nav.forgotPassword': 'Zapomenuté heslo?',
   'nav.createAccount': 'Vytvořit účet',
+  'auth.login.restartRequired': 'Tenhle odkaz už neplatí. Klikni na Přihlásit se a zadej svůj e-mail a heslo. Účet už máš, znovu se registrovat nemusíš.',
+  'auth.login.restartButton': 'Přihlásit se',
   'nav.backToLogin': 'Zpět na přihlášení',
   'nav.resetPassword': 'Obnovit heslo',
   'nav.emailMeCode': 'Poslat mi přihlašovací kód e-mailem',

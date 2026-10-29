@@ -1,3 +1,4 @@
+import { loginRestartUrl } from '../../utils/login-restart.js';
 import React, { useEffect, useState } from 'react';
 
 import { Button } from '../ui/Button.js';
@@ -14,6 +15,7 @@ type SetPasswordRequest = { token: string; password: string };
 export function SetPasswordForm(): React.JSX.Element {
   const { t } = useTranslation();
   const {
+    config,
     configUrl,
     redirectUrl,
     codeChallenge,
@@ -159,7 +161,11 @@ export function SetPasswordForm(): React.JSX.Element {
         <button
           type="button"
           className="text-sm text-[var(--uoa-color-link)] hover:underline"
-          onClick={() => setView('login')}
+          onClick={() => {
+            const restartUrl = loginRestartUrl(config);
+            if (restartUrl) redirectTo(restartUrl);
+            else setView('login');
+          }}
         >
           {t('nav.backToLogin')}
         </button>

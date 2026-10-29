@@ -2332,6 +2332,17 @@ Summary of what changes and what does not:
   `Team.iconUrl` keeps its current meaning and is never written by the avatar endpoints,
   exactly as `User.avatarUrl` is not.
 
+## 2026-10-08 — password-reset login recovery (HUGO-1961)
+
+A client may advertise signed optional `login_restart_url`: its sign-in initiation
+URL, on the same origin as one of `redirect_urls`, HTTPS except HTTP loopback
+for local development. No credentials or fragment are allowed. The client
+must initiate fresh PKCE there; it is not an authorization callback.
+After resetting a password, the sign-in button returns there. A login view
+without PKCE (including stale reset-email landings) offers the same restart
+instead of a form that cannot authenticate. Omitted claim retains legacy behavior.
+Password reset never issues an authorization code and PKCE remains mandatory.
+
 ## 2026-10-22 Sign-up funnel metrics (HUGO-2166)
 
 UOA counts the steps of sign-up and sign-in per client domain and UTC day so the

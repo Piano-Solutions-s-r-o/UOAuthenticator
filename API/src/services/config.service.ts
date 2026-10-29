@@ -1,3 +1,4 @@
+import { isValidLoginRestartUrl } from './login-restart-url.js';
 import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTPayload } from 'jose';
 import { AppError } from '../utils/errors.js';
 import { z } from 'zod';
@@ -201,6 +202,7 @@ const AccessRequestConfigSchema = z
   });
 
 const ClientConfigSchema = RequiredConfigSchema.extend({
+  login_restart_url: z.string().trim().url().optional(),
   // Task 2.5: optional config fields.
   //
   // Note: property name starts with a digit, so it must be accessed using bracket notation.
@@ -310,6 +312,9 @@ const ClientConfigSchema = RequiredConfigSchema.extend({
       global_missing_flag_default: 'disabled',
     }),
 }).superRefine((config, ctx) => {
+  if (config.login_restart_url && !isValidLoginRestartUrl(config.login_restart_url, config.redirect_urls)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['login_restart_url'], message: 'login_restart_url must use an allowed redirect origin and HTTPS (HTTP only on loopback)' });
+  }
   const logoUrl = config.ui_theme.logo.url.trim();
   if (logoUrl) {
     const logoHost = normalizeHostname(new URL(logoUrl).hostname);
