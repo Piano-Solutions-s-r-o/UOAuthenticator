@@ -10,7 +10,7 @@ import { postJson } from '../utils/api.js';
 import { loginRestartUrl } from '../utils/login-restart.js';
 import { applyWorkspaceOutcome, interpretWorkspaceResponse } from '../utils/workspace-response.js';
 
-const TEXT_ACTION = 'text-sm text-[var(--uoa-color-link)] hover:underline disabled:opacity-60';
+const TEXT_ACTION = 'text-sm font-medium text-[var(--uoa-color-link)] underline disabled:opacity-60';
 
 export function RegistrationVerificationPage(): React.JSX.Element {
   const popup = usePopup();

@@ -25,7 +25,7 @@ const config = {
   },
 };
 
-async function mount(host: HTMLElement) {
+async function mount(host: HTMLElement, page: React.ReactNode = <SetPasswordForm />) {
   const root = createRoot(host);
   await act(async () => {
     root.render(
@@ -33,7 +33,7 @@ async function mount(host: HTMLElement) {
         <I18nProvider config={config} configUrl="">
           <PopupProvider configUrl="https://client.example.com/auth-config" config={config} initialSearch={search}
             initialView="set-password" registrationHandoff={{ email: 'person@example.com' }}>
-            <SetPasswordForm />
+            {page}
           </PopupProvider>
         </I18nProvider>
       </ThemeProvider>,
@@ -112,12 +112,13 @@ it('keeps the registration wording while the original window navigates away', as
   act(() => root.unmount());
 });
 
-it('tells the browser that came second that the registration is finished', async () => {
+it('tells the browser that came second that the registration is finished, and nothing else', async () => {
   mocks.post.mockResolvedValue({ ok: false, status: 400, error: 'Request failed', code: 'REGISTRATION_COMPLETE' });
   const host = document.createElement('div'); document.body.appendChild(host);
-  const root = await mount(host);
+  const root = await mount(host, <SetPasswordPage />);
   await submit(host);
-  expect(host.querySelector('[role="status"]')?.textContent).toBe('Registration is complete.');
+  expect(host.querySelector('h1')?.textContent).toBe('Registration is complete.');
+  expect(host.textContent).not.toContain('person@example.com');
   expect(host.querySelector('form')).toBeNull();
   expect([...host.querySelectorAll('button')].some(button => button.textContent === 'Sign in')).toBe(true);
   act(() => root.unmount());

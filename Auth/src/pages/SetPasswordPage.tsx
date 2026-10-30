@@ -12,21 +12,22 @@ export function SetPasswordPage(): React.JSX.Element {
   // Shown because a link can reach someone else: the address says whose account this creates.
   // Held for the life of the view: the form forgets the registration just before it navigates away.
   const [email] = useState(() => registrationHandoff?.email ?? pendingRegistration?.email);
+  const [finished, setFinished] = useState(false);
   const [beforeEmail, afterEmail] = t('registration.password.text', { email: '{email}' }).split('{email}');
 
   return (
     <div>
       <h1 className={`text-balance ${classNames.title}`}>
-        {t(email ? 'registration.password.title' : 'auth.setPassword.title')}
+        {t(finished ? 'registration.finished' : email ? 'registration.password.title' : 'auth.setPassword.title')}
       </h1>
-      {email ? (
+      {email && !finished ? (
         <p className="mt-3 text-sm text-[var(--uoa-color-text)]">
           {beforeEmail}
           <strong>{email}</strong>
           {afterEmail}
         </p>
       ) : null}
-      <SetPasswordForm registering={Boolean(email)} />
+      <SetPasswordForm registering={Boolean(email)} onFinishedElsewhere={() => setFinished(true)} />
     </div>
   );
 }

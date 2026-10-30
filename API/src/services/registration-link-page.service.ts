@@ -46,7 +46,7 @@ const LINK_PAGE_COPY: Record<EmailLocale, LinkPageCopy> = {
   },
 };
 
-const BUTTON_STYLE = 'display:none;padding:12px 16px;border:0;border-radius:12px;background:#111827;color:#ffffff;font:inherit;font-weight:600;text-decoration:none;cursor:pointer;';
+const BUTTON_STYLE = 'display:none;padding:12px 20px;border:0;border-radius:999px;background:#FFDF2C;color:#1B1B1B;font:inherit;font-weight:600;text-decoration:none;cursor:pointer;';
 
 /** Self-contained card: the mailbox landing has no config, theme or product session to draw on. */
 function renderCard(locale: EmailLocale, copy: LinkPageCopy): string {
@@ -57,9 +57,12 @@ function renderCard(locale: EmailLocale, copy: LinkPageCopy): string {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${escapeHtml(copy.opening)}</title>
   </head>
-  <body style="margin:0;background:#f3f4f6;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827;">
-    <div style="max-width:560px;margin:48px auto;padding:24px;">
-      <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:32px;">
+  <body style="margin:0;background:#F8F6F2;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1B1B1B;">
+    <div style="max-width:400px;margin:48px auto;padding:24px;">
+      <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:24px;font-size:32px;font-weight:600;letter-spacing:-0.02em;">
+        <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12.5" fill="none" stroke="#FFDF2C" stroke-width="6"/></svg>Hugo
+      </div>
+      <div style="background:#ffffff;border:1px solid #E8E4DE;border-radius:28px;padding:32px;">
         <h1 id="message" aria-live="polite" style="margin:0;font-size:24px;line-height:1.3;">${escapeHtml(copy.opening)}</h1>
         <a id="next" style="${BUTTON_STYLE}margin-top:24px;"></a>
         <button id="retry" type="button" style="${BUTTON_STYLE}margin-top:24px;">${escapeHtml(copy.retry)}</button>

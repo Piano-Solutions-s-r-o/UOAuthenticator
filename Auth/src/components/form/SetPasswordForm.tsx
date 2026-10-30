@@ -14,7 +14,7 @@ type SetPasswordRequest = { token: string; password: string };
 // A browser that opened a registration link holds no token: its cookie names the registration.
 type VerifyEmailRequest = { token?: string; password: string };
 
-export function SetPasswordForm(props: { registering?: boolean }): React.JSX.Element {
+export function SetPasswordForm(props: { registering?: boolean; onFinishedElsewhere?: () => void }): React.JSX.Element {
   const { t } = useTranslation();
   const {
     config,
@@ -63,6 +63,7 @@ export function SetPasswordForm(props: { registering?: boolean }): React.JSX.Ele
     switch (result.code) {
       case 'REGISTRATION_COMPLETE':
         setFinishedElsewhere(true);
+        props.onFinishedElsewhere?.();
         return;
       case 'PASSWORD_POLICY_VIOLATION':
       case 'MISSING_PASSWORD':
@@ -159,7 +160,6 @@ export function SetPasswordForm(props: { registering?: boolean }): React.JSX.Ele
   if (finishedElsewhere) {
     return (
       <div className="mt-6 flex flex-col gap-4">
-        <p role="status" className="text-sm text-[var(--uoa-color-text)]">{t('registration.finished')}</p>
         <Button
           type="button"
           onClick={() => {

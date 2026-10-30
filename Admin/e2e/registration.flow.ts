@@ -294,7 +294,7 @@ test('the link page says a finished registration is finished and offers sign-in'
   await page.goto('/auth/registration/link#synthetic-link-secret');
   await expect(page.getByRole('heading', { name: 'Registration is complete.' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', loginRestartUrl);
-  await expect(page.getByRole('link', { name: 'Sign in' })).toHaveCSS('background-color', 'rgb(17, 24, 39)');
+  await expect(page.getByRole('link', { name: 'Sign in' })).toHaveCSS('background-color', 'rgb(255, 223, 44)');
   await page.screenshot({ path: info.outputPath('link-complete.png'), fullPage: true });
 });
 
