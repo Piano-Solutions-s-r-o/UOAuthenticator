@@ -2,6 +2,7 @@ import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { SetPasswordForm } from './SetPasswordForm.js';
+import { SetPasswordPage } from '../../pages/SetPasswordPage.js';
 import { PopupProvider } from '../../hooks/use-popup.js';
 import { I18nProvider } from '../../i18n/I18nProvider.js';
 import { ThemeProvider } from '../../theme/ThemeProvider.js';
@@ -64,5 +65,43 @@ describe('SetPasswordForm SSR (pre-hydration gating)', () => {
     const html = renderResetForm();
 
     expect(html).toMatch(/<fieldset[^>]*aria-busy="true"/);
+  });
+});
+
+describe('SetPasswordPage for a registration', () => {
+  const render = (props: { registrationHandoff?: { email: string }; initialPendingRegistration?: { id: string; email: string } }, language = 'cs') => {
+    const config = { ...TEST_CONFIG, language_config: language };
+    return renderToString(
+      <ThemeProvider config={config} configUrl="">
+        <I18nProvider config={config} configUrl="">
+          <PopupProvider configUrl="" config={config} initialView="set-password"
+            initialSearch="?config_url=https%3A%2F%2Fclient.example.com%2Fauth-config" {...props}>
+            <SetPasswordPage />
+          </PopupProvider>
+        </I18nProvider>
+      </ThemeProvider>,
+    );
+  };
+
+  it('shows whose account this creates in the browser that opened the link', () => {
+    const html = render({ registrationHandoff: { email: 'person@example.com' } });
+    expect(html).toContain('Vytvoř si heslo');
+    expect(html).toContain('Registruješ účet pro <strong>person@example.com</strong>.');
+    expect(html).toContain('Vytvořit účet');
+    expect(html).not.toContain('Nastavit heslo a pokračovat');
+  });
+
+  it('says the same in the original window, from the pending address', () => {
+    const html = render({ initialPendingRegistration: { id: 'r', email: 'person@example.com' } });
+    expect(html).toContain('Vytvoř si heslo');
+    expect(html).toContain('Registruješ účet pro <strong>person@example.com</strong>.');
+    expect(html).toContain('Vytvořit účet');
+  });
+
+  it('keeps the password-reset wording when no registration is in play', () => {
+    const html = render({});
+    expect(html).toContain('Nastavení hesla');
+    expect(html).toContain('Nastavit heslo a pokračovat');
+    expect(html).not.toContain('Registruješ');
   });
 });

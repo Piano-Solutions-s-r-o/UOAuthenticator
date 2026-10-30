@@ -13,7 +13,7 @@ it('rechecks an event arriving while an older pending-state request is in flight
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   let resolveInitial: (value: unknown) => void = () => {};
   mocks.get.mockReturnValueOnce(new Promise(resolve => { resolveInitial = resolve; }))
-    .mockResolvedValue({ ok: true, data: { status: 'verified' } });
+    .mockResolvedValue({ ok: true, data: { status: 'complete' } });
   class Socket {
     static current: Socket;
     onopen: (() => void) | null = null;
@@ -39,7 +39,7 @@ it('rechecks an event arriving while an older pending-state request is in flight
       resolveInitial({ ok: true, data: { status: 'pending' } });
     });
     expect(mocks.get).toHaveBeenCalledTimes(2);
-    expect(received).toHaveBeenLastCalledWith({ status: 'verified' });
+    expect(received).toHaveBeenLastCalledWith({ status: 'complete' });
   } finally { act(() => root.unmount()); host.remove(); }
 });
 

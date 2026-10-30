@@ -11,8 +11,8 @@ import { ThemeProvider } from '../theme/ThemeProvider.js';
 // HUGO-1858: a client that styles "create account" as a secondary button (Hugo) gets
 // "back to sign in" as a matching filled-secondary button right under the register submit,
 // in the form AND on the "instructions sent" confirmation (the original flow, which stays the
-// default) or on the "check your email" code-entry screen (login_flow.registration_code_enabled,
-// HUGO-2261); every other client keeps a link (under the social buttons, or under the screen).
+// default); every other client keeps a link under the social buttons. The "check your email" screen
+// of the registration code flow (HUGO-2261) has no such button: only text actions.
 
 type Style = 'link' | 'secondary';
 
@@ -129,15 +129,18 @@ describe('RegisterPage back to sign in — secondary style', () => {
     expect(back[0].className).toContain(SECONDARY_FILL);
   });
 
-  it('stays on the "check your email" code-entry screen', () => {
+});
+
+describe('the "check your email" screen', () => {
+  it('has the two text actions and no filled secondary button, whatever the theme says', () => {
     const html = render(<RegistrationVerificationPage />, 'secondary');
     expect(html).toContain('a@b.cz');
     expect(html).toContain('Zkontroluj e-mail');
-    expect(html).toContain('jsme ti poslali');
-    const back = buttons(html).filter((b) => b.text === BACK.cs);
-    expect(back).toHaveLength(1);
-    expect(back[0]).toMatchObject({ type: 'button' });
-    expect(back[0].className).toContain(SECONDARY_FILL);
+    expect(html).toContain('jsme poslali odkaz. Klikni na něj a nastav si heslo.');
+    expect(html).toContain('Nebo zadej kód z e-mailu');
+    const all = buttons(html);
+    expect(all.map((b) => b.text)).toEqual(['Poslat znovu', 'Změnit e-mail']);
+    expect(all.some((b) => b.className.includes(SECONDARY_FILL))).toBe(false);
   });
 });
 
@@ -158,13 +161,5 @@ describe('RegisterPage back to sign in — default link style', () => {
     const html = render(<RegisterForm initialSubmitted />, 'link', 'en');
     expect(html).toContain('role="status"');
     expect(buttons(html)).toHaveLength(0);
-  });
-
-  it('keeps a plain link, not a filled-secondary button, on the code-entry screen', () => {
-    const back = buttons(render(<RegistrationVerificationPage />, 'link', 'en')).filter(
-      (b) => b.text === BACK.en,
-    );
-    expect(back).toHaveLength(1);
-    expect(back[0].className).not.toContain(SECONDARY_FILL);
   });
 });
