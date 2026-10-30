@@ -1,6 +1,7 @@
 import type { FastifyRequest } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { createAuthDebugInfo } from '../../src/services/auth-debug-page.service.js';
 import { buildPublicErrorBody } from '../../src/utils/error-response.js';
 import { AppError } from '../../src/utils/errors.js';
 
@@ -32,7 +33,9 @@ describe('public error body with DEBUG_ENABLED', () => {
   });
 
   it('keeps the code the window acts on', () => {
-    const request = { raw: { url: '/auth/registration/status?id=x' }, query: {} } as unknown as FastifyRequest;
+    // configVerifier sets authDebug on every real request; without it the debug path is skipped.
+    const url = '/auth/registration/status?id=x';
+    const request = { raw: { url }, query: {}, authDebug: createAuthDebugInfo({ requestUrl: url }) } as unknown as FastifyRequest;
     const body = buildPublicErrorBody({
       request, error: new AppError('BAD_REQUEST', 400, 'REGISTRATION_UNAVAILABLE'), statusCode: 400,
     });
