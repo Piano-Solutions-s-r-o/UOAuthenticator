@@ -10,315 +10,230 @@ vi.mock('../../src/services/ban-policy.service.js', async importOriginal => ({
   isPrincipalBannedForRegistration: async () => false,
 }));
 
-import { createApp } from '../../src/app.js';
-import { createTestDb } from '../helpers/test-db.js';
-import { baseClientConfigPayload, createTestConfigFetchHandler, signTestConfigJwt } from '../helpers/test-config.js';
-import { disconnectPrisma } from '../../src/db/prisma.js';
 import { registrationCookieName } from '../../src/services/registration-credentials.js';
+import { buildUserIdentity } from '../../src/services/user-scope.service.js';
+import {
+  challengeB, createRegistrationHarness, flowQuery, handoffCookie, loginRestartUrl, noRestartConfigUrl,
+  offConfigUrl, origin, peer, queryA, queryB, registrationRestartUrl, type Flow, type RegistrationHarness,
+} from '../helpers/pending-registration-harness.js';
 
 // The DB-less CI step runs every test file; DB-backed files skip themselves without DATABASE_URL.
-// injectWS builds a plain request, and the upgrade's rate limit reads the peer address from it.
-const peer = { remoteAddress: '127.0.0.1' };
-
 describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration', () => {
-  let db: NonNullable<Awaited<ReturnType<typeof createTestDb>>>;
-  let app: Awaited<ReturnType<typeof createApp>>;
-  const originalDb = process.env.DATABASE_URL;
-  const originalAdminDb = process.env.DATABASE_ADMIN_URL;
-  const originalPublicBaseUrl = process.env.PUBLIC_BASE_URL;
-  const query = new URLSearchParams({ config_url: 'https://client.example.com/auth-config',
-    code_challenge: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ', code_challenge_method: 'S256' });
-  const origin = 'http://127.0.0.1:38571';
-  const offConfigUrl = 'https://client.example.com/auth-config-off';
-  const restartConfigUrl = 'https://client.example.com/auth-config-restart';
-  const restartUrl = 'https://client.example.com/login?start=1';
-  let sequence = 0;
+  let h: RegistrationHarness;
+  const noLoginRestartConfigUrl = 'https://client.example.com/auth-config-no-login-restart';
 
   beforeAll(async () => {
-    const handle = await createTestDb();
-    if (!handle) throw new Error('DATABASE_URL is required for registration persistence tests');
-    db = handle;
-    process.env.DATABASE_URL = db.databaseUrl;
-    process.env.DATABASE_ADMIN_URL = db.databaseUrl;
-    process.env.PUBLIC_BASE_URL = origin;
-    // The flow ships off (HUGO-2261): one product opts in through its signed config, another does not.
-    const on = await signTestConfigJwt(baseClientConfigPayload({ login_flow: { registration_code_enabled: true } }));
-    const off = await signTestConfigJwt();
-    const restart = await signTestConfigJwt(baseClientConfigPayload({ login_flow: { registration_code_enabled: true }, login_restart_url: restartUrl }));
-    vi.stubGlobal('fetch', vi.fn(await createTestConfigFetchHandler({
-      'https://client.example.com/auth-config': on, [offConfigUrl]: off, [restartConfigUrl]: restart,
-    })));
-    app = await createApp(); await app.ready();
+    h = await createRegistrationHarness(mailbox, { [noLoginRestartConfigUrl]: { login_restart_url: undefined } });
+    await h.db.prisma.authFunnelDailyCount.deleteMany();
   });
   beforeEach(() => { mailbox.messages.length = 0; });
-  afterAll(async () => {
-    await app?.close(); await disconnectPrisma();
-    if (originalDb === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = originalDb;
-    if (originalAdminDb === undefined) delete process.env.DATABASE_ADMIN_URL; else process.env.DATABASE_ADMIN_URL = originalAdminDb;
-    if (originalPublicBaseUrl === undefined) delete process.env.PUBLIC_BASE_URL; else process.env.PUBLIC_BASE_URL = originalPublicBaseUrl;
-    vi.unstubAllGlobals();
-    if (db) await db.cleanup();
+  afterAll(async () => { await h?.close(); });
+
+  const row = (flow: Flow) => h.db.prisma.pendingRegistration.findUniqueOrThrow({ where: { id: flow.id } });
+
+  it.each([['opted out', offConfigUrl], ['opted in without a registration restart URL', noRestartConfigUrl]])(
+    'refuses every browser-bound endpoint, without a row or an email, when the product is %s', async (_name, url) => {
+      const off = flowQuery(undefined, url);
+      const unknown = '00000000-0000-4000-8000-000000000000';
+      const before = await h.db.prisma.pendingRegistration.count();
+      const started = await h.app.inject({ method: 'POST', url: `/auth/registration/start?${off}`, payload: { email: 'off@example.com' },
+        headers: { origin, 'x-forwarded-for': '192.0.2.200' } });
+      expect(started.statusCode).toBe(400);
+      expect(started.json().code).toBe('REGISTRATION_UNAVAILABLE');
+      expect(started.headers['set-cookie']).toBeUndefined();
+      expect(mailbox.messages).toHaveLength(0);
+      expect(await h.db.prisma.pendingRegistration.count()).toBe(before);
+      expect((await h.app.inject({ method: 'GET', url: `/auth/registration/status?${off}&id=${unknown}`, headers: { origin } })).statusCode).toBe(400);
+      expect((await h.app.inject({ method: 'POST', url: `/auth/registration/code?${off}`, payload: { id: unknown, code: 'AB3K7M' },
+        headers: { origin, 'x-forwarded-for': '192.0.2.201' } })).statusCode).toBe(400);
+      expect((await h.app.inject({ method: 'POST', url: `/auth/registration/continue?${off}`, payload: { id: unknown },
+        headers: { origin, 'x-forwarded-for': '192.0.2.202' } })).statusCode).toBe(400);
+      await expect(h.app.injectWS(`/auth/registration/events?${off}&id=${unknown}`, { headers: { origin }, socket: peer })).rejects.toThrow('Unexpected server response: 400');
+    });
+
+  it('keeps the original token requirement on /auth/verify-email for a product that is off', async () => {
+    const response = await h.finish('', flowQuery(challengeB, offConfigUrl));
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBeUndefined();
   });
 
-  async function start() {
-    sequence += 1;
-    const email = `registration-${sequence}@example.com`;
-    const response = await app.inject({ method: 'POST', url: `/auth/registration/start?${query}`, payload: { email },
-      headers: { origin, 'x-forwarded-for': `192.0.2.${sequence}` } });
-    expect(response.statusCode, response.body).toBe(200);
-    const id = response.json().registration_id as string;
-    const cookie = String(response.headers['set-cookie']).split(';')[0];
-    expect(cookie).toContain(registrationCookieName(id));
-    expect(String(response.headers['set-cookie'])).toMatch(/HttpOnly/i);
-    expect(String(response.headers['set-cookie'])).toMatch(/SameSite=Lax/i);
-    expect(mailbox.messages.at(-1)?.code).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
-    return { id, cookie, email, message: mailbox.messages.at(-1)! };
-  }
-  // The window's "send a new email": same browser cookie, same address, same OAuth context.
-  async function resend(flow: Flow) {
-    sequence += 1;
-    const response = await app.inject({ method: 'POST', url: `/auth/registration/start?${query}`,
-      payload: { email: flow.email, previous_id: flow.id },
-      headers: { origin, cookie: flow.cookie, 'x-forwarded-for': `192.0.2.${sequence}` } });
-    expect(response.statusCode, response.body).toBe(200);
-    const id = response.json().registration_id as string;
-    return { id, cookie: String(response.headers['set-cookie']).split(';')[0], email: flow.email, message: mailbox.messages.at(-1)! };
-  }
-  type Flow = Awaited<ReturnType<typeof start>>;
-  function status(flow: Flow, cookie = flow.cookie, suffix = '') {
-    return app.inject({ method: 'GET', url: `/auth/registration/status?${query}&id=${flow.id}${suffix}`, headers: { cookie, origin } });
-  }
-  function link(flow: Flow, cookie = '') {
-    return app.inject({ method: 'POST', url: '/auth/registration/link',
-      payload: { token: new URL(flow.message.link).hash.slice(1) }, headers: { cookie, origin, 'x-forwarded-for': `198.51.100.${sequence}` } });
-  }
-  function code(flow: Flow, value = flow.message.code, cookie = flow.cookie) {
-    return app.inject({ method: 'POST', url: `/auth/registration/code?${query}`,
-      payload: { id: flow.id, code: value }, headers: { cookie, origin, 'x-forwarded-for': `192.0.2.${sequence}` } });
-  }
-
-  it('refuses every browser-bound endpoint, without a row or an email, when the product has not opted in', async () => {
-    const off = new URLSearchParams(query); off.set('config_url', offConfigUrl);
-    const unknown = '00000000-0000-4000-8000-000000000000';
-    const start = await app.inject({ method: 'POST', url: `/auth/registration/start?${off}`, payload: { email: 'off@example.com' },
-      headers: { origin, 'x-forwarded-for': '192.0.2.200' } });
-    expect(start.statusCode).toBe(400);
-    expect(start.headers['set-cookie']).toBeUndefined();
-    expect(mailbox.messages).toHaveLength(0);
-    expect(await db.prisma.pendingRegistration.count()).toBe(0);
-    expect((await app.inject({ method: 'GET', url: `/auth/registration/status?${off}&id=${unknown}`, headers: { origin } })).statusCode).toBe(400);
-    expect((await app.inject({ method: 'POST', url: `/auth/registration/code?${off}`, payload: { id: unknown, code: 'AB3K7M' },
-      headers: { origin, 'x-forwarded-for': '192.0.2.201' } })).statusCode).toBe(400);
-    await expect(app.injectWS(`/auth/registration/events?${off}&id=${unknown}`, { headers: { origin }, socket: peer })).rejects.toThrow('Unexpected server response: 400');
-    expect(await db.prisma.authFunnelDailyCount.findMany({ where: { domain: 'client.example.com' } })).toEqual([]);
-  });
-  it('notifies and authorizes the original browser when another device confirms, without signing that device in', async () => {
-    const flow = await start();
-    let resolveMessage!: (value: string) => void;
-    const messagePromise = new Promise<string>(resolve => { resolveMessage = resolve; });
-    const socket = await app.injectWS(`/auth/registration/events?${query}&id=${flow.id}`, {
-      headers: { cookie: flow.cookie, origin }, socket: peer,
-    }, { onInit: client => { client.on('message', value => resolveMessage(String(value))); } });
-    const result = await link(flow);
-    expect(result.statusCode, result.body).toBe(200);
-    expect(result.json()).toEqual({ status: 'verified' });
-    expect(result.headers['set-cookie']).toBeUndefined();
-    expect(result.headers.location).toBeUndefined();
-    expect(JSON.parse(await messagePromise)).toEqual({ type: 'registration.email_verified', status: 'verified' });
-    socket.close();
-    expect((await status(flow)).json()).toMatchObject({ status: 'authorized', token_type: 'VERIFY_EMAIL_SET_PASSWORD' });
-    expect(await db.prisma.user.count({ where: { email: flow.email } })).toBe(0);
-    expect((await status(flow, '')).statusCode).toBe(400);
-    const counts = await db.prisma.authFunnelDailyCount.findMany({ where: { domain: 'client.example.com' } });
+  it('counts the first open and a replay, and approves nothing either time', async () => {
+    const flow = await h.start();
+    const first = await h.link(flow);
+    expect(first.statusCode, first.body).toBe(200);
+    expect(first.json()).toEqual({ status: 'continue', next: registrationRestartUrl });
+    expect(first.headers.location).toBeUndefined();
+    const again = await h.link(flow);
+    expect(again.json()).toEqual({ status: 'continue', next: registrationRestartUrl });
+    expect((await h.status(flow)).json()).toEqual({ status: 'pending' });
+    const stored = await row(flow);
+    expect(stored.browserAuthorizedAt).toBeNull();
+    expect(stored.emailVerifiedAt).toBeNull();
+    expect(stored.linkUsedAt).not.toBeNull();
+    expect(await h.db.prisma.user.count({ where: { email: flow.email } })).toBe(0);
+    const counts = await h.db.prisma.authFunnelDailyCount.findMany({ where: { step: 'email_link_opened', domain: 'client.example.com' } });
     expect(counts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ step: 'register_submitted', outcome: 'valid_email', count: 1 }),
-      expect.objectContaining({ step: 'registration_email', outcome: 'verification_sent', count: 1 }),
-      expect.objectContaining({ step: 'email_link_opened', outcome: 'registration_verified', count: 1 }),
+      expect.objectContaining({ outcome: 'opened', count: 1 }),
+      expect.objectContaining({ outcome: 'already_used', count: 1 }),
     ]));
   });
-  it('opening an unsolicited link or preview does not approve registration before explicit confirmation', async () => {
-    const flow = await start();
-    const landing = await app.inject({ method: 'GET', url: '/auth/registration/link' });
-    expect(landing.body).toContain('Only confirm if you requested this registration');
-    expect((await status(flow)).json()).not.toHaveProperty('token');
-    expect((await code(flow, 'AAAAAA')).statusCode).toBe(400);
-    expect((await status(flow)).json().status).toBe('pending');
+
+  it('sets a host-only, signed, HttpOnly, Lax handoff cookie holding no secret or address', async () => {
+    const flow = await h.start();
+    const header = handoffCookie(await h.link(flow));
+    expect(header).toMatch(/; HttpOnly/i);
+    expect(header).toMatch(/; SameSite=Lax/i);
+    expect(header).toMatch(/; Path=\/auth(;|$)/i);
+    expect(header).not.toMatch(/; Domain=/i);
+    expect(Number(/Max-Age=(\d+)/i.exec(header)?.[1])).toBe(900);
+    const value = decodeURIComponent(header.split(';')[0].split('=').slice(1).join('='));
+    expect(value.startsWith(`${flow.id}.`)).toBe(true);
+    expect(value).not.toContain(flow.email);
+    expect(value).not.toContain(new URL(flow.message.link).hash.slice(1));
+    expect(value.split('.').length).toBe(4); // id, issued-at, expiry, signature
   });
-  it('also accepts same-browser confirmation and preserves the original PKCE challenge', async () => {
-    const flow = await start();
-    expect((await link(flow, flow.cookie)).statusCode).toBe(200);
-    const current = await status(flow);
-    expect(current.json()).toMatchObject({ status: 'authorized', token_type: 'VERIFY_EMAIL_SET_PASSWORD' });
-    expect(current.json().token).toMatch(/^registration\./);
-    const changed = new URLSearchParams(query); changed.set('code_challenge', 'ZYXWVUTSRQPONMLKJIHGFEDCBAabcdefghijklmnopq');
-    const denied = await app.inject({ method: 'GET', url: `/auth/registration/status?${changed}&id=${flow.id}`, headers: { cookie: flow.cookie } });
-    expect(denied.statusCode).toBe(400);
-    const completion = await app.inject({ method: 'POST', url: `/auth/verify-email?${query}`,
-      payload: { token: current.json().token, password: 'a-strong-password-123' }, headers: { origin } });
-    expect(completion.statusCode).toBe(400); // Even a copied proof needs its original cookie.
+
+  it('never lets the handoff cookie outlive the registration', async () => {
+    const flow = await h.start();
+    await h.db.prisma.pendingRegistration.update({ where: { id: flow.id }, data: { expiresAt: new Date(Date.now() + 60_000) } });
+    const maxAge = Number(/Max-Age=(\d+)/i.exec(handoffCookie(await h.link(flow)))?.[1]);
+    expect(maxAge).toBeGreaterThan(0);
+    expect(maxAge).toBeLessThanOrEqual(60);
   });
-  it('accepts the alternative code only in the requesting browser', async () => {
-    const flow = await start();
-    expect((await code(flow, flow.message.code, '')).statusCode).toBe(400);
-    expect((await code(flow)).json()).toMatchObject({ status: 'authorized' });
-    expect((await status(flow)).json()).toMatchObject({ status: 'authorized' }); // refresh recovery
+
+  it('lets a mail scanner GET and HEAD the link without using anything', async () => {
+    const flow = await h.start();
+    const before = await h.db.prisma.authFunnelDailyCount.findMany({ where: { step: 'email_link_opened', domain: 'client.example.com' } });
+    const get = await h.app.inject({ method: 'GET', url: '/auth/registration/link' });
+    const head = await h.app.inject({ method: 'HEAD', url: '/auth/registration/link' });
+    expect(get.statusCode).toBe(200);
+    expect(head.statusCode).toBe(200);
+    expect(get.headers['set-cookie']).toBeUndefined();
+    expect((await row(flow)).linkUsedAt).toBeNull();
+    expect((await h.status(flow)).json()).toEqual({ status: 'pending' });
+    expect(await h.db.prisma.authFunnelDailyCount.findMany({ where: { step: 'email_link_opened', domain: 'client.example.com' } })).toEqual(before);
   });
-  it('persists at most five guesses across concurrent requests', async () => {
-    const flow = await start();
-    const attempts = await Promise.all(Array.from({ length: 5 }, () => code(flow, '!!!!!!')));
-    expect(attempts.every(result => result.statusCode === 400)).toBe(true);
-    expect((await db.prisma.pendingRegistration.findUniqueOrThrow({ where: { id: flow.id } })).attempts).toBe(5);
-    expect((await code(flow)).statusCode).toBe(400);
-    expect((await status(flow)).json()).toEqual({ status: 'expired' });
-    expect((await link(flow)).statusCode).toBe(400);
-  });
-  it('never transfers link approval to a different registration or the browser replaying it', async () => {
-    const flow = await start();
-    await link(flow);
-    const proof = (await status(flow)).json().token;
-    const unrelated = await start();
-    const replay = await link(flow, unrelated.cookie);
-    expect(replay.json()).toEqual({ status: 'verified' });
-    expect(replay.headers['set-cookie']).toBeUndefined();
-    expect((await status(flow)).json()).toMatchObject({ status: 'authorized', token: proof });
-    expect((await status(unrelated)).json()).toEqual({ status: 'pending' });
-    expect((await status(flow, unrelated.cookie)).statusCode).toBe(400);
-  });
-  // HUGO-2261: a resend keeps the older email in the mailbox, and people click whichever they see first.
-  it('lets a link from an older email advance the window after a resend', async () => {
-    const first = await start();
-    const second = await resend(first);
-    expect((await link(first)).statusCode).toBe(200);
-    expect((await status(second)).json()).toMatchObject({ status: 'authorized' });
-  });
-  it('never lets a link approve another address started in the same window', async () => {
-    const first = await start();
-    const other = await start();
-    expect((await link(first)).statusCode).toBe(200);
-    expect((await status(first)).json()).toMatchObject({ status: 'authorized' });
-    expect((await status(other)).json()).toEqual({ status: 'pending' });
-  });
-  it('never lets a link approve another browser, even on the same public OAuth URL', async () => {
-    const first = await start();
-    sequence += 1;
-    const response = await app.inject({ method: 'POST', url: `/auth/registration/start?${query}`,
-      payload: { email: first.email }, headers: { origin, 'x-forwarded-for': `192.0.2.${sequence}` } });
-    const stranger = { ...first, id: response.json().registration_id as string, cookie: String(response.headers['set-cookie']).split(';')[0] };
-    expect((await link(first)).statusCode).toBe(200);
-    expect((await status(first)).json()).toMatchObject({ status: 'authorized' });
-    expect((await status(stranger)).json()).toEqual({ status: 'pending' });
-  });
-  it('treats a resend without the matching browser cookie as another browser', async () => {
-    const first = await start();
-    sequence += 1;
-    const response = await app.inject({ method: 'POST', url: `/auth/registration/start?${query}`,
-      payload: { email: first.email, previous_id: first.id }, headers: { origin, 'x-forwarded-for': `192.0.2.${sequence}` } });
-    const stranger = { ...first, id: response.json().registration_id as string, cookie: String(response.headers['set-cookie']).split(';')[0] };
-    expect((await link(first)).statusCode).toBe(200);
-    expect((await status(stranger)).json()).toEqual({ status: 'pending' });
-  });
-  it('leaves an exhausted or expired sibling unapproved', async () => {
-    const first = await start();
-    const exhausted = await resend(first);
-    const expired = await resend(first);
-    await db.prisma.pendingRegistration.update({ where: { id: exhausted.id }, data: { attempts: 5 } });
-    await db.prisma.pendingRegistration.update({ where: { id: expired.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
-    expect((await link(first)).statusCode).toBe(200);
-    const rows = await db.prisma.pendingRegistration.findMany({ where: { id: { in: [exhausted.id, expired.id] } } });
-    expect(rows.map(row => row.browserAuthorizedAt)).toEqual([null, null]);
-  });
-  it('keeps the browser secret only for a real resend', async () => {
-    const secret = (cookie: string) => cookie.split('=')[1];
-    const first = await start();
-    expect(secret((await resend(first)).cookie)).toBe(secret(first.cookie));
-    const attempt = async (email: string, cookie: string, url = query) => {
-      sequence += 1;
-      const response = await app.inject({ method: 'POST', url: `/auth/registration/start?${url}`, payload: { email, previous_id: first.id },
-        headers: { origin, cookie, 'x-forwarded-for': `192.0.2.${sequence}` } });
-      expect(response.statusCode, response.body).toBe(200);
-      return secret(String(response.headers['set-cookie']).split(';')[0]);
-    };
-    expect(await attempt(`other-${sequence}@example.com`, first.cookie)).not.toBe(secret(first.cookie));
-    expect(await attempt(first.email, `${registrationCookieName(first.id)}=not-the-secret`)).not.toBe('not-the-secret');
-    const otherWindow = new URLSearchParams(query);
-    otherWindow.set('code_challenge', 'zbcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ');
-    expect(await attempt(first.email, first.cookie, otherWindow.toString())).not.toBe(secret(first.cookie));
-  });
-  it('keeps the 24 hours of the older link after a resend', async () => {
-    const first = await start();
-    const second = await resend(first);
-    await db.prisma.pendingRegistration.update({ where: { id: first.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
-    expect((await link(first)).statusCode).toBe(400);
-    expect((await status(second)).json()).toEqual({ status: 'pending' });
-  });
-  it('answers the signed restart URL only when the product has one', async () => {
-    const flow = await start();
-    expect((await link(flow)).json()).toEqual({ status: 'verified' });
-    sequence += 1;
-    const restartQuery = new URLSearchParams(query);
-    restartQuery.set('config_url', restartConfigUrl);
-    const response = await app.inject({ method: 'POST', url: `/auth/registration/start?${restartQuery}`,
-      payload: { email: `restart-${sequence}@example.com` }, headers: { origin, 'x-forwarded-for': `192.0.2.${sequence}` } });
-    expect(response.statusCode, response.body).toBe(200);
-    expect((await link({ ...flow, message: mailbox.messages.at(-1)! })).json()).toEqual({ status: 'verified', restart_url: restartUrl });
-  });
-  it('converges link and code races on one pending registration', async () => {
-    const flow = await start();
-    const results = await Promise.all([link(flow), code(flow)]);
-    expect(results.every(result => result.statusCode === 200)).toBe(true);
-    const row = await db.prisma.pendingRegistration.findUniqueOrThrow({ where: { id: flow.id } });
-    expect(row.emailVerifiedAt).not.toBeNull(); expect(row.browserAuthorizedAt).not.toBeNull();
-    expect((await code(flow)).json()).toMatchObject({ status: 'authorized' });
-  });
-  it('rejects an expired link and code without creating identity state', async () => {
-    const flow = await start();
-    await db.prisma.pendingRegistration.update({ where: { id: flow.id }, data: { expiresAt: new Date(0) } });
-    expect((await link(flow)).statusCode).toBe(400);
-    expect((await code(flow)).statusCode).toBe(400);
-    expect(await db.prisma.user.count({ where: { email: flow.email } })).toBe(0);
-  });
-  it('sends secret-free websocket hints and rechecks already-verified state at subscription', async () => {
-    const flow = await start();
-    await link(flow);
-    let resolveMessage!: (value: string) => void;
-    const messagePromise = new Promise<string>(resolve => { resolveMessage = resolve; });
-    const socket = await app.injectWS(`/auth/registration/events?${query}&id=${flow.id}`, {
-      headers: { cookie: flow.cookie, origin }, socket: peer,
-    }, { onInit: client => { client.on('message', value => resolveMessage(String(value))); } });
-    const message = await messagePromise;
-    expect(JSON.parse(message)).toEqual({ type: 'registration.email_verified', status: 'verified' });
-    socket.close();
-  });
-  it('refuses unauthenticated websocket upgrades and cross-origin subscriptions', async () => {
-    const flow = await start();
-    await expect(app.injectWS(`/auth/registration/events?${query}&id=${flow.id}`, { headers: { origin }, socket: peer })).rejects.toThrow('Unexpected server response: 400');
-    await expect(app.injectWS(`/auth/registration/events?${query}&id=${flow.id}`, { headers: { origin: 'https://evil.example', cookie: flow.cookie }, socket: peer })).rejects.toThrow('Unexpected server response: 403');
-  });
-  it('serves an isolated confirmation page without consuming a link on GET', async () => {
-    const result = await app.inject({ method: 'GET', url: '/auth/registration/link' });
-    expect(result.statusCode).toBe(200);
-    expect(result.body).toContain('Email verified');
+
+  it('serves an isolated page that takes the secret out of the address and posts it at once', async () => {
+    const result = await h.app.inject({ method: 'GET', url: '/auth/registration/link' });
+    expect(result.body).toContain('Opening Hugo…');
     expect(result.body).toContain('history.replaceState');
     expect(result.body).not.toContain('<img');
     expect(result.headers['referrer-policy']).toBe('no-referrer');
     expect(result.headers['content-security-policy']).toContain("default-src 'none'");
   });
-  it('creates one account and one authorization code when completion is retried concurrently', async () => {
-    const flow = await start();
-    await link(flow);
-    const proof = (await status(flow)).json().token;
-    const foreignCompletion = await app.inject({ method: 'POST', url: `/auth/verify-email?${query}`,
+
+  it('answers an unknown or malformed token with 400 and no cookie', async () => {
+    const unknown = await h.app.inject({ method: 'POST', url: '/auth/registration/link', payload: { token: 'a'.repeat(43) }, headers: { origin, 'x-forwarded-for': '198.51.100.1' } });
+    expect(unknown.statusCode).toBe(400);
+    expect(unknown.headers['set-cookie']).toBeUndefined();
+    const malformed = await h.app.inject({ method: 'POST', url: '/auth/registration/link', payload: { token: 'short' }, headers: { origin, 'x-forwarded-for': '198.51.100.1' } });
+    expect(malformed.statusCode).toBe(400);
+  });
+
+  it('sends an expired or exhausted link back to registration, with no cookie', async () => {
+    const expired = await h.start();
+    await h.db.prisma.pendingRegistration.update({ where: { id: expired.id }, data: { expiresAt: new Date(0) } });
+    const exhausted = await h.start();
+    await h.db.prisma.pendingRegistration.update({ where: { id: exhausted.id }, data: { attempts: 5 } });
+    for (const flow of [expired, exhausted]) {
+      const result = await h.link(flow);
+      expect(result.statusCode).toBe(200);
+      expect(result.json()).toEqual({ status: 'expired', next: registrationRestartUrl });
+      expect(result.headers['set-cookie']).toBeUndefined();
+    }
+  });
+
+  it('sends the link of an existing account to sign-in: it has no password to set', async () => {
+    const email = `existing-${Date.now()}@example.com`;
+    const { userKey, domain } = buildUserIdentity({ userScope: 'global', email, domain: 'client.example.com' });
+    await h.db.prisma.user.create({ data: { email, userKey, domain, passwordHash: 'stored-hash' } });
+    const flow = await h.start(email);
+    const result = await h.link(flow);
+    expect(result.statusCode).toBe(200);
+    expect(result.json()).toEqual({ status: 'complete', next: loginRestartUrl });
+    expect(result.headers['set-cookie']).toBeUndefined();
+    expect((await h.status(flow)).json()).toEqual({ status: 'pending' }); // Its code still works.
+    expect((await h.code(flow)).json()).toMatchObject({ status: 'authorized', token_type: 'LOGIN_LINK' });
+  });
+
+  it('answers complete without a next step when the product has no login restart URL', async () => {
+    const flow = await h.start(undefined, flowQuery(undefined, noLoginRestartConfigUrl));
+    const { userKey, domain } = buildUserIdentity({ userScope: 'global', email: flow.email, domain: 'client.example.com' });
+    await h.db.prisma.user.create({ data: { email: flow.email, userKey, domain, passwordHash: 'stored-hash' } });
+    expect((await h.link(flow)).json()).toEqual({ status: 'complete' });
+  });
+
+  it('accepts the code only in the requesting browser and exact context', async () => {
+    const flow = await h.start();
+    expect((await h.code(flow, flow.message.code, '')).statusCode).toBe(400);
+    expect((await h.code(flow, flow.message.code, flow.cookie, queryB)).statusCode).toBe(400);
+    const accepted = await h.code(flow);
+    expect(accepted.json()).toMatchObject({ status: 'authorized', token_type: 'VERIFY_EMAIL_SET_PASSWORD' });
+    expect(accepted.json().token).toMatch(/^registration\./);
+    expect((await h.status(flow)).json()).toMatchObject({ status: 'authorized' }); // refresh recovery
+    expect((await h.status(flow, '')).statusCode).toBe(400);
+    expect((await row(flow)).linkUsedAt).toBeNull(); // A code is not a link open.
+  });
+
+  it('holds a copied completion proof to the original cookie', async () => {
+    const flow = await h.start();
+    const proof = (await h.code(flow)).json().token as string;
+    const copied = await h.app.inject({ method: 'POST', url: `/auth/verify-email?${queryA}`,
       payload: { token: proof, password: 'a-strong-password-123' }, headers: { origin } });
-    expect(foreignCompletion.statusCode).toBe(400);
-    const complete = () => app.inject({ method: 'POST', url: `/auth/verify-email?${query}`,
-      payload: { token: proof, password: 'a-strong-password-123' }, headers: { cookie: flow.cookie, origin, 'x-forwarded-for': `198.51.100.${sequence}` } });
-    const outcomes = await Promise.all([complete(), complete()]);
-    const successes = outcomes.filter(result => result.statusCode === 200);
-    expect(successes, outcomes.map(result => result.body).join('\n')).toHaveLength(1);
-    expect(new URL(successes[0].json().redirect_to).searchParams.get('code')).toBeTruthy();
-    const user = await db.prisma.user.findFirstOrThrow({ where: { email: flow.email } });
-    expect(await db.prisma.user.count({ where: { email: flow.email } })).toBe(1);
-    expect(await db.prisma.authorizationCode.count({ where: { userId: user.id } })).toBe(1);
-    expect((await status(flow)).json()).toEqual({ status: 'complete' });
+    expect(copied.statusCode).toBe(400);
+    expect(copied.json().code).toBe('REGISTRATION_UNAVAILABLE');
+  });
+
+  it('persists at most five guesses across concurrent requests', async () => {
+    const flow = await h.start();
+    const attempts = await Promise.all(Array.from({ length: 5 }, () => h.code(flow, '!!!!!!')));
+    expect(attempts.every(result => result.statusCode === 400)).toBe(true);
+    expect((await row(flow)).attempts).toBe(5);
+    expect((await h.code(flow)).statusCode).toBe(400);
+    expect((await h.status(flow)).json()).toEqual({ status: 'expired' });
+  });
+
+  it('keeps the browser secret only for a real resend', async () => {
+    const secret = (cookie: string) => cookie.split('=')[1];
+    const first = await h.start();
+    expect(secret((await h.resend(first)).cookie)).toBe(secret(first.cookie));
+    let n = 0;
+    const attempt = async (email: string, cookie: string, url = queryA) => {
+      n += 1;
+      const response = await h.app.inject({ method: 'POST', url: `/auth/registration/start?${url}`, payload: { email, previous_id: first.id },
+        headers: { origin, cookie, 'x-forwarded-for': `203.0.113.${n}` } });
+      expect(response.statusCode, response.body).toBe(200);
+      return secret(String(response.headers['set-cookie']).split(';')[0]);
+    };
+    expect(await attempt(`other-${first.id}@example.com`, first.cookie)).not.toBe(secret(first.cookie));
+    expect(await attempt(first.email, `${registrationCookieName(first.id)}=not-the-secret`)).not.toBe('not-the-secret');
+    expect(await attempt(first.email, first.cookie, queryB)).not.toBe(secret(first.cookie));
+  });
+
+  it('leaves the newer registration waiting when an older link has expired', async () => {
+    const first = await h.start();
+    const second = await h.resend(first);
+    await h.db.prisma.pendingRegistration.update({ where: { id: first.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    expect((await h.link(first)).json().status).toBe('expired');
+    expect((await h.status(second)).json()).toEqual({ status: 'pending' });
+  });
+
+  it('hints at a code accepted in another tab, with nothing secret in the message', async () => {
+    const flow = await h.start();
+    let resolveMessage!: (value: string) => void;
+    const message = new Promise<string>(resolve => { resolveMessage = resolve; });
+    const socket = await h.app.injectWS(`/auth/registration/events?${queryA}&id=${flow.id}`, {
+      headers: { cookie: flow.cookie, origin }, socket: peer,
+    }, { onInit: client => { client.on('message', value => resolveMessage(String(value))); } });
+    expect((await h.code(flow)).statusCode).toBe(200);
+    expect(JSON.parse(await message)).toEqual({ type: 'registration.changed' });
+    socket.close();
+  });
+
+  it('refuses unauthenticated websocket upgrades and cross-origin subscriptions', async () => {
+    const flow = await h.start();
+    await expect(h.app.injectWS(`/auth/registration/events?${queryA}&id=${flow.id}`, { headers: { origin }, socket: peer })).rejects.toThrow('Unexpected server response: 400');
+    await expect(h.app.injectWS(`/auth/registration/events?${queryA}&id=${flow.id}`, { headers: { origin: 'https://evil.example', cookie: flow.cookie }, socket: peer })).rejects.toThrow('Unexpected server response: 403');
   });
 });

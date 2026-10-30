@@ -12,7 +12,8 @@ vi.mock('../../src/services/pending-registration.service.js', () => ({
   startPendingRegistration: mocks.start,
   pendingRegistrationState: vi.fn(),
   verifyPendingRegistrationCode: vi.fn(),
-  verifyPendingRegistrationLink: vi.fn(),
+  openPendingRegistrationLink: vi.fn(),
+  continuePendingRegistration: vi.fn(),
 }));
 vi.mock('../../src/services/auth-funnel.service.js', () => ({ recordAuthFunnelStep: mocks.funnel }));
 vi.mock('../../src/routes/auth/registration-context.js', () => ({

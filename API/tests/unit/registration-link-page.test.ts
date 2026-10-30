@@ -2,47 +2,51 @@ import { describe, expect, it } from 'vitest';
 
 import { registrationLinkPageCsp, renderRegistrationLinkPage } from '../../src/services/registration-link-page.service.js';
 
-describe('registration link confirmation page', () => {
+describe('registration link page', () => {
   it('defaults to English and keeps the nonce, fragment removal and no third-party assets', () => {
     const html = renderRegistrationLinkPage('nonce-123');
     expect(html).toContain('<html lang="en">');
-    expect(html).toContain('<title>Confirm your email</title>');
-    expect(html).toContain('>Verify email address</button>');
+    expect(html).toContain('<title>Opening Hugo…</title>');
     expect(html).toContain('<script nonce="nonce-123">');
     expect(html).toContain('history.replaceState');
-    expect(html).toContain('Go back to the window where registration started. It continues there by itself. This device has not been signed in.');
-    expect(html).toContain('This link has expired or is no longer valid. Start the registration again.');
     expect(html).not.toContain('<img');
     expect(html).not.toMatch(/https?:\/\//);
   });
 
-  it('renders informal Czech for a Czech request, including every recovery message', () => {
+  it('renders the Czech copy for a Czech request, including every outcome', () => {
     const html = renderRegistrationLinkPage('nonce-123', 'cs');
     expect(html).toContain('<html lang="cs">');
-    expect(html).toContain('<title>Potvrď svůj e-mail</title>');
-    expect(html).toContain('Po potvrzení bude registrace pokračovat v prohlížeči, kde začala. Potvrzuj jen registraci, kterou zakládáš ty.');
-    expect(html).toContain('>Ověřit e-mail</button>');
+    expect(html).toContain('<title>Otevírám Hugo…</title>');
     for (const message of [
-      'Ověřuji…',
-      'E-mail je ověřený',
-      'Tvoje e-mailová adresa je potvrzená.',
-      'Vrať se do okna, kde registrace začala. Pokračuje tam sama. Toto zařízení se nepřihlásilo.',
-      'Okno už nemáš otevřené? Začni znovu tady.',
-      'Začít znovu',
-      'Odkaz vypršel nebo už neplatí. Začni registraci znovu.',
-      'Tenhle odkaz nejde použít. Začni registraci znovu.',
-      'Nepodařilo se spojit se serverem. Zkontroluj připojení a zkus to znovu.',
-      'Odkaz teď nejde ověřit. Zkus to za chvíli znovu.',
+      'Otevírám Hugo…', 'Registrace je hotová.', 'Přihlásit se', 'Odkaz už neplatí',
+      'Začít registraci znovu', 'Nepodařilo se spojit se serverem.', 'Zkusit znovu',
     ]) expect(html).toContain(message);
-    expect(html).not.toContain('Verify email address');
-    expect(html).not.toContain('přihlášený');
+    expect(html).not.toContain('Opening Hugo');
   });
 
-  it('only a transport, 429 or 5xx failure keeps the retry; every other answer is final', () => {
+  it('never asks anyone to confirm or to go anywhere', () => {
+    for (const locale of ['en', 'cs'] as const) {
+      const html = renderRegistrationLinkPage('n', locale);
+      const copy = /const copy = (\{.*\});/.exec(html)?.[1] ?? '';
+      expect(Object.keys(JSON.parse(copy))).toHaveLength(7);
+      expect(copy).not.toMatch(/window|okn[oa]|zařízení|device|confirm|potvr/i);
+      expect(html).not.toContain('<form');
+    }
+  });
+
+  it('posts at once, follows a continue, and keeps a retry only for what a retry can fix', () => {
     const script = renderRegistrationLinkPage('n').split('<script')[1] ?? '';
+    expect(script).toContain("result.status === 'continue') location.replace(result.next)");
     expect(script).toContain('response.status === 429 || response.status >= 500');
-    expect(script).toContain('finish(copy.rejected)');
     expect(script).toContain("credentials: 'same-origin'");
+    expect(script).toMatch(/\n {2}open\(\);\n/);
+  });
+
+  it('gives the anchors the button style and hides them until an outcome needs one', () => {
+    const html = renderRegistrationLinkPage('n');
+    const style = (id: string) => new RegExp(`id="${id}"[^>]*style="([^"]*)"`).exec(html)?.[1];
+    expect(style('next')).toBe(style('retry'));
+    expect(style('next')).toContain('display:none');
   });
 
   it('never renders a script without a usable nonce', () => {
@@ -51,7 +55,7 @@ describe('registration link confirmation page', () => {
     }
   });
 
-  it('allows exactly its own nonce-bearing script, this origin for the confirmation call and nothing else', () => {
+  it('allows exactly its own nonce-bearing script, this origin for the call and nothing else', () => {
     expect(registrationLinkPageCsp('abc123')).toBe(
       "default-src 'none'; script-src 'nonce-abc123'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
     );

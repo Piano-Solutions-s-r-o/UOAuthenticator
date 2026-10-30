@@ -30,4 +30,15 @@ describe('sanitizeConfigJwtForHandshakeLog', () => {
       },
     });
   });
+
+  it('keeps the registration restart URL readable without its query, like the login restart URL', () => {
+    const { payload } = sanitizeConfigJwtForHandshakeLog(
+      jwtWith({ login_restart_url: 'https://a.example/login?start=1', registration_restart_url: 'https://a.example/login?signup=1' }),
+    );
+
+    expect(payload).toEqual({
+      login_restart_url: 'https://a.example/login',
+      registration_restart_url: 'https://a.example/login',
+    });
+  });
 });

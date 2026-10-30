@@ -4,10 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { isAppError } from '../../src/utils/errors.js';
 
 // HUGO-2261: the browser-bound registration flow ships switched off and is enabled per product by
-// `login_flow.registration_code_enabled` in the signed config. The real registrationContext (the
-// one place every entry point builds its context) is exercised here; only the services are mocked.
+// `login_flow.registration_code_enabled` plus `registration_restart_url` in the signed config. The
+// real registrationContext (the one place every entry point builds its context) is exercised here;
+// only the services are mocked.
 const mocks = vi.hoisted(() => ({
-  start: vi.fn(), state: vi.fn(), code: vi.fn(), link: vi.fn(), funnel: vi.fn(),
+  start: vi.fn(), state: vi.fn(), code: vi.fn(), link: vi.fn(), resume: vi.fn(), funnel: vi.fn(),
 }));
 vi.mock('../../src/config/env.js', async importOriginal => ({
   ...await importOriginal<typeof import('../../src/config/env.js')>(),
@@ -17,7 +18,8 @@ vi.mock('../../src/services/pending-registration.service.js', () => ({
   startPendingRegistration: mocks.start,
   pendingRegistrationState: mocks.state,
   verifyPendingRegistrationCode: mocks.code,
-  verifyPendingRegistrationLink: mocks.link,
+  openPendingRegistrationLink: mocks.link,
+  continuePendingRegistration: mocks.resume,
 }));
 vi.mock('../../src/services/auth-funnel.service.js', () => ({ recordAuthFunnelStep: mocks.funnel }));
 import { registerPendingRegistrationRoutes } from '../../src/routes/auth/registration.js';
@@ -28,6 +30,7 @@ import {
   registerRateLimiter,
   registrationStatusRateLimiter,
   registrationCodeRateLimiter,
+  registrationContinueRateLimiter,
   registrationLinkRateLimiter,
   registrationStartRateLimiter,
   tokenConsumeRateLimiter,
@@ -49,10 +52,15 @@ const flows = {
   otherFlagOnly: { email_code_enabled: true, registration_code_enabled: false },
 } as const;
 
+const RESTART_URL = 'https://client.example.com/login?start=1&signup=1';
+
 function request(loginFlow: unknown, extra: Record<string, unknown> = {}) {
   return {
     query: { ...query, ...(extra.query as object | undefined) }, body: extra.body ?? {}, headers: {}, cookies: {},
-    config: { domain: 'client.example.com', ...(loginFlow === undefined ? {} : { login_flow: loginFlow }) },
+    config: {
+      domain: 'client.example.com', registration_restart_url: RESTART_URL,
+      ...(loginFlow === undefined ? {} : { login_flow: loginFlow }), ...(extra.config as object | undefined),
+    },
     configUrl: query.config_url, adminDb: {}, ip: '127.0.0.1',
   };
 }
@@ -102,6 +110,11 @@ describe('registrationContext', () => {
     expect(() => registrationContext(request(loginFlow) as never)).toThrowError('REGISTRATION_UNAVAILABLE');
   });
 
+  it('refuses the flag alone: without a registration restart URL the flow behaves as off', () => {
+    const missing = request({ registration_code_enabled: true }, { config: { registration_restart_url: undefined } });
+    expect(() => registrationContext(missing as never)).toThrowError('REGISTRATION_UNAVAILABLE');
+  });
+
   it('builds the context once the signed config opts in', () => {
     const context = registrationContext(request({ registration_code_enabled: true }) as never);
     expect(context).toMatchObject({ configUrl: query.config_url, codeChallengeMethod: 'S256', requestAccess: false });
@@ -125,6 +138,11 @@ describe.each(Object.entries(flows))('with the flag off (login_flow %s)', (_name
   it('code refuses without checking the code or spending an attempt', async () => {
     await refusal(routes().get('POST /auth/registration/code')!(request(loginFlow, { body: { id, code: 'AB3K7M' } }), reply().object));
     expect(mocks.code).not.toHaveBeenCalled();
+  });
+
+  it('continue refuses without reading a registration', async () => {
+    await refusal(routes().get('POST /auth/registration/continue')!(request(loginFlow, { body: { id } }), reply().object));
+    expect(mocks.resume).not.toHaveBeenCalled();
   });
 
   it('events refuse before the WebSocket upgrade', async () => {
@@ -178,6 +196,8 @@ describe('rate-limit namespaces', () => {
     expect(limiterOf('/auth/registration/code')).not.toBe(verifyCodeRateLimiter);
     expect(limiterOf('/auth/registration/link')).toBe(registrationLinkRateLimiter);
     expect(limiterOf('/auth/registration/link')).not.toBe(tokenConsumeRateLimiter);
+    expect(limiterOf('/auth/registration/continue')).toBe(registrationContinueRateLimiter);
+    expect(limiterOf('/auth/registration/continue')).not.toBe(registrationStatusRateLimiter);
   });
 
   // Each poll and upgrade verifies the product config, which is an outbound fetch, so both are

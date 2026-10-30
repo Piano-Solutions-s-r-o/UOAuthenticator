@@ -75,6 +75,8 @@ describe('validateConfigFields', () => {
     // An explicit false is stripped by older builds as an unknown key, so it must fingerprint the same.
     const explicitOff = validateConfigFields({ ...basePayload(), login_flow: { registration_code_enabled: false } });
     expect(fingerprintClientConfig(explicitOff)).toBe(fingerprintClientConfig(beforeTheFlag));
+    // The same holds for the restart claim: absent from the parsed config, absent from the hash.
+    expect(parsed).not.toHaveProperty('registration_restart_url');
     // Opting in is a real config change and does change the binding.
     const optedIn = validateConfigFields({ ...basePayload(), login_flow: { registration_code_enabled: true } });
     expect(fingerprintClientConfig(optedIn)).not.toBe(fingerprintClientConfig(parsed));

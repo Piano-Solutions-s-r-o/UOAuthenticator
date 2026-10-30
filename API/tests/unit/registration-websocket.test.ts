@@ -10,7 +10,7 @@ import { registerRegistrationWebSocket } from '../../src/routes/auth/registratio
 
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
 
-it('delivers approval arriving during the initial database read without waiting for the polling timer', async () => {
+it('delivers a change arriving during the initial database read without waiting for the polling timer', async () => {
   vi.useFakeTimers();
   const id = '9466e365-206c-49cb-a8d5-aa1342bdd613';
   let resolveInitial!: (value: { status: string }) => void;
@@ -28,8 +28,49 @@ it('delivers approval arriving during the initial database read without waiting 
   resolveInitial({ status: 'pending' });
   await vi.advanceTimersByTimeAsync(0);
   expect(mocks.state).toHaveBeenCalledTimes(2);
-  expect(socket.send).toHaveBeenCalledExactlyOnceWith(JSON.stringify({ type: 'registration.email_verified', status: 'verified' }));
+  expect(socket.send).toHaveBeenCalledExactlyOnceWith(JSON.stringify({ type: 'registration.changed' }));
   socket.emit('close');
   expect(unsubscribe).toHaveBeenCalledOnce();
   expect(vi.getTimerCount()).toBe(0);
+});
+
+function connect() {
+  const id = '9466e365-206c-49cb-a8d5-aa1342bdd613';
+  mocks.subscribe.mockImplementation(() => vi.fn());
+  const order: string[] = [];
+  const socket = Object.assign(new EventEmitter(), {
+    send: vi.fn(() => { order.push('send'); }), close: vi.fn(() => { order.push('close'); }),
+  });
+  const get = vi.fn();
+  registerRegistrationWebSocket({ get } as unknown as FastifyInstance);
+  get.mock.calls[0][2](socket, { query: { id }, cookies: {}, adminDb: {} });
+  return { socket, order };
+}
+
+it('sends the hint before it closes on complete, so the window goes in at once', async () => {
+  vi.useFakeTimers();
+  mocks.state.mockResolvedValue({ status: 'complete' });
+  const { socket, order } = connect();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(order).toEqual(['send', 'close']);
+  expect(socket.send).toHaveBeenCalledExactlyOnceWith(JSON.stringify({ type: 'registration.changed' }));
+  socket.emit('close');
+});
+
+it('closes on expired without a hint: nothing is left to act on', async () => {
+  vi.useFakeTimers();
+  mocks.state.mockResolvedValue({ status: 'expired' });
+  const { socket, order } = connect();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(order).toEqual(['close']);
+  socket.emit('close');
+});
+
+it('stays quiet while the registration is pending', async () => {
+  vi.useFakeTimers();
+  mocks.state.mockResolvedValue({ status: 'pending' });
+  const { socket, order } = connect();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(order).toEqual([]);
+  socket.emit('close');
 });
