@@ -17,6 +17,9 @@ import { disconnectPrisma } from '../../src/db/prisma.js';
 import { registrationCookieName } from '../../src/services/registration-credentials.js';
 
 // The DB-less CI step runs every test file; DB-backed files skip themselves without DATABASE_URL.
+// injectWS builds a plain request, and the upgrade's rate limit reads the peer address from it.
+const peer = { remoteAddress: '127.0.0.1' };
+
 describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration', () => {
   let db: NonNullable<Awaited<ReturnType<typeof createTestDb>>>;
   let app: Awaited<ReturnType<typeof createApp>>;
@@ -93,7 +96,7 @@ describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration',
     expect((await app.inject({ method: 'GET', url: `/auth/registration/status?${off}&id=${unknown}`, headers: { origin } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'POST', url: `/auth/registration/code?${off}`, payload: { id: unknown, code: 'AB3K7M' },
       headers: { origin, 'x-forwarded-for': '192.0.2.201' } })).statusCode).toBe(400);
-    await expect(app.injectWS(`/auth/registration/events?${off}&id=${unknown}`, { headers: { origin } })).rejects.toThrow();
+    await expect(app.injectWS(`/auth/registration/events?${off}&id=${unknown}`, { headers: { origin }, socket: peer })).rejects.toThrow('Unexpected server response: 400');
     expect(await db.prisma.authFunnelDailyCount.findMany({ where: { domain: 'client.example.com' } })).toEqual([]);
   });
   it('notifies and authorizes the original browser when another device confirms, without signing that device in', async () => {
@@ -101,7 +104,7 @@ describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration',
     let resolveMessage!: (value: string) => void;
     const messagePromise = new Promise<string>(resolve => { resolveMessage = resolve; });
     const socket = await app.injectWS(`/auth/registration/events?${query}&id=${flow.id}`, {
-      headers: { cookie: flow.cookie, origin },
+      headers: { cookie: flow.cookie, origin }, socket: peer,
     }, { onInit: client => { client.on('message', value => resolveMessage(String(value))); } });
     const result = await link(flow);
     expect(result.statusCode, result.body).toBe(200);
@@ -189,7 +192,7 @@ describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration',
     let resolveMessage!: (value: string) => void;
     const messagePromise = new Promise<string>(resolve => { resolveMessage = resolve; });
     const socket = await app.injectWS(`/auth/registration/events?${query}&id=${flow.id}`, {
-      headers: { cookie: flow.cookie, origin },
+      headers: { cookie: flow.cookie, origin }, socket: peer,
     }, { onInit: client => { client.on('message', value => resolveMessage(String(value))); } });
     const message = await messagePromise;
     expect(JSON.parse(message)).toEqual({ type: 'registration.email_verified', status: 'verified' });
@@ -197,8 +200,8 @@ describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration',
   });
   it('refuses unauthenticated websocket upgrades and cross-origin subscriptions', async () => {
     const flow = await start();
-    await expect(app.injectWS(`/auth/registration/events?${query}&id=${flow.id}`, { headers: { origin } })).rejects.toThrow();
-    await expect(app.injectWS(`/auth/registration/events?${query}&id=${flow.id}`, { headers: { origin: 'https://evil.example', cookie: flow.cookie } })).rejects.toThrow();
+    await expect(app.injectWS(`/auth/registration/events?${query}&id=${flow.id}`, { headers: { origin }, socket: peer })).rejects.toThrow('Unexpected server response: 400');
+    await expect(app.injectWS(`/auth/registration/events?${query}&id=${flow.id}`, { headers: { origin: 'https://evil.example', cookie: flow.cookie }, socket: peer })).rejects.toThrow('Unexpected server response: 403');
   });
   it('serves an isolated confirmation page without consuming a link on GET', async () => {
     const result = await app.inject({ method: 'GET', url: '/auth/registration/link' });
