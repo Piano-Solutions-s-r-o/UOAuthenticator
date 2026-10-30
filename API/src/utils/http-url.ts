@@ -15,7 +15,7 @@ export function tryParseHttpUrl(value: string): URL | null {
   return u;
 }
 
-const REDIRECT_LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+export const REDIRECT_LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 // Schemes that execute in or read from the page/host context — never valid redirect
 // targets. Blocked outright so a signed config (or admin entry) can never drive the auth

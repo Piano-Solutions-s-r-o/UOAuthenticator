@@ -234,7 +234,9 @@ Anything else (HTML, error JSON, empty body) fails with \`CONFIG_FETCH_FAILED\`.
 
 The payload MUST NOT contain \`SHARED_SECRET\`, the \`client_secret\` from Phase 1, the \`client_hash\`, refresh tokens, OAuth codes, or any other secret. UOA scans for known secret patterns and refuses the config if it sees one.
 
-Optional fields are documented at \`/api\` under \`config_jwt_documentation.optional_fields\`, including \`2fa_enabled\`, \`debug_enabled\`, \`user_scope\`, \`allow_registration\`, \`existing_user_registration_behavior\`, \`registration_mode\`, \`allowed_registration_domains\`, \`registration_domain_mapping\`, \`session.*\`, \`org_features.*\`, and \`access_requests.*\`.
+Optional fields are documented at \`/api\` under \`config_jwt_documentation.optional_fields\`, including \`2fa_enabled\`, \`debug_enabled\`, \`user_scope\`, \`allow_registration\`, \`existing_user_registration_behavior\`, \`registration_mode\`, \`allowed_registration_domains\`, \`registration_domain_mapping\`, \`session.*\`, \`org_features.*\`, \`access_requests.*\`, and \`login_restart_url\`.
+
+\`login_restart_url\` is your sign-in initiation URL (not a code callback): same origin as one of \`redirect_urls\`, HTTPS (HTTP on loopback only), no credentials or fragment. After a password reset, and on any login view that has no PKCE (for example a stale email link), the Auth UI sends the user there so your app starts a fresh PKCE sign-in. An invalid value fails the whole config. Without the claim, those views keep the previous behavior.
 
 ### 2.5 Two-factor policy model
 

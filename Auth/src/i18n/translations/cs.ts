@@ -36,7 +36,11 @@ export const cs = {
   'form.password.requirement.minLength': 'Alespoň 8 znaků',
   'form.error.generic': 'Požadavek se nezdařil. Zkus to prosím znovu.',
   'form.login.submit': 'Přihlásit se',
-  'form.login.error': 'Neplatný e-mail nebo heslo.',
+  'form.login.error':
+    'E-mail nebo heslo nesedí. Ještě nemáš účet? Vytvoř si ho tlačítkem níže. Heslo si obnovíš přes Zapomenuté heslo.',
+  'form.login.errorPlain': 'Neplatný e-mail nebo heslo.',
+  'form.login.rateLimited':
+    'Moc pokusů za sebou, přihlášení je na chvíli pozastavené. Zkus to znovu nejdéle za 15 minut, nebo si mezitím obnov heslo přes Zapomenuté heslo.',
   'form.register.submit': 'Registrovat',
   'form.resetPassword.submit': 'Odeslat pokyny k obnovení',
   'form.setPassword.submit': 'Nastavit heslo a pokračovat',
@@ -57,6 +61,8 @@ export const cs = {
 
   'nav.forgotPassword': 'Zapomenuté heslo?',
   'nav.createAccount': 'Vytvořit účet',
+  'auth.login.restartRequired': 'Tenhle odkaz už neplatí. Klikni na Přihlásit se a zadej svůj e-mail a heslo. Účet už máš, znovu se registrovat nemusíš.',
+  'auth.login.restartButton': 'Přihlásit se',
   'nav.backToLogin': 'Zpět na přihlášení',
   'nav.resetPassword': 'Obnovit heslo',
   'nav.emailMeCode': 'Poslat mi přihlašovací kód e-mailem',

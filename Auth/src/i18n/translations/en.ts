@@ -34,7 +34,11 @@ export const en = {
   'form.password.requirement.minLength': 'Be at least 8 characters',
   'form.error.generic': 'Request failed. Please try again.',
   'form.login.submit': 'Sign in',
-  'form.login.error': 'Invalid email or password.',
+  'form.login.error':
+    "That email and password don't match. No account yet? Create one with the button below. You can reset your password with Forgot your password.",
+  'form.login.errorPlain': 'Invalid email or password.',
+  'form.login.rateLimited':
+    'Too many attempts in a row, so sign-in is paused for a moment. Try again in 15 minutes at most, or reset your password with Forgot your password in the meantime.',
   'form.register.submit': 'Register',
   'form.resetPassword.submit': 'Send reset instructions',
   'form.setPassword.submit': 'Set password and continue',
@@ -57,6 +61,8 @@ export const en = {
   // Navigation links between auth views.
   'nav.forgotPassword': 'Forgot your password?',
   'nav.createAccount': 'Create an account',
+  'auth.login.restartRequired': 'This link is no longer valid. Click Sign in and enter your email and password. You already have an account, so you don’t need to register again.',
+  'auth.login.restartButton': 'Sign in',
   'nav.backToLogin': 'Back to sign in',
   'nav.resetPassword': 'Reset password',
   'nav.emailMeCode': 'Email me a sign-in code',
