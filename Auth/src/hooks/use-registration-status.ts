@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react';
 import { getJson, type QueryValue } from '../utils/api.js';
 
 export type RegistrationState = {
-  status: 'pending' | 'verified' | 'authorized' | 'complete' | 'expired';
+  status: 'pending' | 'authorized' | 'complete' | 'expired';
   token?: string;
   token_type?: string;
 };

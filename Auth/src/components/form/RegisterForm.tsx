@@ -14,9 +14,7 @@ type RegisterRequest = { email: string };
  * HUGO-1858: the single owner of "where does the way back to sign in live". With the same
  * switch as LoginForm's create-account button (`button.create_account: secondary`), RegisterForm
  * renders it as a secondary button in every state it shows (form, sent confirmation and
- * already-registered; with the registration code flow on, the "check your email" screen is
- * RegistrationVerificationPage, which uses the same switch);
- * otherwise RegisterPage keeps its text link below the social buttons.
+ * already-registered); otherwise RegisterPage keeps its text link below the social buttons.
  */
 export function useBackToLoginAsButton(): boolean {
   return useTheme().theme.button.createAccount === 'secondary';
@@ -41,7 +39,7 @@ export function RegisterForm(props: {
   } = usePopup();
   const [email, setEmail] = useState('');
   // HUGO-2261: off (the default) is the original flow — /auth/register, a link email and the
-  // "instructions sent" confirmation below; on is the code + any-device link flow.
+  // "instructions sent" confirmation below; on is the link finished where it is clicked, or a code.
   const registrationCode = isRegistrationCodeEnabled(config);
   const [submitted, setSubmitted] = useState(props.initialSubmitted ?? false);
   const [error, setError] = useState(false);

@@ -13,6 +13,7 @@ export async function render(_params: {
   configUrl: string;
   // Fastify request URL: "/auth?config_url=...&redirect_url=...".
   url?: string;
+  registrationHandoff?: unknown;
 }): Promise<string> {
   // No client-only globals should be accessed here.
   const initialSearch =
@@ -22,6 +23,7 @@ export async function render(_params: {
       config={_params.config}
       configUrl={_params.configUrl}
       initialSearch={initialSearch}
+      registrationHandoff={_params.registrationHandoff}
     />,
   );
 }

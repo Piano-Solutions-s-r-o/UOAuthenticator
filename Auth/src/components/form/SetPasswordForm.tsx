@@ -11,8 +11,10 @@ import { checkPasswordPolicy } from '../../utils/password-policy.js';
 import { applyWorkspaceOutcome, interpretWorkspaceResponse } from '../../utils/workspace-response.js';
 
 type SetPasswordRequest = { token: string; password: string };
+// A browser that opened a registration link holds no token: its cookie names the registration.
+type VerifyEmailRequest = { token?: string; password: string };
 
-export function SetPasswordForm(): React.JSX.Element {
+export function SetPasswordForm(props: { registering?: boolean }): React.JSX.Element {
   const { t } = useTranslation();
   const {
     config,
@@ -30,6 +32,7 @@ export function SetPasswordForm(): React.JSX.Element {
     startTwoFactorSetup,
     requestAccess,
     beginRegistration,
+    registrationHandoff,
   } = usePopup();
 
   const [password, setPassword] = useState('');
@@ -67,6 +70,7 @@ export function SetPasswordForm(): React.JSX.Element {
       case 'INVALID_TOKEN_USER':
       case 'TOKEN_EXPIRED':
       case 'TOKEN_ALREADY_USED':
+      case 'REGISTRATION_UNAVAILABLE':
         setError(t('form.setPassword.linkInvalid'));
         return;
       default:
@@ -88,14 +92,14 @@ export function SetPasswordForm(): React.JSX.Element {
       return;
     }
 
-    if (!emailToken) {
+    if (!emailToken && !registrationHandoff) {
       setError(t('form.setPassword.linkInvalid'));
       return;
     }
 
     setLoading(true);
 
-    if (isPasswordReset) {
+    if (isPasswordReset && emailToken) {
       const result = await postJson<SetPasswordRequest, unknown>(
         '/auth/reset-password',
         { token: emailToken, password },
@@ -119,9 +123,9 @@ export function SetPasswordForm(): React.JSX.Element {
     }
     if (requestAccess) query.request_access = true;
 
-    const result = await postJson<SetPasswordRequest, unknown>(
+    const result = await postJson<VerifyEmailRequest, unknown>(
       '/auth/verify-email',
-      { token: emailToken, password },
+      emailToken ? { token: emailToken, password } : { password },
       query,
     );
     setLoading(false);
@@ -212,7 +216,7 @@ export function SetPasswordForm(): React.JSX.Element {
 
         <div className="mt-2">
           <Button variant="primary" type="submit" disabled={!hydrated || loading}>
-            {loading ? '...' : t('form.setPassword.submit')}
+            {loading ? '...' : t(props.registering ? 'registration.password.submit' : 'form.setPassword.submit')}
           </Button>
         </div>
       </fieldset>

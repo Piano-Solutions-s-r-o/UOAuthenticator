@@ -7,6 +7,7 @@ import {
   type PendingRegistration,
 } from '../utils/pending-registration.js';
 import { isRegistrationCodeEnabled } from '../utils/auth-config.js';
+import type { RegistrationHandoff } from '../utils/bootstrap.js';
 
 export type AuthView =
   | 'login'
@@ -123,6 +124,8 @@ export type PopupContextValue = PopupQueryParams & {
   setView: (view: AuthView) => void;
   /** The browser-bound registration awaiting email verification (public id + display address). */
   pendingRegistration: PendingRegistration | null;
+  /** Set by the server when this browser opened a registration link and may finish it here. */
+  registrationHandoff: RegistrationHandoff | null;
   beginRegistration: (value: PendingRegistration | null) => void;
   setRegistrationProof: (token: string, type: string) => void;
   startTwoFactorVerify: (token: string) => void;
@@ -241,7 +244,7 @@ function readClientSearch(): string {
   return window.location?.search ?? '';
 }
 
-function deriveInitialView(parsed: PopupQueryParams): AuthView {
+function deriveInitialView(parsed: PopupQueryParams, registrationHandoff: RegistrationHandoff | null): AuthView {
   if (parsed.signingToken) {
     return 'signatures';
   }
@@ -264,6 +267,11 @@ function deriveInitialView(parsed: PopupQueryParams): AuthView {
     }
     // VERIFY_EMAIL and LOGIN_LINK are handled by auto-submission on the server; shouldn't reach here,
     // but default to login if they do.
+  }
+  if (registrationHandoff) {
+    // The server checked this browser's link. It wins over `prompt=create`, which is how the
+    // product comes back here: the person is past the form that asks for an address.
+    return 'set-password';
   }
   if (parsed.promptCreate && !parsed.emailToken && !parsed.twoFaToken && !parsed.twoFaSetupToken) {
     // OIDC prompt=create: open account creation first. RegisterPage itself falls back to login
@@ -288,6 +296,7 @@ export function PopupProvider(props: {
   initialPendingRegistration?: PendingRegistration | null;
   initialLoginToken?: string | null;
   initialWorkspaceChoices?: WorkspaceChoices | null;
+  registrationHandoff?: RegistrationHandoff | null;
   children: React.ReactNode;
 }): React.JSX.Element {
   const [search] = useState(() => {
@@ -297,11 +306,14 @@ export function PopupProvider(props: {
 
   const parsed = useMemo(() => parsePopupQueryParams(search), [search]);
   const storageKey = registrationStorageKey(props.configUrl, search);
+  const registrationHandoff = props.registrationHandoff ?? null;
   const [pendingRegistration, setPendingRegistration] = useState<PendingRegistration | null>(
     () => props.initialPendingRegistration ?? null,
   );
   const [registrationProof, setRegistrationProofState] = useState<{ token: string; type: string } | null>(null);
-  const [view, setViewState] = useState<AuthView>(() => props.initialView ?? deriveInitialView(parsed));
+  const [view, setViewState] = useState<AuthView>(
+    () => props.initialView ?? deriveInitialView(parsed, registrationHandoff),
+  );
   const [twoFaToken, setTwoFaToken] = useState<string | null>(() => parsed.twoFaToken);
   const [twoFactorSetup, setTwoFactorSetup] = useState<TwoFactorSetupState | null>(() =>
     parsed.twoFaSetupToken ? { setup_token: parsed.twoFaSetupToken } : null,
@@ -325,14 +337,14 @@ export function PopupProvider(props: {
     // (`prompt=create` opens on 'register'); any flow-specific landing keeps its own view. A
     // product that has not opted in (HUGO-2261) never has one to resume.
     if (!isRegistrationCodeEnabled(props.config)) return;
-    const initial = deriveInitialView(parsed);
+    const initial = deriveInitialView(parsed, registrationHandoff);
     if (initial !== 'login' && initial !== 'register') return;
     const pending = readPendingRegistration(storageKey);
     if (pending) {
       setPendingRegistration(pending);
       setViewState('registration-verification');
     }
-  }, [parsed, storageKey, props.config]);
+  }, [parsed, registrationHandoff, storageKey, props.config]);
 
   const beginRegistration = useCallback(
     (value: PendingRegistration | null) => {
@@ -399,6 +411,7 @@ export function PopupProvider(props: {
       view,
       setView,
       pendingRegistration,
+      registrationHandoff,
       beginRegistration,
       setRegistrationProof,
       startTwoFactorVerify,
@@ -444,6 +457,7 @@ export function PopupProvider(props: {
     view,
     setView,
     pendingRegistration,
+    registrationHandoff,
     beginRegistration,
     setRegistrationProof,
     registrationProof,
