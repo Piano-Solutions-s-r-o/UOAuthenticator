@@ -2358,7 +2358,7 @@ paths:
         '101': { description: Authenticated WebSocket connection; notifications contain no credentials. }
         '400': { description: Generic invalid registration or binding. }
         '403': { description: Origin refused. }
-        '429': { description: Subscription capacity exceeded. }
+        '429': { description: Rate limited, or subscription capacity exceeded. }
 
   /auth/registration/link:
     get:
