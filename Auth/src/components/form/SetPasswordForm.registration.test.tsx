@@ -10,6 +10,7 @@ vi.mock('../../utils/api.js', async importOriginal => ({
 import { PopupProvider } from '../../hooks/use-popup.js';
 import { I18nProvider } from '../../i18n/I18nProvider.js';
 import { ThemeProvider } from '../../theme/ThemeProvider.js';
+import { SetPasswordPage } from '../../pages/SetPasswordPage.js';
 import { SetPasswordForm } from './SetPasswordForm.js';
 
 const challenge = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ';
@@ -62,7 +63,7 @@ beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   mocks.post.mockReset();
 });
-afterEach(() => { document.body.innerHTML = ''; });
+afterEach(() => { document.body.innerHTML = ''; vi.unstubAllGlobals(); });
 
 it('posts only the password: the browser that opened the link never holds a token', async () => {
   mocks.post.mockResolvedValue({ ok: false, status: 400, error: 'Request failed', code: 'REGISTRATION_UNAVAILABLE' });
@@ -81,5 +82,32 @@ it('shows the invalid-link message when another browser finished first', async (
   const root = await mount(host);
   await submit(host);
   expect(host.textContent).toContain('This link is invalid');
+  act(() => root.unmount());
+});
+
+// The form forgets the registration just before the browser leaves. The screen must not fall back
+// to the password-reset wording in that moment.
+it('keeps the registration wording while the original window navigates away', async () => {
+  vi.stubGlobal('location', { ...window.location, assign: vi.fn() });
+  mocks.post.mockResolvedValue({ ok: true, status: 200, data: { ok: true, redirect_to: 'https://client.example.com/oauth/callback?code=abc' } });
+  const host = document.createElement('div'); document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <ThemeProvider config={config} configUrl="">
+        <I18nProvider config={config} configUrl="">
+          <PopupProvider configUrl="https://client.example.com/auth-config" config={config}
+            initialSearch={`${search}&email_token=registration.proof&email_token_type=VERIFY_EMAIL_SET_PASSWORD`}
+            initialPendingRegistration={{ id: 'r', email: 'person@example.com' }}>
+            <SetPasswordPage />
+          </PopupProvider>
+        </I18nProvider>
+      </ThemeProvider>,
+    );
+  });
+  await submit(host);
+  expect(window.location.assign).toHaveBeenCalledOnce();
+  expect(host.querySelector('h1')?.textContent).toBe('Create your password');
+  expect(host.textContent).toContain('person@example.com');
   act(() => root.unmount());
 });
