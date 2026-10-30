@@ -40,7 +40,7 @@ describe('registration verification email', () => {
     for (const body of [template.text, template.html]) {
       expect(body).toContain(`Odkaz i kód platí ${registrationTokenTtlHours()} hodin. Odkaz jde použít jen jednou.`);
       expect(body).toContain('Když odkaz otevřeš na jiném zařízení, registrace pokračuje v okně, kde začala. Toto zařízení se nepřihlásí.');
-      expect(body).toContain('Pokud o registraci nevíš, e-mail klidně ignoruj.');
+      expect(body).toContain('Pokud o registraci nevíš, na nic neklikej a e-mail ignoruj.');
     }
   });
 

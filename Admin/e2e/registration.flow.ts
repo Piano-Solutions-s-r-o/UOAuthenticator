@@ -435,7 +435,7 @@ test('the Czech verification email keeps the button, the link and the large spac
   await expect(page.getByText('AB3K7M', { exact: true })).toHaveCSS('font-weight', '700');
   await expect(page.getByText(/Odkaz i kód platí 24 hodin\. Odkaz jde použít jen jednou\./)).toBeVisible();
   await expect(page.getByText(/Toto zařízení se nepřihlásí\./)).toBeVisible();
-  await expect(page.getByText('Pokud o registraci nevíš, e-mail klidně ignoruj.')).toBeVisible();
+  await expect(page.getByText('Pokud o registraci nevíš, na nic neklikej a e-mail ignoruj.')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath('after-email-cs.png'), fullPage: true });
 });

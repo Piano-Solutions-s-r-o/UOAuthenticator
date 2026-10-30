@@ -78,7 +78,7 @@ const REGISTRATION_VERIFICATION_COPY: Record<EmailLocale, RegistrationVerificati
     codeLabel: 'Or enter this verification code:',
     expiry: (hours) => `The link and code expire in ${hours} hours. The link can only be used once.`,
     note: 'If you open the link on another device, registration continues in the window where it started. That device is not signed in.',
-    ignoreLabel: 'If you did not request this, ignore this email.',
+    ignoreLabel: 'If you did not request this, do not click anything and ignore this email.',
   },
   cs: {
     subject: 'Ověř svůj e-mail',
@@ -88,7 +88,7 @@ const REGISTRATION_VERIFICATION_COPY: Record<EmailLocale, RegistrationVerificati
     codeLabel: 'Nebo zadej tento kód:',
     expiry: (hours) => `Odkaz i kód platí ${hours} hodin. Odkaz jde použít jen jednou.`,
     note: 'Když odkaz otevřeš na jiném zařízení, registrace pokračuje v okně, kde začala. Toto zařízení se nepřihlásí.',
-    ignoreLabel: 'Pokud o registraci nevíš, e-mail klidně ignoruj.',
+    ignoreLabel: 'Pokud o registraci nevíš, na nic neklikej a e-mail ignoruj.',
   },
 };
 
