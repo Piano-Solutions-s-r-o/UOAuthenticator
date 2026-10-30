@@ -213,12 +213,17 @@ export async function continuePendingRegistration(
     await lockProductWorkspacePolicyShared(tx);
     const row = await lockRegistration(tx, params.id);
     assertBrowser(row, params.credential, params);
-    if (!row.completedAt || !row.completedUserId || row.completedEpoch === null || row.continuedAt ||
+    if (!row.completedAt || !row.completedUserId || row.completedEpoch === null ||
       Date.now() - row.completedAt.getTime() > REGISTRATION_CONTINUE_TTL_MS) refuse();
     const user = await tx.user.findUnique({ where: { id: row.completedUserId }, select: { twoFaEnabled: true } });
     if (!user) refuse();
+    // Once for the whole family, whichever of its registrations asks. Only finished rows count: a
+    // resend after completion is a row of this family that must not reopen the claim.
     const claimed = await tx.pendingRegistration.updateMany({
-      where: { credentialHash: row.credentialHash, contextHash: row.contextHash, emailHash: row.emailHash, continuedAt: null },
+      where: {
+        credentialHash: row.credentialHash, contextHash: row.contextHash, emailHash: row.emailHash,
+        completedAt: { not: null }, continuedAt: null,
+      },
       data: { continuedAt: new Date() },
     });
     if (!claimed.count) refuse();
