@@ -227,6 +227,23 @@ describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration',
     const rows = await db.prisma.pendingRegistration.findMany({ where: { id: { in: [exhausted.id, expired.id] } } });
     expect(rows.map(row => row.browserAuthorizedAt)).toEqual([null, null]);
   });
+  it('keeps the browser secret only for a real resend', async () => {
+    const secret = (cookie: string) => cookie.split('=')[1];
+    const first = await start();
+    expect(secret((await resend(first)).cookie)).toBe(secret(first.cookie));
+    const attempt = async (email: string, cookie: string, url = query) => {
+      sequence += 1;
+      const response = await app.inject({ method: 'POST', url: `/auth/registration/start?${url}`, payload: { email, previous_id: first.id },
+        headers: { origin, cookie, 'x-forwarded-for': `192.0.2.${sequence}` } });
+      expect(response.statusCode, response.body).toBe(200);
+      return secret(String(response.headers['set-cookie']).split(';')[0]);
+    };
+    expect(await attempt(`other-${sequence}@example.com`, first.cookie)).not.toBe(secret(first.cookie));
+    expect(await attempt(first.email, `${registrationCookieName(first.id)}=not-the-secret`)).not.toBe('not-the-secret');
+    const otherWindow = new URLSearchParams(query);
+    otherWindow.set('code_challenge', 'zbcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ');
+    expect(await attempt(first.email, first.cookie, otherWindow.toString())).not.toBe(secret(first.cookie));
+  });
   it('keeps the 24 hours of the older link after a resend', async () => {
     const first = await start();
     const second = await resend(first);
