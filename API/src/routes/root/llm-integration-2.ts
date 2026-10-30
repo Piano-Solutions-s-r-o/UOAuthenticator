@@ -7,7 +7,7 @@ pre-bind their mandatory exact workspace before 2FA when the chooser is off:
 \`\`\`jsonc
 "login_flow": {
   "email_code_enabled": false,      // offer a 6-digit sign-in code alongside the magic link
-  "registration_code_enabled": false, // opt in to browser-bound registration (code or any-device link), see below
+  "registration_code_enabled": false, // opt in to browser-bound registration (a link finished where it is clicked, or a code); needs registration_restart_url, see below
   "workspace_selection": "off"      // "off" suppresses the chooser; "auto" may show it
 }
 \`\`\`

@@ -49,6 +49,7 @@ const safeConfigJwtPayloadKeys = new Set([
   'redirect_urls',
   'registration_redirect_urls',
   'login_restart_url',
+  'registration_restart_url',
   'enabled_auth_methods',
   'ui_theme',
   'language_config',
