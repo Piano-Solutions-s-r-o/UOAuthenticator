@@ -42,13 +42,14 @@ export function RegistrationVerificationPage(): React.JSX.Element {
 
   async function receive(next: RegistrationState) {
     setStatus(next.status);
-    if (finishing.current || busy.current || !pending) return;
+    if (finishing.current || !pending) return;
+    // Polling stops on this state, so it is not left for later even during a resend.
     if (next.status === 'complete') {
       finishing.current = true;
       await continueHere(pending.id);
       return;
     }
-    if (next.status !== 'authorized' || !next.token) return;
+    if (busy.current || next.status !== 'authorized' || !next.token) return;
     finishing.current = true;
     if (next.token_type === 'VERIFY_EMAIL_SET_PASSWORD') {
       popup.setRegistrationProof(next.token, next.token_type);

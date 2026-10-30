@@ -38,7 +38,8 @@ Completion marks the resend family in the transaction that spends the token: reg
 the same address from the same browser and OAuth context, so a link from an older email finishes
 the window on the newest one. A resend keeps the browser's cookie secret, which is what ties the
 family together, and it never reaches another address or browser. If two browsers race, the first
-password wins and the other gets a generic failure.
+password wins and the other hears `REGISTRATION_COMPLETE`: only a link holder or the original
+window can, so it says nothing to a stranger.
 
 The original window then goes in by itself, with no password, for 15 minutes after completion:
 it calls `POST /auth/registration/continue` with its own cookie and exact OAuth/config context,
@@ -47,6 +48,14 @@ workspace, 2FA and code issuance as ordinary verification, bound to that window'
 2FA is needed the window shows the normal 2FA step. Status never carries a code. This is decision
 2 of the owner's plan: starting a registration with someone else's address and having that person
 set the password signs in the window that started it. If this fails the window offers sign-in.
+When the link opened in another tab of the browser that started, that tab is the one that goes in
+and the window stays out, because two tabs of one browser must not both go to the product at once.
+
+The password form posts back the address it showed, and the server refuses it unless that is the
+address the handoff cookie registers now. The cookie opens the form only when the product starts
+registration (`prompt=create`, which the restart URL does), so a plain sign-in stays a sign-in. A
+row outlives its registration by 30 days (`REGISTRATION_EXPIRED_RETENTION_DAYS`), because it is the
+only thing that knows where someone with an old email restarts.
 
 Nothing the customer reads mentions windows, devices or going back; the system decides.
 Authenticated WebSocket hints and polling recheck database state; refresh retains

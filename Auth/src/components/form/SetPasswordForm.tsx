@@ -11,8 +11,9 @@ import { checkPasswordPolicy } from '../../utils/password-policy.js';
 import { applyWorkspaceOutcome, interpretWorkspaceResponse } from '../../utils/workspace-response.js';
 
 type SetPasswordRequest = { token: string; password: string };
-// A browser that opened a registration link holds no token: its cookie names the registration.
-type VerifyEmailRequest = { token?: string; password: string };
+// A browser that opened a registration link holds no token: its cookie names the registration, and
+// the address says which one this form showed.
+type VerifyEmailRequest = { token: string; password: string } | { email: string; password: string };
 
 export function SetPasswordForm(props: { registering?: boolean; onFinishedElsewhere?: () => void }): React.JSX.Element {
   const { t } = useTranslation();
@@ -130,7 +131,7 @@ export function SetPasswordForm(props: { registering?: boolean; onFinishedElsewh
 
     const result = await postJson<VerifyEmailRequest, unknown>(
       '/auth/verify-email',
-      emailToken ? { token: emailToken, password } : { password },
+      emailToken ? { token: emailToken, password } : { email: registrationHandoff?.email ?? '', password },
       query,
     );
     setLoading(false);
@@ -164,6 +165,7 @@ export function SetPasswordForm(props: { registering?: boolean; onFinishedElsewh
           type="button"
           onClick={() => {
             const restartUrl = loginRestartUrl(config);
+            beginRegistration(null);
             if (restartUrl) redirectTo(restartUrl);
             else setView('login');
           }}

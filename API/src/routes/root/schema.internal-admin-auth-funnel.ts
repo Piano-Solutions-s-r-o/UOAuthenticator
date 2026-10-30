@@ -19,6 +19,6 @@ export const internalAdminAuthFunnelEndpoints: EndpointSchema[] = [
       '401/403': '401 when bearer token is missing/invalid; 403 when token is not an admin-domain superuser',
     },
     notes:
-      'Steps: flow_started, register_submitted, email_start_submitted, login_submitted, registration_email, email_link_opened, set_password, social_started, sign_in_completed, original_window_continued, code_exchange. Counts only — no email, IP, user id, token or flow id is stored, and one person can be counted more than once.',
+      'Steps: flow_started, register_submitted, email_start_submitted, login_submitted, registration_email, email_link_opened, registration_link_handoff, set_password, registration_password_set, registration_completed, social_started, sign_in_completed, clicked_device_returned, original_device_returned, code_exchange. Counts only — no email, IP, user id, token or flow id is stored, and one person can be counted more than once.',
   },
 ];

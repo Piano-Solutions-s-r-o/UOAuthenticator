@@ -22,10 +22,14 @@ export const AUTH_FUNNEL_STEPS = [
   'login_submitted',
   'registration_email',
   'email_link_opened',
+  'registration_link_handoff',
   'set_password',
+  'registration_password_set',
+  'registration_completed',
   'social_started',
   'sign_in_completed',
-  'original_window_continued',
+  'clicked_device_returned',
+  'original_device_returned',
   'code_exchange',
 ] as const;
 

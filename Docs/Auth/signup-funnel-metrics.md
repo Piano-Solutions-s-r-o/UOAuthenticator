@@ -24,7 +24,11 @@ the window or submitting the form twice counts twice.
 | `set_password` | `POST /auth/verify-email` from the set-password form. | `succeeded` (set-password token: account created), `succeeded_<token type>` (another token type), `password_rejected`, `expired`, `already_used`, `failed` |
 | `social_started` | `GET /auth/social/:provider` redirects to the provider. | provider key (`google`, `apple`, …) |
 | `sign_in_completed` | A sign-in finished: UOA returned an authorization code or recorded an access request. Recorded next to every login-log write, so each password, email-link, email-code and social sign-in counts once, after any 2FA or workspace choice. Where the login log is written inside the authentication transaction, the counter is written after that transaction commits. | auth method (`email_password`, `verify_email_set_password`, `login_link`, `google`, `email_code`, …) |
-| `original_window_continued` | `POST /auth/registration/continue`: the password was set in the browser that opened the email link, and the window where registration started went in by itself. | `succeeded` |
+| `registration_link_handoff` | `POST /auth/registration/link`, the first valid opening of a browser-bound link. Once per email. | `opened` |
+| `registration_password_set` | `POST /auth/verify-email`: a browser-bound registration got its password. Once per registration. | `link` (the browser that opened the link), `code` (the window that took the code) |
+| `registration_completed` | `POST /auth/verify-email`: a browser-bound registration finished, including one for an address that already had an account. Once per registration. | `link`, `code` |
+| `clicked_device_returned` | `POST /auth/verify-email`: the browser that opened the link was sent on to the product. | `succeeded` |
+| `original_device_returned` | The window where registration started was sent on to the product. | `succeeded` (it took the code and finished itself), `continued` (`POST /auth/registration/continue`: the password was set elsewhere and it went in by itself) |
 | `code_exchange` | The product backend redeems the code at `POST /auth/token` (`authorization_code` grant). | `succeeded`, `rejected_<reason>` (the internal reason behind the opaque `INVALID_AUTH_CODE`: `code_not_found`, `expired`, `already_used`, `pkce_verifier_invalid`, `redirect_url_mismatch`, …), `failed` |
 
 Outcomes are server-chosen identifiers; anything that does not match `^[a-z0-9_]{1,64}$` is stored
@@ -82,6 +86,9 @@ Code verification is an alternative to opening the link and does not increment
 the link counter. Both methods reach the existing `set_password`,
 `sign_in_completed` and `code_exchange` writers. The product's return to `/auth` with a handoff
 cookie continues a registration already counted, so it is not a `flow_started`.
-When the original window then goes in by itself it records `original_window_continued`
-and, once it gets a code, a second `sign_in_completed`: it is a real sign-in of a second browser,
-so subtract `original_window_continued` to count people. These are events, not people.
+When the original window then goes in by itself it records `original_device_returned` with
+`continued` and, once it gets a code, a second `sign_in_completed`: it is a real sign-in of a second
+browser, so subtract that outcome to count people. The other counters here are events, not people.
+The five registration steps are the exception: each counts one registration once, so the way to
+read the funnel is `registration_email`, `registration_link_handoff`, `registration_password_set`,
+`registration_completed`, then the two `*_device_returned` steps.

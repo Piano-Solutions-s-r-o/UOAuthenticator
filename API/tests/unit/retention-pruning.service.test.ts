@@ -81,6 +81,9 @@ describe('retention-pruning.service', () => {
     expect(calls.refreshToken).toMatchObject({
       where: { expiresAt: { lt: new Date('2026-04-13T12:00:00.000Z') } },
     });
+    expect(calls.pendingRegistration).toMatchObject({
+      where: { expiresAt: { lt: new Date('2026-03-21T12:00:00.000Z') } },
+    });
     expect(calls.authorizationCode).toMatchObject({
       where: { expiresAt: { lt: now } },
     });

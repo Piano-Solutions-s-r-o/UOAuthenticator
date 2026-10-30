@@ -2413,7 +2413,7 @@ paths:
       tags: [Auth]
       operationId: openRegistrationLink
       summary: Open an emailed registration link
-      description: Approves nothing and creates nothing. For a live, unfinished set-password registration it sets the handoff cookie `uoa_registration_handoff` (signed, HttpOnly, SameSite=Lax, Path=/auth, host-only, Secure on https, 15 minutes and never past the registration, holding only the registration id and two times) and answers the product's registration_restart_url. Back at /auth, with the product's fresh S256 PKCE and the exact signed config, that cookie opens the password form, and POST /auth/verify-email takes the password with no token. A link may reissue the cookie until completion. Rate limited per link and, widely, per address. Same-origin POST required.
+      description: Approves nothing and creates nothing. For a live, unfinished set-password registration it sets the handoff cookie `uoa_registration_handoff` (signed, HttpOnly, SameSite=Lax, Path=/auth, host-only, Secure on https, 15 minutes and never past the registration, holding only the registration id and two times) and answers the product's registration_restart_url. Back at /auth, when the product starts registration (`prompt=create`) with its fresh S256 PKCE and the exact signed config, that cookie opens the password form, and POST /auth/verify-email takes the password with no token. A link may reissue the cookie until completion. Rate limited per link and, widely, per address. Same-origin POST required.
       requestBody:
         required: true
         content:
@@ -2509,7 +2509,10 @@ paths:
         Namespaced registration.* proofs additionally require the original registration
         cookie and exact immutable signed-config/OAuth context. A same-origin browser
         holding a valid registration handoff cookie sends no token: the server resolves
-        the registration's token, under the exact signed config and that browser's own PKCE.
+        the registration's token, under the exact signed config and that browser's own PKCE,
+        and requires `email` to be the address that cookie registers now. When the same
+        request also proves the original registration cookie, the original window will not
+        continue, so two tabs of one browser never both go to the product.
         Rate limited: 10/min per IP.
       parameters:
         - $ref: '#/components/parameters/configUrl'
@@ -2541,6 +2544,10 @@ paths:
                   type: string
                   minLength: 1
                   description: Required, except with a valid registration handoff cookie on a browser-bound registration product.
+                email:
+                  type: string
+                  maxLength: 320
+                  description: Only without a token, on a browser-bound registration product. The address the password form showed; a different one is refused with REGISTRATION_UNAVAILABLE.
                 password:
                   type: string
                   minLength: 1
@@ -2553,7 +2560,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthCodeSuccess'
         '400':
-          description: Missing config, missing password, or invalid token.
+          description: Missing config, missing password, or invalid token. REGISTRATION_COMPLETE means this registration already finished elsewhere; REGISTRATION_UNAVAILABLE means it cannot be finished here.
           content:
             application/json:
               schema:

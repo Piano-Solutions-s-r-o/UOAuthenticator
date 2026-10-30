@@ -70,7 +70,9 @@ from an older email finishes the window on the newest one. A resend proves the b
 by sending previous_id to /auth/registration/start with that registration's cookie.
 The older token is the one spent; the newer one dies through the epoch check. Another
 address or browser is never touched. When two browsers race, the first password wins
-and the other gets a generic failure.
+and the other gets 400 with code REGISTRATION_COMPLETE: only a link holder or the
+original window can hear that, and it means show that registration is finished, and
+sign-in.
 
 The original window, finished elsewhere. When status says complete the window calls
 POST /auth/registration/continue with {id}. Under the row lock that requires the
@@ -78,8 +80,9 @@ window's cookie and exact context, completion within the last 15 minutes and no 
 continuation, and rechecks the user and credential epoch. It then runs the same
 workspace, 2FA and code issuance as /auth/verify-email, bound to the window's own PKCE,
 so if 2FA is needed it answers the normal 2FA step. It works once for the family, and
-never when the window finished itself. On any failure show sign-in. Status never
-carries a code, so polling cannot sign anyone in.
+never when the window finished itself or when the link opened in another tab of the same
+browser: two tabs of one browser must not both go to the product. On any failure show
+sign-in. Status never carries a code, so polling cannot sign anyone in.
 
 GET /auth/registration/status and authenticated WSS /auth/registration/events
 require the original cookie plus exact signed config and OAuth context; WSS

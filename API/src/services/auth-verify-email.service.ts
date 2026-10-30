@@ -167,6 +167,7 @@ export async function verifyEmailToken(
     password?: string;
     configUrl: string;
     config: ClientConfig;
+    originalBrowser?: boolean;
   },
   deps?: VerifyEmailDeps,
 ): Promise<VerifyEmailResult> {
@@ -389,7 +390,7 @@ export async function verifyEmailToken(
           userId,
           credentialEpoch: authenticatedUser.tokenVersion,
           // A raw token only ever reaches the original browser, which needs no continuation.
-          continued: params.token !== undefined,
+          continued: params.token !== undefined || params.originalBrowser === true,
           now: decisionNow,
         })
       : [];

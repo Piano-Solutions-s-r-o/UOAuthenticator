@@ -14,7 +14,7 @@ import { subscribeRegistrationChanges } from '../../src/services/registration-ev
 import { REGISTRATION_HANDOFF_COOKIE } from '../../src/services/registration-handoff.service.js';
 import {
   challengeA, challengeB, codeOf, configUrl, createRegistrationHarness, flowQuery, loginRestartUrl, offersPassword,
-  origin, otherDomainConfigUrl, password, queryA, queryB, siblingConfigUrl, type RegistrationHarness,
+  origin, otherDomainConfigUrl, password, queryA, queryB, registerQueryB, siblingConfigUrl, type RegistrationHarness,
 } from '../helpers/pending-registration-harness.js';
 
 // HUGO-2261: the person finishes where they clicked, and the original window follows by itself.
@@ -54,10 +54,11 @@ describe.skipIf(!process.env.DATABASE_URL)('finishing a registration where the l
       expect(page.body).toContain('This link is no longer valid. Click Sign in');
     });
 
-    it('wins over prompt=create, which is how the product comes back', async () => {
+    it('leaves a plain sign-in in that browser alone', async () => {
       const flow = await h.start();
-      const page = await h.auth(await h.open(flow), `${queryB}&prompt=create`);
-      expect(offersPassword(page.body, flow.email)).toBe(true);
+      const page = await h.auth(await h.open(flow), queryB);
+      expect(page.statusCode).toBe(200);
+      expect(page.body).not.toContain('__UOA_REGISTRATION_HANDOFF__');
     });
 
     it('does not count a flow start for the product coming back', async () => {
@@ -65,16 +66,16 @@ describe.skipIf(!process.env.DATABASE_URL)('finishing a registration where the l
       const cookie = await h.open(flow);
       const counted = () => h.db.prisma.authFunnelDailyCount.aggregate({ _sum: { count: true }, where: { step: 'flow_started', domain: 'client.example.com' } });
       const before = (await counted())._sum.count ?? 0;
-      await h.auth(cookie, `${queryB}&prompt=create`);
+      await h.auth(cookie);
       expect((await counted())._sum.count ?? 0).toBe(before);
     });
 
     it.each([
-      ['another product domain', () => flowQuery(challengeB, otherDomainConfigUrl).toString()],
-      ['another config of the same domain', () => flowQuery(challengeB, siblingConfigUrl).toString()],
-      ['no PKCE', () => new URLSearchParams({ config_url: configUrl }).toString()],
-      ['a plain PKCE method', () => new URLSearchParams({ config_url: configUrl, code_challenge: challengeB, code_challenge_method: 'plain' }).toString()],
-      ['a mid-flow render', () => `${queryB}&twofa_token=abc`],
+      ['another product domain', () => `${flowQuery(challengeB, otherDomainConfigUrl)}&prompt=create`],
+      ['another config of the same domain', () => `${flowQuery(challengeB, siblingConfigUrl)}&prompt=create`],
+      ['no PKCE', () => `${new URLSearchParams({ config_url: configUrl })}&prompt=create`],
+      ['a plain PKCE method', () => `${new URLSearchParams({ config_url: configUrl, code_challenge: challengeB, code_challenge_method: 'plain' })}&prompt=create`],
+      ['a mid-flow render', () => `${registerQueryB}&twofa_token=abc`],
     ])('ignores the cookie on %s', async (_name, query) => {
       const flow = await h.start();
       const page = await h.auth(await h.open(flow), query());
@@ -87,7 +88,7 @@ describe.skipIf(!process.env.DATABASE_URL)('finishing a registration where the l
       const flow = await h.start(undefined, query);
       const cookie = await h.open(flow);
       await h.setConfig(changingConfigUrl, { language_config: 'cs' });
-      const page = await h.auth(cookie, flowQuery(challengeB, changingConfigUrl));
+      const page = await h.auth(cookie, `${flowQuery(challengeB, changingConfigUrl)}&prompt=create`);
       expect(page.body).not.toContain('__UOA_REGISTRATION_HANDOFF__');
       await h.setConfig(changingConfigUrl, { language_config: 'en' });
     });
@@ -163,6 +164,27 @@ describe.skipIf(!process.env.DATABASE_URL)('finishing a registration where the l
       expect(response.json().code).toBe('REGISTRATION_UNAVAILABLE');
     });
 
+    it('refuses when a newer link replaced the cookie after the form showed another address', async () => {
+      const shown = await h.start();
+      const other = await h.start();
+      await h.open(shown);
+      const replaced = await h.open(other);
+      const response = await h.finish(replaced, queryB, { email: shown.email, password });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('REGISTRATION_UNAVAILABLE');
+      expect(await h.db.prisma.user.count({ where: { email: { in: [shown.email, other.email] } } })).toBe(0);
+      expect((await h.finish(replaced)).statusCode).toBe(200);
+    });
+
+    it('refuses a password that names no address', async () => {
+      const flow = await h.start();
+      const cookie = await h.open(flow);
+      const response = await h.finish(cookie, queryB, { password });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('REGISTRATION_UNAVAILABLE');
+      expect(await h.db.prisma.user.count({ where: { email: flow.email } })).toBe(0);
+    });
+
     it('refuses a request from another origin even with the cookie', async () => {
       const flow = await h.start();
       const cookie = await h.open(flow);
@@ -192,7 +214,7 @@ describe.skipIf(!process.env.DATABASE_URL)('finishing a registration where the l
     it('asks for a password without spending anything', async () => {
       const flow = await h.start();
       const cookie = await h.open(flow);
-      const response = await h.finish(cookie, queryB, {});
+      const response = await h.finish(cookie, queryB, { email: flow.email });
       expect(response.statusCode).toBe(400);
       expect(response.json().code).toBe('MISSING_PASSWORD');
       expect((await h.finish(cookie)).statusCode).toBe(200);
@@ -220,6 +242,45 @@ describe.skipIf(!process.env.DATABASE_URL)('finishing a registration where the l
       expect(late.statusCode).toBe(400);
       expect(late.json().code).toBe('REGISTRATION_COMPLETE');
       expect(await h.db.prisma.user.count({ where: { email: flow.email } })).toBe(1);
+    });
+
+    it('tells the window on its password form that the other browser finished', async () => {
+      const flow = await h.start();
+      const cookie = await h.open(flow);
+      const proof = (await h.code(flow)).json().token as string;
+      expect((await h.finish(cookie)).statusCode).toBe(200);
+      const late = await h.finishInWindow(flow, proof);
+      expect(late.statusCode).toBe(400);
+      expect(late.json().code).toBe('REGISTRATION_COMPLETE');
+      expect(await issuedCodes(flow.email)).toHaveLength(1);
+    });
+
+    it('counts each step of one registration once, by the way it ended', async () => {
+      const counted = async (step: string, outcome: string) =>
+        (await h.db.prisma.authFunnelDailyCount.aggregate({ _sum: { count: true }, where: { step, outcome, domain: 'client.example.com' } }))._sum.count ?? 0;
+      const steps = [
+        ['registration_link_handoff', 'opened'], ['registration_password_set', 'link'], ['registration_completed', 'link'],
+        ['clicked_device_returned', 'succeeded'],
+      ] as const;
+      const before = await Promise.all(steps.map(([step, outcome]) => counted(step, outcome)));
+      const flow = await h.start();
+      await h.open(flow);
+      const cookie = await h.open(flow); // Opening twice is one handoff.
+      expect((await h.finish(cookie)).statusCode).toBe(200);
+      const after = await Promise.all(steps.map(([step, outcome]) => counted(step, outcome)));
+      expect(after).toEqual(before.map(count => count + 1));
+    });
+
+    it('counts the code as the original window finishing', async () => {
+      const counted = async (step: string, outcome: string) =>
+        (await h.db.prisma.authFunnelDailyCount.aggregate({ _sum: { count: true }, where: { step, outcome, domain: 'client.example.com' } }))._sum.count ?? 0;
+      const steps = [['registration_password_set', 'code'], ['registration_completed', 'code'], ['original_device_returned', 'succeeded']] as const;
+      const before = await Promise.all(steps.map(([step, outcome]) => counted(step, outcome)));
+      const flow = await h.start();
+      const proof = (await h.code(flow)).json().token as string;
+      expect((await h.finishInWindow(flow, proof)).statusCode).toBe(200);
+      const after = await Promise.all(steps.map(([step, outcome]) => counted(step, outcome)));
+      expect(after).toEqual(before.map(count => count + 1));
     });
 
     it('lets two browsers at the same moment create one account and one code', async () => {

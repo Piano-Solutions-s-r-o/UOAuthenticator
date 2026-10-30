@@ -14,7 +14,10 @@ is what finishes a registration: in the browser that opened the link (handoff co
 that browser's own PKCE) or in the original window (a code, its cookie and exact context). Both go
 through `/auth/verify-email`, and `verifyEmailToken` marks the resend family complete in the
 transaction that spends the token, so a second token never exists. The original window then calls
-`POST /auth/registration/continue`; a GET never issues a code.
+`POST /auth/registration/continue`; a GET never issues a code. It stays out when the link opened in
+another tab of its own browser, because `/auth/verify-email` then sees both cookies and closes the
+continuation in the same step. The form posts back the address it showed, and the server refuses
+any other, so a newer link in that browser cannot change whose account the password creates.
 
 Browser registration is opt-in per product through the signed config's
 `login_flow.registration_code_enabled` (default false) plus `registration_restart_url`:

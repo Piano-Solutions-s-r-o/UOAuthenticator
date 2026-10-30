@@ -29,6 +29,8 @@ export function flowQuery(challenge = challengeA, url = configUrl): URLSearchPar
 }
 export const queryA = flowQuery();
 export const queryB = flowQuery(challengeB);
+/** How the product comes back: the link's restart URL starts registration. */
+export const registerQueryB = `${queryB}&prompt=create`;
 
 export const onConfig = (overrides: Record<string, unknown> = {}) => baseClientConfigPayload({
   login_flow: { registration_code_enabled: true }, login_restart_url: loginRestartUrl,
@@ -64,6 +66,8 @@ export async function createRegistrationHarness(mailbox: Mailbox, extraConfigs: 
   let sequence = 0;
   const ip = () => { sequence += 1; return `192.0.2.${sequence % 250 + 1}`; };
   const headers = (cookie = '') => ({ origin, cookie, 'x-forwarded-for': ip() });
+  // The address each opened link's form shows, which that form posts back.
+  const shownEmail = new Map<string, string>();
 
   return {
     app, db,
@@ -106,12 +110,13 @@ export async function createRegistrationHarness(mailbox: Mailbox, extraConfigs: 
       return app.inject({ method: 'POST', url: `/auth/registration/code?${query}`, payload: { id: flow.id, code: value }, headers: headers(cookie) });
     },
     /** The product's fresh sign-in, in the browser that opened the link. */
-    auth(cookie: string, query: URLSearchParams | string = queryB) {
+    auth(cookie: string, query: URLSearchParams | string = registerQueryB) {
       return app.inject({ method: 'GET', url: `/auth?${query}`, headers: { cookie } });
     },
     /** The password form, without a token: the handoff cookie is the only reference to the registration. */
-    finish(cookie: string, query = queryB, body: Record<string, unknown> = { password }) {
-      return app.inject({ method: 'POST', url: `/auth/verify-email?${query}`, payload: body, headers: headers(cookie) });
+    finish(cookie: string, query = queryB, body?: Record<string, unknown>) {
+      const shown = shownEmail.get(cookie.split('; ')[0]);
+      return app.inject({ method: 'POST', url: `/auth/verify-email?${query}`, payload: body ?? { email: shown, password }, headers: headers(cookie) });
     },
     /** The original window's own password, with the proof it gets after a code. */
     finishInWindow(flow: Flow, token: string, query = queryA) {
@@ -126,7 +131,9 @@ export async function createRegistrationHarness(mailbox: Mailbox, extraConfigs: 
       const response = await app.inject({ method: 'POST', url: '/auth/registration/link',
         payload: { token: new URL(flow.message.link).hash.slice(1) }, headers: headers() });
       expect(response.json().status).toBe('continue');
-      return handoffCookie(response).split(';')[0];
+      const cookie = handoffCookie(response).split(';')[0];
+      shownEmail.set(cookie, flow.email);
+      return cookie;
     },
   };
 }

@@ -178,6 +178,9 @@ export async function openPendingRegistrationLink(token: string, prisma: PrismaC
   });
   await recordAuthFunnelStep({ domain: row.domain, step: 'email_link_opened',
     outcome: status === 'expired' ? 'expired' : row.linkUsedAt ? 'already_used' : 'opened' }, { prisma });
+  if (status === 'continue' && !row.linkUsedAt) {
+    await recordAuthFunnelStep({ domain: row.domain, step: 'registration_link_handoff', outcome: 'opened' }, { prisma });
+  }
   if (status === 'continue') return { status, next: row.registrationRestartUrl, id: row.id, expiresAt: row.expiresAt };
   if (status === 'expired') return { status, next: row.registrationRestartUrl };
   return { status, next: row.loginRestartUrl };
@@ -196,6 +199,8 @@ export async function assertPendingRegistrationCompletion(params: RegistrationCo
   } });
   if (!row) refuse();
   assertBrowser(row, params.cookies[registrationCookieName(row.id)] ?? '', params);
+  // The code unlocked this form, then a password was set in the browser that opened the link.
+  if (row.completedAt) throw new AppError('BAD_REQUEST', 400, 'REGISTRATION_COMPLETE');
   if (!row.browserAuthorizedAt || row.expiresAt.getTime() <= Date.now()) refuse();
 }
 

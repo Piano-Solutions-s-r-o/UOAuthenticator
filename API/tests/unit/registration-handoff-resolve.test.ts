@@ -46,7 +46,7 @@ beforeEach(() => { process.env.SHARED_SECRET = 'test-shared-secret-for-registrat
 
 describe('resolveRegistrationHandoff', () => {
   it('answers the address and the stored token hash, never a token', async () => {
-    expect(await resolve(prisma(row(), token()))).toEqual({ email: 'person@example.com', tokenHash: 'stored-hash' });
+    expect(await resolve(prisma(row(), token()))).toEqual({ email: 'person@example.com', tokenHash: 'stored-hash', originalBrowser: false });
   });
 
   it.each([

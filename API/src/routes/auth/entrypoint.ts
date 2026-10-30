@@ -84,10 +84,11 @@ export function registerAuthEntrypointRoute(app: FastifyInstance): void {
 
       const requestUrl = sanitizeTeamHintInUrl(request.raw.url ?? '');
       const start = flowStartOutcome(request.query);
-      // HUGO-2261: a browser that opened a registration link finishes it here, on the product's
-      // fresh sign-in. Anything else about the cookie is ignored, and the window stays as it was.
+      // HUGO-2261: a browser that opened a registration link finishes it here, when the product
+      // starts registration, which is what the link's restart URL does. A plain sign-in in that
+      // browser stays a sign-in. Anything else about the cookie is ignored.
       const handoff =
-        start && hasS256Challenge(request.query)
+        start === 'shown_register' && hasS256Challenge(request.query)
           ? await resolveRegistrationHandoff(
               { request, config: request.config, configUrl: request.configUrl },
               request.adminDb,

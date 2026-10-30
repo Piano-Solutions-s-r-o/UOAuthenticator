@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 
 import { getEnv } from '../config/env.js';
 import { getAdminPrisma } from '../db/prisma.js';
+import { REGISTRATION_EXPIRED_RETENTION_DAYS } from './registration-credentials.js';
 
 type RetentionPrisma = {
   pendingRegistration: Pick<PrismaClient['pendingRegistration'], 'deleteMany'>;
@@ -57,6 +58,7 @@ export async function pruneExpiredSecurityData(
   const prisma = deps?.prisma ?? (getAdminPrisma() as unknown as RetentionPrisma);
   const now = deps?.now ? deps.now() : new Date();
   const tokenCutoff = subtractDays(now, env.TOKEN_PRUNE_RETENTION_DAYS);
+  const registrationCutoff = subtractDays(now, REGISTRATION_EXPIRED_RETENTION_DAYS);
   const loginLogCutoff = subtractDays(now, env.LOG_RETENTION_DAYS);
 
   const [
@@ -69,7 +71,7 @@ export async function pruneExpiredSecurityData(
     loginLogs,
     handshakeErrorLogs,
   ] = await Promise.all([
-    prisma.pendingRegistration.deleteMany({ where: { expiresAt: { lt: now } } }),
+    prisma.pendingRegistration.deleteMany({ where: { expiresAt: { lt: registrationCutoff } } }),
     prisma.refreshToken.deleteMany({
       where: { expiresAt: { lt: tokenCutoff } },
     }),

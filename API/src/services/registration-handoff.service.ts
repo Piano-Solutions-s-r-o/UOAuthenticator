@@ -5,14 +5,14 @@ import { getPublicBaseUrl } from '../config/env.js';
 import { parsePkceChallenge } from '../utils/pkce.js';
 import type { ClientConfig } from './config.service.js';
 import { registrationConfigHash } from './pending-registration.service.js';
-import { equalRegistrationDigest, REGISTRATION_HANDOFF_TTL_MS, REGISTRATION_MAX_ATTEMPTS } from './registration-credentials.js';
+import { equalRegistrationDigest, registrationCookieName, registrationDigest, REGISTRATION_HANDOFF_TTL_MS, REGISTRATION_MAX_ATTEMPTS } from './registration-credentials.js';
 import { readVerificationTokenEpoch } from './verification-token-epoch.service.js';
 
 export const REGISTRATION_HANDOFF_COOKIE = 'uoa_registration_handoff';
 
 const HANDOFF_VALUE = /^([0-9a-f-]{36})\.(\d+)\.(\d+)$/;
 
-export type RegistrationHandoff = { email: string; tokenHash: string } | { completed: true };
+export type RegistrationHandoff = { email: string; tokenHash: string; originalBrowser: boolean } | { completed: true };
 
 function cookieOptions() {
   return {
@@ -77,5 +77,8 @@ export async function resolveRegistrationHandoff(
   const token = await prisma.verificationToken.findUnique({ where: { tokenHash: row.completionHash } });
   if (!token || token.type !== 'VERIFY_EMAIL_SET_PASSWORD' || token.usedAt || token.expiresAt.getTime() <= now ||
     !(await readVerificationTokenEpoch(prisma, token))) return null;
-  return { email: token.email, tokenHash: row.completionHash };
+  // The link opened in another tab of the browser that started: that window must not also go in.
+  const credential = params.request.cookies?.[registrationCookieName(row.id)];
+  const originalBrowser = Boolean(credential) && equalRegistrationDigest(registrationDigest('browser', credential ?? ''), row.credentialHash);
+  return { email: token.email, tokenHash: row.completionHash, originalBrowser };
 }

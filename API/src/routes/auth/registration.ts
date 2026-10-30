@@ -96,7 +96,7 @@ export function registerPendingRegistrationRoutes(app: FastifyInstance): void {
     const { continuation, userId, authMethod } = await continuePendingRegistration({
       ...context, id, credential: request.cookies[registrationCookieName(id)] ?? '', ip: request.ip ?? null,
     }, request.adminDb);
-    await recordAuthFunnelStep({ domain: context.config.domain, step: 'original_window_continued', outcome: 'succeeded' }, { prisma: request.adminDb });
+    await recordAuthFunnelStep({ domain: context.config.domain, step: 'original_device_returned', outcome: 'continued' }, { prisma: request.adminDb });
     reply.header('Cache-Control', 'no-store');
     return emailContinuationResponse(continuation, { request, domain: context.config.domain, userId, authMethod });
   });

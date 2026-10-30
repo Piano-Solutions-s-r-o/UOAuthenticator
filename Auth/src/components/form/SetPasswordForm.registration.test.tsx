@@ -65,12 +65,12 @@ beforeEach(() => {
 });
 afterEach(() => { document.body.innerHTML = ''; vi.unstubAllGlobals(); });
 
-it('posts only the password: the browser that opened the link never holds a token', async () => {
+it('posts the address it showed with the password: the browser that opened the link never holds a token', async () => {
   mocks.post.mockResolvedValue({ ok: false, status: 400, error: 'Request failed', code: 'REGISTRATION_UNAVAILABLE' });
   const host = document.createElement('div'); document.body.appendChild(host);
   const root = await mount(host);
   await submit(host);
-  expect(mocks.post).toHaveBeenCalledExactlyOnceWith('/auth/verify-email', { password: 'a-strong-password-123' }, {
+  expect(mocks.post).toHaveBeenCalledExactlyOnceWith('/auth/verify-email', { email: 'person@example.com', password: 'a-strong-password-123' }, {
     config_url: 'https://client.example.com/auth-config', code_challenge: challenge, code_challenge_method: 'S256',
   });
   act(() => root.unmount());

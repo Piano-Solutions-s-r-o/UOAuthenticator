@@ -13,6 +13,8 @@ export const REGISTRATION_TOKEN_PREFIX = 'registration.';
 // How long a browser that opened a link may finish from it, and how long after the password was set
 // the original window may still go in by itself.
 export const REGISTRATION_HANDOFF_TTL_MS = 15 * 60 * 1000;
+// A row outlives its link: it is the only thing that knows where someone with an old email restarts.
+export const REGISTRATION_EXPIRED_RETENTION_DAYS = 30;
 export const REGISTRATION_CONTINUE_TTL_MS = 15 * 60 * 1000;
 
 export function registrationDigest(kind: string, value: string): string {

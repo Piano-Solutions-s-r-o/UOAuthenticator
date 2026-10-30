@@ -150,6 +150,19 @@ it('goes in by itself on complete, through the continue route and never from the
   screen.unmount();
 });
 
+it('goes in on complete even while a resend is on its way, because polling stops there', async () => {
+  let finishResend: (value: unknown) => void = () => undefined;
+  mocks.post.mockImplementation((path: string) => (path === '/auth/registration/start'
+    ? new Promise(resolve => { finishResend = resolve; })
+    : Promise.resolve({ ok: false, status: 400, error: 'Request failed', code: 'REGISTRATION_UNAVAILABLE' })));
+  const screen = await mount();
+  await act(async () => { button(screen.host, 'Send again').click(); });
+  await deliver({ status: 'complete' });
+  expect(mocks.post).toHaveBeenCalledWith('/auth/registration/continue', { id }, expect.anything());
+  await act(async () => { finishResend({ ok: true, data: { registration_id: id } }); });
+  screen.unmount();
+});
+
 it('asks once, even when the state arrives twice', async () => {
   mocks.post.mockResolvedValue({ ok: false, status: 400, error: 'Request failed', code: 'REGISTRATION_UNAVAILABLE' });
   const screen = await mount();

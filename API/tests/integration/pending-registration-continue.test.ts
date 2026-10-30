@@ -52,7 +52,31 @@ describe.skipIf(!process.env.DATABASE_URL)('the original window after a registra
       expect(codes.map(code => code.codeChallenge)).toEqual([challengeB, challengeA]);
       expect((await h.continueWindow(flow)).statusCode).toBe(400);
       expect(await issuedCodes(flow.email)).toHaveLength(2);
-      expect(await h.db.prisma.authFunnelDailyCount.findFirst({ where: { step: 'original_window_continued', outcome: 'succeeded' } })).not.toBeNull();
+      expect(await h.db.prisma.authFunnelDailyCount.findFirst({ where: { step: 'original_device_returned', outcome: 'continued' } })).not.toBeNull();
+    });
+
+    it('stays out when the link opened in another tab of the same browser', async () => {
+      const flow = await h.start();
+      const done = await h.finish(`${await h.open(flow)}; ${flow.cookie}`);
+      expect(done.statusCode, done.body).toBe(200);
+      expect((await h.status(flow)).json()).toEqual({ status: 'complete' });
+      expect((await h.continueWindow(flow)).statusCode).toBe(400);
+      expect(await issuedCodes(flow.email)).toHaveLength(1);
+    });
+
+    it('stays out too when an older link opened beside a window on the newest resend', async () => {
+      const first = await h.start();
+      const second = await h.resend(first);
+      expect((await h.finish(`${await h.open(first)}; ${first.cookie}; ${second.cookie}`)).statusCode).toBe(200);
+      expect((await h.continueWindow(second)).statusCode).toBe(400);
+      expect(await issuedCodes(first.email)).toHaveLength(1);
+    });
+
+    it('still goes in when the browser that opened the link only guesses the cookie', async () => {
+      const flow = await h.start();
+      const guessed = `${flow.cookie.split('=')[0]}=guessed`;
+      expect((await h.finish(`${await h.open(flow)}; ${guessed}`)).statusCode).toBe(200);
+      expect((await h.continueWindow(flow)).statusCode).toBe(200);
     });
 
     it('answers complete to a code typed after the password was set elsewhere', async () => {
