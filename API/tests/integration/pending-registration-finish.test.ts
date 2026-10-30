@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mailbox = vi.hoisted(() => ({ messages: [] as Array<{ to: string; link: string; code: string }> }));
@@ -11,7 +13,9 @@ vi.mock('../../src/services/ban-policy.service.js', async importOriginal => ({
 }));
 
 import { REGISTRATION_CONTINUE_TTL_MS } from '../../src/services/registration-credentials.js';
+import { subscribeRegistrationChanges } from '../../src/services/registration-events.service.js';
 import { REGISTRATION_HANDOFF_COOKIE } from '../../src/services/registration-handoff.service.js';
+import { cleanClientDomains, seedDomainSecret } from '../helpers/domain-secret.js';
 import {
   challengeA, challengeB, codeOf, configUrl, createRegistrationHarness, flowQuery, loginRestartUrl, offersPassword,
   origin, otherDomainConfigUrl, password, peer, queryA, queryB, registrationRestartUrl, siblingConfigUrl,
@@ -283,6 +287,17 @@ describe.skipIf(!process.env.DATABASE_URL)('finishing a registration where the l
       expect((await issuedCodes(first.email)).map(code => code.codeChallenge)).toEqual([challengeB, challengeA]);
     });
 
+    it('wakes every window of the family at once, and only after the commit', async () => {
+      const first = await h.start();
+      const second = await h.resend(first);
+      const read: Array<ReturnType<typeof row>> = [];
+      const stop = [first, second].map(flow => subscribeRegistrationChanges(flow.id, () => { read.push(row(flow.id)); }));
+      expect((await h.finish(await h.open(first))).statusCode).toBe(200);
+      stop.forEach(unsubscribe => unsubscribe());
+      expect(read).toHaveLength(2);
+      for (const woken of await Promise.all(read)) expect(woken.completedAt).not.toBeNull();
+    });
+
     it('finishes an exhausted sibling too', async () => {
       const first = await h.start();
       const second = await h.resend(first);
@@ -336,6 +351,37 @@ describe.skipIf(!process.env.DATABASE_URL)('finishing a registration where the l
       expect((await row(flow.id)).browserAuthorizedAt).toBeNull();
     });
 
+    it('redeems each code only with the verifier of the browser it was issued to', async () => {
+      const pkce = (name: string) => {
+        const verifier = `${name}-verifier-`.padEnd(64, '0');
+        return { verifier, challenge: createHash('sha256').update(verifier).digest('base64url') };
+      };
+      await cleanClientDomains(h.db.prisma);
+      const clientHash = await seedDomainSecret(h.db.prisma, 'client.example.com');
+      const exchange = (response: Parameters<typeof codeOf>[0], verifier: string) => h.app.inject({
+        method: 'POST', url: `/auth/token?config_url=${encodeURIComponent(configUrl)}`,
+        headers: { authorization: `Bearer ${clientHash}`, 'x-forwarded-for': '198.51.100.42' },
+        payload: { code: codeOf(response), redirect_url: 'https://client.example.com/oauth/callback', code_verifier: verifier },
+      });
+      const windowKey = pkce('window');
+      const clickedKey = pkce('clicked');
+      const run = async () => {
+        const flow = await h.start(undefined, flowQuery(windowKey.challenge));
+        const clicked = await h.finish(await h.open(flow), flowQuery(clickedKey.challenge));
+        const original = await h.continueWindow(flow, flow.cookie, flowQuery(windowKey.challenge));
+        expect([clicked.statusCode, original.statusCode]).toEqual([200, 200]);
+        return { clicked, original };
+      };
+      const first = await run();
+      expect((await exchange(first.clicked, windowKey.verifier)).statusCode).toBe(401);
+      expect((await exchange(first.original, clickedKey.verifier)).statusCode).toBe(401);
+      const second = await run();
+      const clickedTokens = await exchange(second.clicked, clickedKey.verifier);
+      expect(clickedTokens.statusCode, clickedTokens.body).toBe(200);
+      const windowTokens = await exchange(second.original, windowKey.verifier);
+      expect(windowTokens.statusCode, windowTokens.body).toBe(200);
+    });
+
     it('races to one code', async () => {
       const flow = await h.start();
       expect((await h.finish(await h.open(flow))).statusCode).toBe(200);
@@ -350,6 +396,17 @@ describe.skipIf(!process.env.DATABASE_URL)('finishing a registration where the l
       expect((await h.finish(await h.open(first))).statusCode).toBe(200);
       expect((await h.continueWindow(second)).statusCode).toBe(200);
       expect((await h.continueWindow(first)).statusCode).toBe(400);
+    });
+
+    it('gives no second continuation after a resend added a row to the family', async () => {
+      const flow = await h.start();
+      expect((await h.finish(await h.open(flow))).statusCode).toBe(200);
+      expect((await h.continueWindow(flow)).statusCode).toBe(200);
+      const resent = await h.resend(flow);
+      expect((await row(resent.id)).completedAt).toBeNull();
+      expect((await h.continueWindow(flow)).statusCode).toBe(400);
+      expect((await h.continueWindow(resent)).statusCode).toBe(400);
+      expect(await issuedCodes(flow.email)).toHaveLength(2);
     });
 
     it('refuses without the original cookie', async () => {

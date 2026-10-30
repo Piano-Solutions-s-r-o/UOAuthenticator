@@ -66,25 +66,32 @@ describe('resolveRegistrationHandoff', () => {
     expect(client.pendingRegistration.findUnique).not.toHaveBeenCalled();
   });
 
+  it('refuses a missing row', async () => {
+    expect(await resolve(prisma(null, token()))).toBeNull();
+  });
+
+  // Overrides, not rows: a row hashes the config with the secret set in beforeEach.
   it.each([
-    ['a missing row', null],
-    ['a completed row', row({ completedAt: new Date() })],
-    ['an expired row', row({ expiresAt: new Date(0) })],
-    ['an exhausted row', row({ attempts: 5 })],
-    ['another domain with a matching config hash', row({ domain: 'other.example.com' })],
-    ['another config', row({ configHash: 'x'.repeat(64) })],
-  ])('refuses %s', async (_name, pending) => {
-    expect(await resolve(prisma(pending, token()))).toBeNull();
+    ['a completed row', { completedAt: new Date() }],
+    ['an expired row', { expiresAt: new Date(0) }],
+    ['an exhausted row', { attempts: 5 }],
+    ['another domain with a matching config hash', { domain: 'other.example.com' }],
+    ['another config', { configHash: 'x'.repeat(64) }],
+  ])('refuses %s', async (_name, overrides) => {
+    expect(await resolve(prisma(row(overrides), token()))).toBeNull();
+  });
+
+  it('refuses a missing token', async () => {
+    expect(await resolve(prisma(row(), null))).toBeNull();
   });
 
   it.each([
-    ['a missing token', null],
-    ['a login-link token', token({ type: 'LOGIN_LINK' })],
-    ['a passwordless token', token({ type: 'VERIFY_EMAIL' })],
-    ['a used token', token({ usedAt: new Date() })],
-    ['an expired token', token({ expiresAt: new Date(0) })],
-  ])('refuses %s', async (_name, verification) => {
-    expect(await resolve(prisma(row(), verification))).toBeNull();
+    ['a login-link token', { type: 'LOGIN_LINK' }],
+    ['a passwordless token', { type: 'VERIFY_EMAIL' }],
+    ['a used token', { usedAt: new Date() }],
+    ['an expired token', { expiresAt: new Date(0) }],
+  ])('refuses %s', async (_name, overrides) => {
+    expect(await resolve(prisma(row(), token(overrides)))).toBeNull();
   });
 
   it('refuses once an account owns the address', async () => {
