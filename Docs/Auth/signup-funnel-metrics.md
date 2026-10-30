@@ -20,9 +20,10 @@ the window or submitting the form twice counts twice.
 | `email_start_submitted` | `POST /auth/start` (email-first form, products with email codes). | `valid_email`, `invalid_email` |
 | `login_submitted` | `POST /auth/login` (email + password). | `succeeded` (credentials accepted; 2FA or a team choice may still follow), `failed` |
 | `registration_email` | What UOA did with a submitted address behind the generic reply. `*_sent` means the email provider accepted the message, not that it arrived. | `verification_sent`, `verification_failed`, `login_link_sent`, `login_link_failed` (existing account), `existing_user_inline` (product opted into `inline_sign_in`; no email), `blocked` (registration not allowed or banned; no email), `error` |
-| `email_link_opened` | `GET /auth/email/link`, the link in that email, or — for the browser-bound email — `POST /auth/registration/link`, the explicit confirmation on its landing page. `HEAD` requests (mail scanners pre-checking links) are not counted. | `registration_verified` (browser-bound link confirmed) and `already_used` (that link replayed), plus the outcomes of `GET /auth/email/link`: `valid_set_password`, `valid_verify_email`, `valid_login_link`, `expired`, `already_used`, `invalid` (unknown, wrong client, or already pruned), `invalid_pkce` / `missing_pkce` (damaged link) |
+| `email_link_opened` | `GET /auth/email/link`, the link in that email, or — for the browser-bound email — `POST /auth/registration/link`, which its landing page sends by itself. `HEAD` requests (mail scanners pre-checking links) are not counted. | `opened` (browser-bound link, first time), `already_used` (opened again), `expired`, plus the outcomes of `GET /auth/email/link`: `valid_set_password`, `valid_verify_email`, `valid_login_link`, `expired`, `already_used`, `invalid` (unknown, wrong client, or already pruned), `invalid_pkce` / `missing_pkce` (damaged link) |
 | `set_password` | `POST /auth/verify-email` from the set-password form. | `succeeded` (set-password token: account created), `succeeded_<token type>` (another token type), `password_rejected`, `expired`, `already_used`, `failed` |
 | `social_started` | `GET /auth/social/:provider` redirects to the provider. | provider key (`google`, `apple`, …) |
+| `original_window_continued` | `POST /auth/registration/continue`: the password was set in the browser that opened the email link, and the window where registration started went in by itself. | `succeeded` |
 | `sign_in_completed` | A sign-in finished: UOA returned an authorization code or recorded an access request. Recorded next to every login-log write, so each password, email-link, email-code and social sign-in counts once, after any 2FA or workspace choice. Where the login log is written inside the authentication transaction, the counter is written after that transaction commits. | auth method (`email_password`, `verify_email_set_password`, `login_link`, `google`, `email_code`, …) |
 | `code_exchange` | The product backend redeems the code at `POST /auth/token` (`authorization_code` grant). | `succeeded`, `rejected_<reason>` (the internal reason behind the opaque `INVALID_AUTH_CODE`: `code_not_found`, `expired`, `already_used`, `pkce_verifier_invalid`, `redirect_url_mismatch`, …), `failed` |
 
@@ -68,16 +69,19 @@ For Hugo on sso.hugopos.eu (`enabled_auth_methods: ["email_password", "google"]`
 
 Each of those is a separate step above, so the funnel shows where people stop.
 
-### Browser-bound verification (2026-10-22)
+### Browser-bound verification (2026-10-22, reworked 2026-10-30)
 
-With `login_flow.registration_code_enabled: true` in the signed config the hosted form uses `/auth/registration/start`; it records the same
+With `login_flow.registration_code_enabled: true` and `registration_restart_url` in the signed config the hosted form uses `/auth/registration/start`; it records the same
 `register_submitted` and `registration_email` counters through the same
 `recordAuthFunnelStep` writer as `/auth/register` (a given submission uses one
 endpoint, so nothing is counted twice). Its link and code last 24
-hours (`REGISTRATION_EMAIL_TOKEN_TTL_MS`). `/auth/registration/link` records `email_link_opened` only after the
-explicit confirmation POST succeeds, outside the verification transaction; a GET,
-scanner prefetch or status/WebSocket subscription never counts as mailbox proof.
+hours (`REGISTRATION_EMAIL_TOKEN_TTL_MS`). `POST /auth/registration/link` records `email_link_opened` once per open, outside its transaction: `opened` the first time, `already_used` afterwards, `expired` for an expired or exhausted registration. A GET, a HEAD or a
+status/WebSocket subscription never counts. Opening proves nothing by itself: the funnel's
+real step is `set_password`.
 Code verification is an alternative to opening the link and does not increment
-the link counter. Both methods still reach the existing `set_password`,
-`sign_in_completed` and `code_exchange` writers. A confirmation on another device
-advances the original window (#124) but does not itself count a completed sign-in.
+the link counter. Both methods reach the existing `set_password`,
+`sign_in_completed` and `code_exchange` writers. The product's return to `/auth` with a handoff
+cookie continues a registration already counted, so it is not a `flow_started`.
+When the original window then goes in by itself it records `original_window_continued`
+and, once it gets a code, a second `sign_in_completed`: it is a real sign-in of a second browser,
+so subtract `original_window_continued` to count people. These are events, not people.

@@ -1,40 +1,59 @@
 # Central OAuth & Auth Service — Full Build Brief
 
-## Cross-device continuation clarification (2026-10-22)
+## Registration finishes where the link is clicked (2026-10-30, HUGO-2261)
 
-Confirming the secret email link on any device
-approves the exact pending registration that sent it. Its original screen receives
-the WebSocket notification, rechecks authoritative state with its original HttpOnly
-cookie and immutable OAuth/config context, and advances without code entry.
-The confirming browser only displays success; it receives no login, completion
-credential or redirect. The six-character code is an alternative to the link.
-The existing confirmation page makes approval of the initiating flow explicit and
-asks users to confirm only registrations they requested. GET and link previews
-have no effect. An explicit approval authorizes that original flow; it cannot
-prove that the mailbox owner personally initiated it. Replay cannot transfer
-approval to another flow. Existing expiry, attempt and completion gates remain.
+This replaces the 2026-10-22 cross-device contract, under which the confirming browser
+received no login, completion credential or redirect. That is deliberately no longer
+true, and it is a deliberate difference from upstream UOA: the owner chose it on
+2026-10-30 to lose fewer people during registration.
 
-## Browser-bound registration verification (2026-10-22)
+The hosted email registration screen offers this flow when the product's signed config sets
+`login_flow.registration_code_enabled: true` and `registration_restart_url`; it is off by
+default, and the original `/auth/register` link email stays in use otherwise. The email
+carries one link and a six-character uppercase alphanumeric code.
 
-The hosted email registration screen offers (when the product's signed config sets
-`login_flow.registration_code_enabled: true`; it is off by default and the original
-`/auth/register` link email stays in use otherwise) one verification link and a six-character
-uppercase alphanumeric code. The secret link confirms the mailbox on any device and
-shows an isolated success page without signing that device in. Confirming it, on any
-device, advances the window that started the registration, with no number matching
-(an accepted product decision, HUGO-2261): only a person who recognises the registration
-should confirm, and the email and the page say so. After a resend, a link from either
-email advances the window: the resend keeps the browser's cookie secret, so it stays bound to the
-same browser, address and OAuth context, and it never approves another address or browser. The success page tells the person to go back
-to the original window and, when the signed config has `login_restart_url`, offers a way
-to start again for a window that is gone. Codes work only in the requesting
-browser's registration, expire after 24 hours (the registration email lifetime,
-`REGISTRATION_EMAIL_TOKEN_TTL_MS`), and allow five persisted guesses. The email and
-the link confirmation page are English or Czech by the request's Accept-Language,
-and the email states the lifetime in hours.
+The link finishes registration in the browser that opens it, on any device. Opening it
+approves nothing and creates nothing: the isolated page takes the secret out of the fragment,
+posts it at once and sends the browser to the product's `registration_restart_url` with a
+short-lived signed cookie (15 minutes, never past the registration; no secret, no address).
+The product starts fresh PKCE in that browser and returns to `/auth`, which opens the themed
+password form when the cookie verifies, S256 PKCE is present, and the registration is live,
+unfinished, on the same domain and on the exact same signed config. The address is shown there
+and in the email. `POST /auth/verify-email` then consumes the registration's existing
+verification token by hash, so the browser never receives a token and no second token exists,
+and issues a code bound to that browser's own PKCE. GET and HEAD have no effect. A mail scanner
+that runs the page only gets a cookie in its own browser. A finished registration's link says
+so and offers sign-in; an expired one offers registration again.
+
+**A forwarded link can put the person who opens it into the sender's account.** Same-browser
+binding or number matching would prevent it, and the owner ruled both out for what they cost.
+The password screen shows the address for that reason, and the email says not to click a
+registration you do not recognise.
+
+The code works only in the requesting browser's registration, and unlocks the password form
+there. Codes expire after 24 hours (the registration email lifetime,
+`REGISTRATION_EMAIL_TOKEN_TTL_MS`) and allow five persisted guesses.
+
+Completion marks the resend family in the transaction that spends the token: registrations of
+the same address from the same browser and OAuth context, so a link from an older email finishes
+the window on the newest one. A resend keeps the browser's cookie secret, which is what ties the
+family together, and it never reaches another address or browser. If two browsers race, the first
+password wins and the other gets a generic failure.
+
+The original window then goes in by itself, with no password, for 15 minutes after completion:
+it calls `POST /auth/registration/continue` with its own cookie and exact OAuth/config context,
+once for the family, and the server rechecks the user and credential epoch and runs the same
+workspace, 2FA and code issuance as ordinary verification, bound to that window's own PKCE. If
+2FA is needed the window shows the normal 2FA step. Status never carries a code. This is decision
+2 of the owner's plan: starting a registration with someone else's address and having that person
+set the password signs in the window that started it. If this fails the window offers sign-in.
+
+Nothing the customer reads mentions windows, devices or going back; the system decides.
 Authenticated WebSocket hints and polling recheck database state; refresh retains
-only public flow metadata. Existing epoch, scope, TOTP and agreement gates remain.
-The complete contract is published by `/api` and `/llm` under `/auth/registration/*`.
+only public flow metadata. The email and the link page are English or Czech by the request's
+Accept-Language, and the email states the lifetime in hours. Existing epoch, scope, TOTP and
+agreement gates remain. The complete contract is published by `/api` and `/llm` under
+`/auth/registration/*`.
 
 ## 1. Purpose
 
@@ -2373,8 +2392,9 @@ Summary of what changes and what does not:
 A client may advertise signed optional `login_restart_url`: its sign-in initiation
 URL, on the same origin as one of `redirect_urls`, HTTPS except HTTP loopback
 for local development. No credentials or fragment are allowed. The client
-must initiate fresh PKCE there; it is not an authorization callback. The registration
-confirmation page also offers it, for a person whose original window is gone.
+must initiate fresh PKCE there; it is not an authorization callback. A finished
+registration link also offers it. The signed optional `registration_restart_url` is
+validated the same way and starts registration from an email link (HUGO-2261).
 After resetting a password, the sign-in button returns there. A login view
 without PKCE (including stale reset-email landings) offers the same restart
 instead of a form that cannot authenticate. Omitted claim retains legacy behavior.

@@ -33,8 +33,8 @@ forward WebSocket upgrades; clients retain polling when upgrades or connections 
 state and original HttpOnly registration cookies remain authoritative across replicas.
 No production credentials or operator records are provisioned by this change.
 The flow ships switched off: a product opts in through `login_flow.registration_code_enabled: true`
-in its signed config (default false), so the same release serves staging and production
-products alike until each one's config is changed.
+plus `registration_restart_url` in its signed config (off without both), so the same release serves
+staging and production products alike until each one's config is changed.
 
 ### Migrations run at container boot — what that costs
 
