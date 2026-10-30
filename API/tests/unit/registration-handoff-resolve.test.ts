@@ -72,13 +72,20 @@ describe('resolveRegistrationHandoff', () => {
 
   // Overrides, not rows: a row hashes the config with the secret set in beforeEach.
   it.each([
-    ['a completed row', { completedAt: new Date() }],
     ['an expired row', { expiresAt: new Date(0) }],
     ['an exhausted row', { attempts: 5 }],
     ['another domain with a matching config hash', { domain: 'other.example.com' }],
     ['another config', { configHash: 'x'.repeat(64) }],
   ])('refuses %s', async (_name, overrides) => {
     expect(await resolve(prisma(row(overrides), token()))).toBeNull();
+  });
+
+  it('tells a finished registration apart, with nothing to complete', async () => {
+    expect(await resolve(prisma(row({ completedAt: new Date() }), token()))).toEqual({ completed: true });
+  });
+
+  it('keeps a finished registration of another config refused', async () => {
+    expect(await resolve(prisma(row({ completedAt: new Date(), configHash: 'x'.repeat(64) }), token()))).toBeNull();
   });
 
   it('refuses a missing token', async () => {
