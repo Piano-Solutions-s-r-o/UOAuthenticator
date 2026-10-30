@@ -226,7 +226,7 @@ test('expiry and resend failure preserve a clear recovery screen', async ({ page
 
 // HUGO-2261: the person may have closed the window where registration started.
 test('the success page offers a way to start again only when the product signed one', async ({ page }, info) => {
-  let restartUrl: string | undefined;
+  let restartUrl = '';
   await page.route('**/auth/registration/link', route => route.request().method() === 'POST'
     ? route.fulfill({ json: { status: 'verified', ...(restartUrl ? { restart_url: restartUrl } : {}) } })
     : route.fulfill(mailboxPage()));
@@ -319,8 +319,8 @@ test('another-device link displays success without navigation or authentication'
   await page.screenshot({ path: info.outputPath('link-verifying.png'), fullPage: true });
   release();
   await expect(page.getByRole('heading', { name: 'Email verified' })).toBeVisible();
-  await expect(page.getByRole('status')).toContainText('will continue automatically');
-  await expect(page.getByRole('status')).toContainText('has not signed you in');
+  await expect(page.getByRole('status')).toContainText('It continues there by itself');
+  await expect(page.getByRole('status')).toContainText('This device has not been signed in');
   await expect(page.getByRole('button', { name: 'Verify email address' })).toHaveCount(0);
   // The confirmation sentence sits directly under the body text, without the removed button's gap.
   const bodyBox = await page.getByText('Your email address is confirmed.', { exact: true }).boundingBox();
