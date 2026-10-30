@@ -45,9 +45,22 @@ function assertBrowser(row: PendingRegistration | null, credential: string, cont
     !equalRegistrationDigest(contextHash(context), row.contextHash)) refuse();
 }
 
-export async function startPendingRegistration(params: RegistrationContext & { email: string | null; ip?: string; locale?: EmailLocale }, prisma: PrismaClient) {
+/**
+ * A resend proves the browser with the cookie of the registration it replaces and keeps that cookie's
+ * secret, because the OAuth context alone is public URL data. Anything else starts a separate browser.
+ */
+async function resendCredential(params: RegistrationContext & { email: string | null; previous?: { id: string; credential: string } }, prisma: PrismaClient): Promise<string | null> {
+  if (!params.previous?.credential) return null;
+  const row = await prisma.pendingRegistration.findUnique({ where: { id: params.previous.id } });
+  if (!row || !equalRegistrationDigest(registrationDigest('browser', params.previous.credential), row.credentialHash) ||
+    !equalRegistrationDigest(contextHash(params), row.contextHash) ||
+    !equalRegistrationDigest(registrationDigest('email', params.email ?? ''), row.emailHash)) return null;
+  return params.previous.credential;
+}
+
+export async function startPendingRegistration(params: RegistrationContext & { email: string | null; ip?: string; locale?: EmailLocale; previous?: { id: string; credential: string } }, prisma: PrismaClient) {
   const id = randomUUID();
-  const credential = registrationSecret();
+  const credential = await resendCredential(params, prisma) ?? registrationSecret();
   const linkToken = registrationSecret();
   const code = registrationCode();
   const expiresAt = new Date(Date.now() + REGISTRATION_TTL_MS);
@@ -117,9 +130,9 @@ export async function verifyPendingRegistrationCode(params: RegistrationContext 
 
 /**
  * A resend gives the window a new registration and leaves the older email in the mailbox, so a link
- * approves every live registration of the same address from the same window (same OAuth context,
- * which carries the PKCE challenge). Another address in that window stays pending: this link never
- * proved it. Returns where a person whose original window is gone can start again.
+ * approves every live registration of the same address from the same browser (same cookie secret and
+ * OAuth context). Another address or browser stays pending: this link never proved it, and the OAuth
+ * context alone is public URL data. Returns where a person whose window is gone can start again.
  */
 export async function verifyPendingRegistrationLink(token: string, prisma: PrismaClient): Promise<{ restartUrl: string | null }> {
   const initial = await prisma.pendingRegistration.findUnique({ where: { linkHash: registrationDigest('link', token) } });
@@ -133,7 +146,7 @@ export async function verifyPendingRegistrationLink(token: string, prisma: Prism
     // transfer it to the browser opening the link or to another registration.
     if (row.linkUsedAt) return [];
     const flows = await tx.pendingRegistration.findMany({ select: { id: true }, where: {
-      contextHash: row.contextHash, emailHash: row.emailHash, browserAuthorizedAt: null,
+      credentialHash: row.credentialHash, contextHash: row.contextHash, emailHash: row.emailHash, browserAuthorizedAt: null,
       expiresAt: { gt: now }, attempts: { lt: REGISTRATION_MAX_ATTEMPTS },
     } });
     const ids = flows.map(flow => flow.id);

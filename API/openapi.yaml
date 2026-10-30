@@ -2259,6 +2259,10 @@ paths:
               required: [email]
               properties:
                 email: { type: string, format: email }
+                previous_id:
+                  type: string
+                  format: uuid
+                  description: On a resend, the registration this one replaces. With that registration's cookie it keeps both bound to this browser, so a link from either email advances the window.
       responses:
         '200':
           description: Generic result for new, existing, blocked or malformed addresses. Cookie and response contain no account-state signal.
@@ -2376,7 +2380,7 @@ paths:
       tags: [Auth]
       operationId: confirmRegistrationLink
       summary: Confirm mailbox possession without authenticating another device
-      description: Explicit confirmation consumes a short-lived 256-bit link secret and approves the exact original pending flow on any device, plus any later flow for the same address from the same OAuth context (a resend). The original browser receives a WebSocket hint, rechecks status using its HttpOnly cookie and original OAuth context, and advances without code entry. The confirming browser receives no credentials, cookies or redirect. Replay cannot transfer approval to another registration. No account, OAuth code or session is created here. Same-origin POST required.
+      description: Explicit confirmation consumes a short-lived 256-bit link secret and approves the exact original pending flow on any device, plus its resends (same address, browser cookie and OAuth context). The original browser receives a WebSocket hint, rechecks status using its HttpOnly cookie and original OAuth context, and advances without code entry. The confirming browser receives no credentials, cookies or redirect. Replay cannot transfer approval to another registration. No account, OAuth code or session is created here. Same-origin POST required.
       requestBody:
         required: true
         content:

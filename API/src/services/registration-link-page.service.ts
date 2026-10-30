@@ -60,7 +60,7 @@ const LINK_PAGE_COPY: Record<EmailLocale, LinkPageCopy> = {
     verifying: 'Ověřuji…',
     successTitle: 'E-mail je ověřený',
     successBody: 'Tvoje e-mailová adresa je potvrzená.',
-    successStatus: 'Vrať se do okna, kde registrace začala. Pokračuje tam samo. Toto zařízení se nepřihlásilo.',
+    successStatus: 'Vrať se do okna, kde registrace začala. Pokračuje tam sama. Toto zařízení se nepřihlásilo.',
     restartHint: 'Okno už nemáš otevřené? Začni znovu tady.',
     restartButton: 'Začít znovu',
     rejected: 'Odkaz vypršel nebo už neplatí. Začni registraci znovu.',

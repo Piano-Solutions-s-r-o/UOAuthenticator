@@ -13,7 +13,7 @@ const browserAuth = 'Original registration-specific HttpOnly cookie, exact verif
 
 export const registrationVerificationEndpoints: EndpointSchema[] = [
   { method: 'POST', path: '/auth/registration/start', description: 'Begin browser-bound email registration; sends one neutral link/code email without exposing account state.',
-    auth: `Verified config_url; same-origin browser request. ${optIn}`, query: context, body: { email: 'Email address' },
+    auth: `Verified config_url; same-origin browser request. ${optIn}`, query: context, body: { email: 'Email address', previous_id: 'Optional, on a resend: the registration this one replaces. With its cookie, both stay bound to this browser.' },
     response: { message: 'We sent instructions to your email', registration_id: 'Random public UUID; never sufficient authorization', expires_at: `${registrationTokenTtlHours()}-hour deadline; browser credential is only in Set-Cookie` },
     notes: 'The email is English or Czech by the request Accept-Language and states its lifetime in hours. Preserves the signed-config inline_sign_in opt-in (409 EMAIL_ALREADY_REGISTERED). Otherwise response shape is identical for new, existing, blocked and malformed addresses. Legacy POST /auth/register and /auth/start retain their existing contracts.' },
   { method: 'GET', path: '/auth/registration/status', description: 'Authoritative pending-registration state; safe to recheck after refresh, reconnect or notification. Only 400 REGISTRATION_UNAVAILABLE ends the flow; any other failure is passing, so keep polling.',
@@ -28,7 +28,7 @@ export const registrationVerificationEndpoints: EndpointSchema[] = [
     notes: 'Immediate process-local hints plus a 5-second cross-replica database recheck. Clients recheck status on load/reconnect and poll every 10 seconds if notifications are lost or WSS is blocked. Two subscriptions per registration and 256 per instance maximum.' },
   { method: 'GET', path: '/auth/registration/link', description: 'Isolated email confirmation page, usable on any browser/device. Link secret is in the fragment, removed immediately; GET has no verification effect.',
     auth: 'None; confirmation requires the secret token in POST', response: { html: 'Explicit confirmation, then email-verified success; never an OAuth redirect or login. English or Czech by the GET Accept-Language.' } },
-  { method: 'POST', path: '/auth/registration/link', description: 'Confirm email from any device and approve continuation of the exact original pending registration, and of any later one for the same address from the same OAuth context (a resend). Returns restart_url when the signed config has login_restart_url.',
+  { method: 'POST', path: '/auth/registration/link', description: 'Confirm email from any device and approve continuation of the exact original pending registration, and of its resends (same address, browser cookie and OAuth context). Returns restart_url when the signed config has login_restart_url.',
     auth: '256-bit email-link token; same-origin POST', body: { token: 'Secret from the emailed URL fragment' }, response: { status: 'verified', restart_url: 'Optional. The signed login_restart_url, for a person whose original window is gone.' },
     notes: 'The original browser receives a WebSocket hint, rechecks status with its cookie and exact OAuth context, and advances without code entry. The confirming browser receives no credentials, cookie or redirect. Replay cannot transfer approval to another flow. No account, OAuth code or session is created here.' },
 ];

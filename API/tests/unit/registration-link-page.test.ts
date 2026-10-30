@@ -10,8 +10,8 @@ describe('registration link confirmation page', () => {
     expect(html).toContain('>Verify email address</button>');
     expect(html).toContain('<script nonce="nonce-123">');
     expect(html).toContain('history.replaceState');
-    expect(html).toContain('Your original registration screen will continue automatically. This page has not signed you in.');
-    expect(html).toContain('This link has expired or is no longer valid. Request a new email from the registration screen.');
+    expect(html).toContain('Go back to the window where registration started. It continues there by itself. This device has not been signed in.');
+    expect(html).toContain('This link has expired or is no longer valid. Start the registration again.');
     expect(html).not.toContain('<img');
     expect(html).not.toMatch(/https?:\/\//);
   });
@@ -26,9 +26,11 @@ describe('registration link confirmation page', () => {
       'Ověřuji…',
       'E-mail je ověřený',
       'Tvoje e-mailová adresa je potvrzená.',
-      'Registrace v původním okně teď sama pokračuje. Toto zařízení se nepřihlásilo.',
-      'Odkaz vypršel nebo už neplatí. Nový e-mail si nech poslat z okna registrace.',
-      'Tenhle odkaz nejde použít. Nový e-mail si nech poslat z okna registrace.',
+      'Vrať se do okna, kde registrace začala. Pokračuje tam sama. Toto zařízení se nepřihlásilo.',
+      'Okno už nemáš otevřené? Začni znovu tady.',
+      'Začít znovu',
+      'Odkaz vypršel nebo už neplatí. Začni registraci znovu.',
+      'Tenhle odkaz nejde použít. Začni registraci znovu.',
       'Nepodařilo se spojit se serverem. Zkontroluj připojení a zkus to znovu.',
       'Odkaz teď nejde ověřit. Zkus to za chvíli znovu.',
     ]) expect(html).toContain(message);

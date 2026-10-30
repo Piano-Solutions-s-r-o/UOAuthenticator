@@ -30,6 +30,8 @@ describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration',
     code_challenge: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ', code_challenge_method: 'S256' });
   const origin = 'http://127.0.0.1:38571';
   const offConfigUrl = 'https://client.example.com/auth-config-off';
+  const restartConfigUrl = 'https://client.example.com/auth-config-restart';
+  const restartUrl = 'https://client.example.com/login?start=1';
   let sequence = 0;
 
   beforeAll(async () => {
@@ -42,8 +44,9 @@ describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration',
     // The flow ships off (HUGO-2261): one product opts in through its signed config, another does not.
     const on = await signTestConfigJwt(baseClientConfigPayload({ login_flow: { registration_code_enabled: true } }));
     const off = await signTestConfigJwt();
+    const restart = await signTestConfigJwt(baseClientConfigPayload({ login_flow: { registration_code_enabled: true }, login_restart_url: restartUrl }));
     vi.stubGlobal('fetch', vi.fn(await createTestConfigFetchHandler({
-      'https://client.example.com/auth-config': on, [offConfigUrl]: off,
+      'https://client.example.com/auth-config': on, [offConfigUrl]: off, [restartConfigUrl]: restart,
     })));
     app = await createApp(); await app.ready();
   });
@@ -71,14 +74,15 @@ describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration',
     expect(mailbox.messages.at(-1)?.code).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
     return { id, cookie, email, message: mailbox.messages.at(-1)! };
   }
-  // The window's "send a new email": the same address, the same OAuth context, a new registration.
-  async function resend(flow: { email: string }) {
+  // The window's "send a new email": same browser cookie, same address, same OAuth context.
+  async function resend(flow: Flow) {
     sequence += 1;
-    const response = await app.inject({ method: 'POST', url: `/auth/registration/start?${query}`, payload: { email: flow.email },
-      headers: { origin, 'x-forwarded-for': `192.0.2.${sequence}` } });
+    const response = await app.inject({ method: 'POST', url: `/auth/registration/start?${query}`,
+      payload: { email: flow.email, previous_id: flow.id },
+      headers: { origin, cookie: flow.cookie, 'x-forwarded-for': `192.0.2.${sequence}` } });
     expect(response.statusCode, response.body).toBe(200);
-    return { id: response.json().registration_id as string, cookie: String(response.headers['set-cookie']).split(';')[0],
-      email: flow.email, message: mailbox.messages.at(-1)! };
+    const id = response.json().registration_id as string;
+    return { id, cookie: String(response.headers['set-cookie']).split(';')[0], email: flow.email, message: mailbox.messages.at(-1)! };
   }
   type Flow = Awaited<ReturnType<typeof start>>;
   function status(flow: Flow, cookie = flow.cookie, suffix = '') {
@@ -194,6 +198,35 @@ describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration',
     expect((await status(first)).json()).toMatchObject({ status: 'authorized' });
     expect((await status(other)).json()).toEqual({ status: 'pending' });
   });
+  it('never lets a link approve another browser, even on the same public OAuth URL', async () => {
+    const first = await start();
+    sequence += 1;
+    const response = await app.inject({ method: 'POST', url: `/auth/registration/start?${query}`,
+      payload: { email: first.email }, headers: { origin, 'x-forwarded-for': `192.0.2.${sequence}` } });
+    const stranger = { ...first, id: response.json().registration_id as string, cookie: String(response.headers['set-cookie']).split(';')[0] };
+    expect((await link(first)).statusCode).toBe(200);
+    expect((await status(first)).json()).toMatchObject({ status: 'authorized' });
+    expect((await status(stranger)).json()).toEqual({ status: 'pending' });
+  });
+  it('treats a resend without the matching browser cookie as another browser', async () => {
+    const first = await start();
+    sequence += 1;
+    const response = await app.inject({ method: 'POST', url: `/auth/registration/start?${query}`,
+      payload: { email: first.email, previous_id: first.id }, headers: { origin, 'x-forwarded-for': `192.0.2.${sequence}` } });
+    const stranger = { ...first, id: response.json().registration_id as string, cookie: String(response.headers['set-cookie']).split(';')[0] };
+    expect((await link(first)).statusCode).toBe(200);
+    expect((await status(stranger)).json()).toEqual({ status: 'pending' });
+  });
+  it('leaves an exhausted or expired sibling unapproved', async () => {
+    const first = await start();
+    const exhausted = await resend(first);
+    const expired = await resend(first);
+    await db.prisma.pendingRegistration.update({ where: { id: exhausted.id }, data: { attempts: 5 } });
+    await db.prisma.pendingRegistration.update({ where: { id: expired.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    expect((await link(first)).statusCode).toBe(200);
+    const rows = await db.prisma.pendingRegistration.findMany({ where: { id: { in: [exhausted.id, expired.id] } } });
+    expect(rows.map(row => row.browserAuthorizedAt)).toEqual([null, null]);
+  });
   it('keeps the 24 hours of the older link after a resend', async () => {
     const first = await start();
     const second = await resend(first);
@@ -204,9 +237,13 @@ describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration',
   it('answers the signed restart URL only when the product has one', async () => {
     const flow = await start();
     expect((await link(flow)).json()).toEqual({ status: 'verified' });
-    const restartUrl = 'https://client.example.com/login?start=1';
-    await db.prisma.pendingRegistration.update({ where: { id: flow.id }, data: { restartUrl } });
-    expect((await link(flow)).json()).toEqual({ status: 'verified', restart_url: restartUrl });
+    sequence += 1;
+    const restartQuery = new URLSearchParams(query);
+    restartQuery.set('config_url', restartConfigUrl);
+    const response = await app.inject({ method: 'POST', url: `/auth/registration/start?${restartQuery}`,
+      payload: { email: `restart-${sequence}@example.com` }, headers: { origin, 'x-forwarded-for': `192.0.2.${sequence}` } });
+    expect(response.statusCode, response.body).toBe(200);
+    expect((await link({ ...flow, message: mailbox.messages.at(-1)! })).json()).toEqual({ status: 'verified', restart_url: restartUrl });
   });
   it('converges link and code races on one pending registration', async () => {
     const flow = await start();

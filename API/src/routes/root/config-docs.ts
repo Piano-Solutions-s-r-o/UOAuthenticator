@@ -140,7 +140,7 @@ export const configJwtDocumentation = {
     },
   },
   optional_fields: {
-    login_restart_url: 'string — optional client sign-in initiation URL; same origin as redirect_urls, HTTPS or HTTP loopback; no credentials/fragment. Used after password reset or missing-PKCE login. Must generate fresh PKCE, not process a code callback.',
+    login_restart_url: 'string — optional client sign-in initiation URL; same origin as redirect_urls, HTTPS or HTTP loopback; no credentials/fragment. Used after password reset or missing-PKCE login, and offered on the registration confirmation page for a person whose window is gone. Must generate fresh PKCE, not process a code callback.',
     '2fa_enabled':
       'boolean (default false) — master gate for 2FA. When false or absent, effective 2FA policy is off regardless of Admin policy. When true, DB-backed ClientDomain and Organisation policies resolve strongest-wins: off < optional < required.',
     debug_enabled: 'boolean (default false)',

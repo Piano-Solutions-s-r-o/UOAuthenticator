@@ -62,7 +62,7 @@ async function backend(page: Page) {
       starts++;
       if (starts > 1 && resendGate) await resendGate;
       if (starts > 1 && resendFailure) return route.fulfill({ status: 500, json: { error: 'Request failed' } });
-      expect(route.request().postDataJSON()).toEqual({ email: 'person@example.com' });
+      expect(route.request().postDataJSON()).toEqual({ email: 'person@example.com', ...(starts > 1 ? { previous_id: id } : {}) });
       return route.fulfill({ headers: { 'set-cookie': `uoa_registration_${id}=synthetic-browser-credential; HttpOnly; SameSite=Lax; Path=/auth` },
         json: { registration_id: id, message: 'We sent instructions to your email' } });
     }
@@ -424,7 +424,7 @@ test('the Czech confirmation page follows Accept-Language: cs through verify, re
   await verify.click();
   await expect(page.getByRole('heading', { name: 'E-mail je ověřený' })).toBeVisible();
   await expect(page.getByText('Tvoje e-mailová adresa je potvrzená.')).toBeVisible();
-  await expect(page.getByRole('status')).toHaveText('Vrať se do okna, kde registrace začala. Pokračuje tam samo. Toto zařízení se nepřihlásilo.');
+  await expect(page.getByRole('status')).toHaveText('Vrať se do okna, kde registrace začala. Pokračuje tam sama. Toto zařízení se nepřihlásilo.');
   await expect(verify).toHaveCount(0);
   expect(await page.context().cookies()).toHaveLength(0);
   await page.screenshot({ path: info.outputPath('link-cs-success.png'), fullPage: true });

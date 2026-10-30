@@ -23,9 +23,9 @@ uppercase alphanumeric code. The secret link confirms the mailbox on any device 
 shows an isolated success page without signing that device in. Confirming it, on any
 device, advances the window that started the registration, with no number matching
 (an accepted product decision, HUGO-2261): only a person who recognises the registration
-should confirm, and the email and the page say so. After a resend, a link from an older
-email still advances the window, because it proves the same address from the same OAuth
-context; it never approves another address. The success page tells the person to go back
+should confirm, and the email and the page say so. After a resend, a link from either
+email advances the window: the resend keeps the browser's cookie secret, so it stays bound to the
+same browser, address and OAuth context, and it never approves another address or browser. The success page tells the person to go back
 to the original window and, when the signed config has `login_restart_url`, offers a way
 to start again for a window that is gone. Codes work only in the requesting
 browser's registration, expire after 24 hours (the registration email lifetime,
@@ -2373,7 +2373,8 @@ Summary of what changes and what does not:
 A client may advertise signed optional `login_restart_url`: its sign-in initiation
 URL, on the same origin as one of `redirect_urls`, HTTPS except HTTP loopback
 for local development. No credentials or fragment are allowed. The client
-must initiate fresh PKCE there; it is not an authorization callback.
+must initiate fresh PKCE there; it is not an authorization callback. The registration
+confirmation page also offers it, for a person whose original window is gone.
 After resetting a password, the sign-in button returns there. A login view
 without PKCE (including stale reset-email landings) offers the same restart
 instead of a form that cannot authenticate. Omitted claim retains legacy behavior.

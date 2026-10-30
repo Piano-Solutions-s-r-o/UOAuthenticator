@@ -21,12 +21,14 @@ export function registerPendingRegistrationRoutes(app: FastifyInstance): void {
   app.post('/auth/registration/start', {
     preHandler: [requireSameOriginBrowserRequest, registrationStartRateLimiter, configVerifier],
   }, async (request, reply) => {
-    const parsed = z.object({ email: z.string().trim().toLowerCase().email() }).strict().safeParse(request.body);
+    const parsed = z.object({ email: z.string().trim().toLowerCase().email(), previous_id: idSchema.optional() }).strict().safeParse(request.body);
     const context = registrationContext(request);
     await recordAuthFunnelStep({ domain: context.config.domain, step: 'register_submitted', outcome: parsed.success ? 'valid_email' : 'invalid_email' }, { prisma: request.adminDb });
     let result: Awaited<ReturnType<typeof startPendingRegistration>>;
     try {
+      const previousId = parsed.success ? parsed.data.previous_id : undefined;
       result = await startPendingRegistration({ ...context, email: parsed.success ? parsed.data.email : null, ip: request.ip,
+        previous: previousId ? { id: previousId, credential: request.cookies[registrationCookieName(previousId)] ?? '' } : undefined,
         locale: resolveEmailLocale(request.headers['accept-language']) }, request.adminDb);
     } catch (error) {
       await recordAuthFunnelStep({ domain: context.config.domain, step: 'registration_email', outcome: 'error' }, { prisma: request.adminDb });

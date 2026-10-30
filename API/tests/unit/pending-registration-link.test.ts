@@ -9,8 +9,8 @@ vi.mock('../../src/services/registration-events.service.js', () => ({ publishReg
 import { verifyPendingRegistrationLink } from '../../src/services/pending-registration.service.js';
 
 function fakePrisma(beforeLock: { linkUsedAt: Date | null }, underLock: { linkUsedAt: Date | null }) {
-  const base = { id: 'reg-1', domain: 'client.example.com', expiresAt: new Date(Date.now() + 60_000), attempts: 0, emailVerifiedAt: null };
-  const update = vi.fn().mockResolvedValue({});
+  const base = { id: 'reg-1', domain: 'client.example.com', expiresAt: new Date(Date.now() + 60_000), attempts: 0, emailVerifiedAt: null, restartUrl: null };
+  const update = vi.fn().mockResolvedValue({ count: 2 });
   // No $transaction: runInTransaction runs the body on this client, like inside a tenant transaction.
   const prisma = {
     $queryRaw: vi.fn().mockResolvedValue([]),
@@ -18,7 +18,8 @@ function fakePrisma(beforeLock: { linkUsedAt: Date | null }, underLock: { linkUs
       findUnique: vi.fn()
         .mockResolvedValueOnce({ ...base, ...beforeLock })
         .mockResolvedValueOnce({ ...base, ...underLock }),
-      update,
+      findMany: vi.fn().mockResolvedValue([{ id: 'reg-1' }, { id: 'reg-2' }]),
+      updateMany: update,
     },
   };
   return { prisma, update };
@@ -42,6 +43,9 @@ describe('verifyPendingRegistrationLink funnel outcome', () => {
     const { prisma, update } = fakePrisma({ linkUsedAt: null }, { linkUsedAt: null });
     await verifyPendingRegistrationLink('a'.repeat(43), prisma as never);
     expect(update).toHaveBeenCalledTimes(1);
+    expect(mocks.funnel).toHaveBeenCalledTimes(1);
     expect(mocks.funnel.mock.calls[0][0]).toMatchObject({ step: 'email_link_opened', outcome: 'registration_verified' });
+    // A window waiting on the newer registration has to hear about it at once, not at its next poll.
+    expect(mocks.publish.mock.calls.map(([id]) => id)).toEqual(['reg-1', 'reg-2']);
   });
 });
