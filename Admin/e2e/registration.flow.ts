@@ -177,7 +177,7 @@ test('a browser that opened the link sets the password there and goes straight t
   await page.getByLabel('Confirm password', { exact: true }).fill('a-strong-password-123');
   await page.getByRole('button', { name: 'Create account', exact: true }).click();
   await expect(page).toHaveURL('about:blank#signed-in');
-  expect(posted).toEqual({ password: 'a-strong-password-123' });
+  expect(posted).toEqual({ email: 'person@example.com', password: 'a-strong-password-123' });
 });
 
 test('the browser that loses to another one gets a plain failure and no account', async ({ page }) => {
