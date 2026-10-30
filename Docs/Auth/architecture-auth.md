@@ -13,6 +13,8 @@ confirmation on any device authorizes the exact originating flow. Its WebSocket
 hint triggers the existing status read and automatic next-step transition; no
 code is required after link approval. The original cookie and immutable OAuth
 context still gate completion, and the confirming browser only shows success.
+After a resend, a link from an older email advances the window too (same address,
+same OAuth context). The success page offers `login_restart_url` for a window that is gone.
 
 `RegistrationVerificationPage` (reached only when the signed config sets
 `login_flow.registration_code_enabled`; otherwise `RegisterForm` keeps the original

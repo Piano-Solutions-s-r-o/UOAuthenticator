@@ -29,10 +29,12 @@ lifetime in hours.
 GET /auth/registration/link is an isolated confirmation page. Its URL fragment
 holds the 256-bit link secret, so the secret never reaches access logs or
 referrers. The page removes the fragment before its explicit confirmation POST.
-POST /auth/registration/link with {token} confirms email and returns only
-{status:"verified"}; no account, OAuth code or login session is created there.
-Confirmation on any device approves continuation of that exact original pending
-registration. The original screen receives a WebSocket hint, rechecks status with
+POST /auth/registration/link with {token} confirms email and returns
+{status:"verified"}, plus restart_url when the signed config has login_restart_url;
+no account, OAuth code or login session is created there. Confirmation on any
+device approves continuation of that exact original pending registration, and of
+any later one for the same address from the same OAuth context, so an older email
+still works after a resend. The original screen receives a WebSocket hint, rechecks status with
 its own cookie and exact OAuth context, and advances without entering a code.
 The confirming browser gets no completion proof, login cookie or redirect.
 The page explicitly says to confirm only a registration the user requested;

@@ -71,6 +71,15 @@ describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration',
     expect(mailbox.messages.at(-1)?.code).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
     return { id, cookie, email, message: mailbox.messages.at(-1)! };
   }
+  // The window's "send a new email": the same address, the same OAuth context, a new registration.
+  async function resend(flow: { email: string }) {
+    sequence += 1;
+    const response = await app.inject({ method: 'POST', url: `/auth/registration/start?${query}`, payload: { email: flow.email },
+      headers: { origin, 'x-forwarded-for': `192.0.2.${sequence}` } });
+    expect(response.statusCode, response.body).toBe(200);
+    return { id: response.json().registration_id as string, cookie: String(response.headers['set-cookie']).split(';')[0],
+      email: flow.email, message: mailbox.messages.at(-1)! };
+  }
   type Flow = Awaited<ReturnType<typeof start>>;
   function status(flow: Flow, cookie = flow.cookie, suffix = '') {
     return app.inject({ method: 'GET', url: `/auth/registration/status?${query}&id=${flow.id}${suffix}`, headers: { cookie, origin } });
@@ -170,6 +179,34 @@ describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration',
     expect((await status(flow)).json()).toMatchObject({ status: 'authorized', token: proof });
     expect((await status(unrelated)).json()).toEqual({ status: 'pending' });
     expect((await status(flow, unrelated.cookie)).statusCode).toBe(400);
+  });
+  // HUGO-2261: a resend keeps the older email in the mailbox, and people click whichever they see first.
+  it('lets a link from an older email advance the window after a resend', async () => {
+    const first = await start();
+    const second = await resend(first);
+    expect((await link(first)).statusCode).toBe(200);
+    expect((await status(second)).json()).toMatchObject({ status: 'authorized' });
+  });
+  it('never lets a link approve another address started in the same window', async () => {
+    const first = await start();
+    const other = await start();
+    expect((await link(first)).statusCode).toBe(200);
+    expect((await status(first)).json()).toMatchObject({ status: 'authorized' });
+    expect((await status(other)).json()).toEqual({ status: 'pending' });
+  });
+  it('keeps the 24 hours of the older link after a resend', async () => {
+    const first = await start();
+    const second = await resend(first);
+    await db.prisma.pendingRegistration.update({ where: { id: first.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    expect((await link(first)).statusCode).toBe(400);
+    expect((await status(second)).json()).toEqual({ status: 'pending' });
+  });
+  it('answers the signed restart URL only when the product has one', async () => {
+    const flow = await start();
+    expect((await link(flow)).json()).toEqual({ status: 'verified' });
+    const restartUrl = 'https://client.example.com/login?start=1';
+    await db.prisma.pendingRegistration.update({ where: { id: flow.id }, data: { restartUrl } });
+    expect((await link(flow)).json()).toEqual({ status: 'verified', restart_url: restartUrl });
   });
   it('converges link and code races on one pending registration', async () => {
     const flow = await start();

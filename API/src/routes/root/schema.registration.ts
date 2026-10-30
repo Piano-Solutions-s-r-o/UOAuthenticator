@@ -28,8 +28,8 @@ export const registrationVerificationEndpoints: EndpointSchema[] = [
     notes: 'Immediate process-local hints plus a 5-second cross-replica database recheck. Clients recheck status on load/reconnect and poll every 10 seconds if notifications are lost or WSS is blocked. Two subscriptions per registration and 256 per instance maximum.' },
   { method: 'GET', path: '/auth/registration/link', description: 'Isolated email confirmation page, usable on any browser/device. Link secret is in the fragment, removed immediately; GET has no verification effect.',
     auth: 'None; confirmation requires the secret token in POST', response: { html: 'Explicit confirmation, then email-verified success; never an OAuth redirect or login. English or Czech by the GET Accept-Language.' } },
-  { method: 'POST', path: '/auth/registration/link', description: 'Confirm email from any device and approve continuation of the exact original pending registration.',
-    auth: '256-bit email-link token; same-origin POST', body: { token: 'Secret from the emailed URL fragment' }, response: { status: 'verified' },
+  { method: 'POST', path: '/auth/registration/link', description: 'Confirm email from any device and approve continuation of the exact original pending registration, and of any later one for the same address from the same OAuth context (a resend). Returns restart_url when the signed config has login_restart_url.',
+    auth: '256-bit email-link token; same-origin POST', body: { token: 'Secret from the emailed URL fragment' }, response: { status: 'verified', restart_url: 'Optional. The signed login_restart_url, for a person whose original window is gone.' },
     notes: 'The original browser receives a WebSocket hint, rechecks status with its cookie and exact OAuth context, and advances without code entry. The confirming browser receives no credentials, cookie or redirect. Replay cannot transfer approval to another flow. No account, OAuth code or session is created here.' },
 ];
 

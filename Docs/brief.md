@@ -23,7 +23,11 @@ uppercase alphanumeric code. The secret link confirms the mailbox on any device 
 shows an isolated success page without signing that device in. Confirming it, on any
 device, advances the window that started the registration, with no number matching
 (an accepted product decision, HUGO-2261): only a person who recognises the registration
-should confirm, and the email and the page say so. Codes work only in the requesting
+should confirm, and the email and the page say so. After a resend, a link from an older
+email still advances the window, because it proves the same address from the same OAuth
+context; it never approves another address. The success page tells the person to go back
+to the original window and, when the signed config has `login_restart_url`, offers a way
+to start again for a window that is gone. Codes work only in the requesting
 browser's registration, expire after 24 hours (the registration email lifetime,
 `REGISTRATION_EMAIL_TOKEN_TTL_MS`), and allow five persisted guesses. The email and
 the link confirmation page are English or Czech by the request's Accept-Language,

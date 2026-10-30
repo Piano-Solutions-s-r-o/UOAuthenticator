@@ -78,8 +78,8 @@ export function registerPendingRegistrationRoutes(app: FastifyInstance): void {
     preHandler: [requireSameOriginBrowserRequest, registrationLinkRateLimiter],
   }, async (request, reply) => {
     const { token } = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict().parse(request.body);
-    await verifyPendingRegistrationLink(token, request.adminDb);
+    const { restartUrl } = await verifyPendingRegistrationLink(token, request.adminDb);
     reply.header('Cache-Control', 'no-store');
-    return { status: 'verified' };
+    return { status: 'verified', ...(restartUrl ? { restart_url: restartUrl } : {}) };
   });
 }

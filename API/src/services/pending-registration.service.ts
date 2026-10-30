@@ -56,7 +56,8 @@ export async function startPendingRegistration(params: RegistrationContext & { e
     id, domain: params.config.domain, credentialHash: registrationDigest('browser', credential),
     linkHash: registrationDigest('link', linkToken), codeHash: registrationDigest('code', `${id}:${code}`),
     completionHash: hashEmailToken(token, requireEnv('SHARED_SECRET').SHARED_SECRET),
-    contextHash: contextHash(params), expiresAt,
+    contextHash: contextHash(params), emailHash: registrationDigest('email', params.email ?? ''),
+    restartUrl: params.config.login_restart_url ?? null, expiresAt,
   } });
   let status: 'sent' | 'existing_user' = 'sent';
   let delivery: RegistrationDelivery | undefined;
@@ -114,26 +115,37 @@ export async function verifyPendingRegistrationCode(params: RegistrationContext 
   publishRegistrationChange(params.id);
 }
 
-export async function verifyPendingRegistrationLink(token: string, prisma: PrismaClient): Promise<void> {
+/**
+ * A resend gives the window a new registration and leaves the older email in the mailbox, so a link
+ * approves every live registration of the same address from the same window (same OAuth context,
+ * which carries the PKCE challenge). Another address in that window stays pending: this link never
+ * proved it. Returns where a person whose original window is gone can start again.
+ */
+export async function verifyPendingRegistrationLink(token: string, prisma: PrismaClient): Promise<{ restartUrl: string | null }> {
   const initial = await prisma.pendingRegistration.findUnique({ where: { linkHash: registrationDigest('link', token) } });
   if (!initial) refuse();
   // Decided under the lock, so two simultaneous confirmations count one verification.
-  const newlyVerified = await runInTransaction(prisma, async tx => {
+  const approved = await runInTransaction(prisma, async tx => {
     const row = await lockRegistration(tx, initial.id);
     const now = new Date();
     if (!row || row.expiresAt <= now || row.attempts >= REGISTRATION_MAX_ATTEMPTS) refuse();
     // Approval belongs to the link's original pending flow. Replays cannot
     // transfer it to the browser opening the link or to another registration.
-    if (row.linkUsedAt) return false;
-    await tx.pendingRegistration.update({ where: { id: row.id }, data: {
-      emailVerifiedAt: row.emailVerifiedAt ?? now, linkUsedAt: now,
-      browserAuthorizedAt: now,
+    if (row.linkUsedAt) return [];
+    const flows = await tx.pendingRegistration.findMany({ select: { id: true }, where: {
+      contextHash: row.contextHash, emailHash: row.emailHash, browserAuthorizedAt: null,
+      expiresAt: { gt: now }, attempts: { lt: REGISTRATION_MAX_ATTEMPTS },
     } });
-    return true;
+    const ids = flows.map(flow => flow.id);
+    await tx.pendingRegistration.updateMany({ where: { id: { in: ids } }, data: {
+      emailVerifiedAt: now, linkUsedAt: now, browserAuthorizedAt: now,
+    } });
+    return ids;
   });
-  publishRegistrationChange(initial.id);
-  await recordAuthFunnelStep({ domain: initial.domain, step: 'email_link_opened', outcome: newlyVerified
+  for (const id of approved.length ? approved : [initial.id]) publishRegistrationChange(id);
+  await recordAuthFunnelStep({ domain: initial.domain, step: 'email_link_opened', outcome: approved.length
     ? 'registration_verified' : 'already_used' }, { prisma });
+  return { restartUrl: initial.restartUrl };
 }
 
 /**

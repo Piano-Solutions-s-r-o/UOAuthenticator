@@ -17,6 +17,9 @@ type LinkPageCopy = {
   successTitle: string;
   successBody: string;
   successStatus: string;
+  /** Under the success message when the product signed a restart URL: the original window may be gone. */
+  restartHint: string;
+  restartButton: string;
   /**
    * Expired, exhausted or malformed: it can never succeed on retry, so the button goes away.
    * Replaying an already-used link stays idempotent (the API answers 200 and the page shows
@@ -42,9 +45,11 @@ const LINK_PAGE_COPY: Record<EmailLocale, LinkPageCopy> = {
     verifying: 'Verifying…',
     successTitle: 'Email verified',
     successBody: 'Your email address is confirmed.',
-    successStatus: 'Your original registration screen will continue automatically. This page has not signed you in.',
-    rejected: 'This link has expired or is no longer valid. Request a new email from the registration screen.',
-    missingSecret: 'This link cannot be used. Request a new email from the registration screen.',
+    successStatus: 'Go back to the window where registration started. It continues there by itself. This device has not been signed in.',
+    restartHint: 'Window closed? Start again here.',
+    restartButton: 'Start again',
+    rejected: 'This link has expired or is no longer valid. Start the registration again.',
+    missingSecret: 'This link cannot be used. Start the registration again.',
     network: 'We could not reach the server. Check your connection and try again.',
     retryLater: 'We could not verify this link right now. Try again in a moment.',
   },
@@ -55,9 +60,11 @@ const LINK_PAGE_COPY: Record<EmailLocale, LinkPageCopy> = {
     verifying: 'Ověřuji…',
     successTitle: 'E-mail je ověřený',
     successBody: 'Tvoje e-mailová adresa je potvrzená.',
-    successStatus: 'Registrace v původním okně teď sama pokračuje. Toto zařízení se nepřihlásilo.',
-    rejected: 'Odkaz vypršel nebo už neplatí. Nový e-mail si nech poslat z okna registrace.',
-    missingSecret: 'Tenhle odkaz nejde použít. Nový e-mail si nech poslat z okna registrace.',
+    successStatus: 'Vrať se do okna, kde registrace začala. Pokračuje tam samo. Toto zařízení se nepřihlásilo.',
+    restartHint: 'Okno už nemáš otevřené? Začni znovu tady.',
+    restartButton: 'Začít znovu',
+    rejected: 'Odkaz vypršel nebo už neplatí. Začni registraci znovu.',
+    missingSecret: 'Tenhle odkaz nejde použít. Začni registraci znovu.',
     network: 'Nepodařilo se spojit se serverem. Zkontroluj připojení a zkus to znovu.',
     retryLater: 'Odkaz teď nejde ověřit. Zkus to za chvíli znovu.',
   },
@@ -130,6 +137,17 @@ export function renderRegistrationLinkPage(nonce: string, locale: EmailLocale = 
       document.querySelector('h1').textContent = copy.successTitle;
       body.textContent = copy.successBody;
       finish(copy.successStatus);
+      const restartUrl = (await response.json().catch(() => ({}))).restart_url;
+      if (restartUrl) {
+        const hint = document.createElement('p');
+        hint.style.cssText = 'margin:16px 0 12px 0;font-size:16px;line-height:1.6;';
+        hint.textContent = copy.restartHint;
+        const restart = document.createElement('a');
+        restart.href = restartUrl;
+        restart.textContent = copy.restartButton;
+        restart.style.cssText = 'display:inline-block;padding:12px 16px;border-radius:12px;background:#111827;color:#ffffff;font-weight:600;text-decoration:none;';
+        result.after(hint, restart);
+      }
     } else if (response.status === 429 || response.status >= 500) {
       retry(copy.retryLater);
     } else {

@@ -224,6 +224,25 @@ test('expiry and resend failure preserve a clear recovery screen', async ({ page
   await page.screenshot({ path: info.outputPath('resend-failed.png'), fullPage: true });
 });
 
+// HUGO-2261: the person may have closed the window where registration started.
+test('the success page offers a way to start again only when the product signed one', async ({ page }, info) => {
+  let restartUrl: string | undefined;
+  await page.route('**/auth/registration/link', route => route.request().method() === 'POST'
+    ? route.fulfill({ json: { status: 'verified', ...(restartUrl ? { restart_url: restartUrl } : {}) } })
+    : route.fulfill(mailboxPage()));
+  await page.goto('/auth/registration/link#synthetic-link-secret');
+  await page.getByRole('button', { name: 'Verify email address' }).click();
+  await expect(page.getByRole('heading', { name: 'Email verified' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Start again' })).toHaveCount(0);
+  restartUrl = 'https://product.example/login?start=1';
+  await page.goto('about:blank');
+  await page.goto('/auth/registration/link#synthetic-link-secret');
+  await page.getByRole('button', { name: 'Verify email address' }).click();
+  await expect(page.getByText('Window closed? Start again here.')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Start again' })).toHaveAttribute('href', restartUrl);
+  await page.screenshot({ path: info.outputPath('link-restart.png'), fullPage: true });
+});
+
 test('a rejected link shows its error without signing in or redirecting', async ({ page }, info) => {
   let postStatus = 503;
   await page.route('**/auth/registration/link', route => route.request().method() === 'POST'
@@ -405,7 +424,7 @@ test('the Czech confirmation page follows Accept-Language: cs through verify, re
   await verify.click();
   await expect(page.getByRole('heading', { name: 'E-mail je ověřený' })).toBeVisible();
   await expect(page.getByText('Tvoje e-mailová adresa je potvrzená.')).toBeVisible();
-  await expect(page.getByRole('status')).toHaveText('Registrace v původním okně teď sama pokračuje. Toto zařízení se nepřihlásilo.');
+  await expect(page.getByRole('status')).toHaveText('Vrať se do okna, kde registrace začala. Pokračuje tam samo. Toto zařízení se nepřihlásilo.');
   await expect(verify).toHaveCount(0);
   expect(await page.context().cookies()).toHaveLength(0);
   await page.screenshot({ path: info.outputPath('link-cs-success.png'), fullPage: true });
@@ -413,13 +432,13 @@ test('the Czech confirmation page follows Accept-Language: cs through verify, re
   await page.goto('about:blank');
   await page.goto('/auth/registration/link#synthetic-expired-secret');
   await page.getByRole('button', { name: 'Ověřit e-mail', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('Odkaz vypršel nebo už neplatí. Nový e-mail si nech poslat z okna registrace.');
+  await expect(page.getByRole('status')).toHaveText('Odkaz vypršel nebo už neplatí. Začni registraci znovu.');
   await expect(page.getByRole('button', { name: 'Ověřit e-mail' })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('link-cs-error.png'), fullPage: true });
   await page.goto('about:blank');
   await page.goto('/auth/registration/link');
   await page.getByRole('button', { name: 'Ověřit e-mail', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('Tenhle odkaz nejde použít. Nový e-mail si nech poslat z okna registrace.');
+  await expect(page.getByRole('status')).toHaveText('Tenhle odkaz nejde použít. Začni registraci znovu.');
   await page.screenshot({ path: info.outputPath('link-cs-missing-secret.png'), fullPage: true });
 });
 });

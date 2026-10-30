@@ -2376,7 +2376,7 @@ paths:
       tags: [Auth]
       operationId: confirmRegistrationLink
       summary: Confirm mailbox possession without authenticating another device
-      description: Explicit confirmation consumes a short-lived 256-bit link secret and approves the exact original pending flow on any device. The original browser receives a WebSocket hint, rechecks status using its HttpOnly cookie and original OAuth context, and advances without code entry. The confirming browser receives no credentials, cookies or redirect. Replay cannot transfer approval to another registration. No account, OAuth code or session is created here. Same-origin POST required.
+      description: Explicit confirmation consumes a short-lived 256-bit link secret and approves the exact original pending flow on any device, plus any later flow for the same address from the same OAuth context (a resend). The original browser receives a WebSocket hint, rechecks status using its HttpOnly cookie and original OAuth context, and advances without code entry. The confirming browser receives no credentials, cookies or redirect. Replay cannot transfer approval to another registration. No account, OAuth code or session is created here. Same-origin POST required.
       requestBody:
         required: true
         content:
@@ -2397,6 +2397,9 @@ paths:
                 required: [status]
                 properties:
                   status: { type: string, enum: [verified] }
+                  restart_url:
+                    type: string
+                    description: The signed login_restart_url, when the config has one, for a person whose original window is gone.
         '400': { description: Generic invalid or expired link. }
         '429': { description: Link request rate exceeded. }
 

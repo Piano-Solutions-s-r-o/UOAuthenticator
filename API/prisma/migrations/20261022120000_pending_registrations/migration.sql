@@ -9,6 +9,8 @@ CREATE TABLE "pending_registrations" (
   "code_hash" TEXT NOT NULL,
   "completion_hash" TEXT NOT NULL UNIQUE,
   "context_hash" TEXT NOT NULL,
+  "email_hash" TEXT NOT NULL,
+  "restart_url" TEXT,
   "attempts" INTEGER NOT NULL DEFAULT 0 CHECK ("attempts" BETWEEN 0 AND 5),
   "email_verified_at" TIMESTAMP(3),
   "browser_authorized_at" TIMESTAMP(3),
@@ -18,6 +20,7 @@ CREATE TABLE "pending_registrations" (
   CHECK ("browser_authorized_at" IS NULL OR "email_verified_at" IS NOT NULL)
 );
 CREATE INDEX "pending_registrations_expires_at_idx" ON "pending_registrations" ("expires_at");
+CREATE INDEX "pending_registrations_context_hash_email_hash_idx" ON "pending_registrations" ("context_hash", "email_hash");
 ALTER TABLE "pending_registrations" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "pending_registrations" FORCE ROW LEVEL SECURITY;
 CREATE POLICY pending_registrations_deny_app ON "pending_registrations"

@@ -438,6 +438,8 @@ model PendingRegistration {
   codeHash              String    @map("code_hash")
   completionHash        String    @unique @map("completion_hash")
   contextHash           String    @map("context_hash")
+  emailHash             String    @map("email_hash")
+  restartUrl            String?   @map("restart_url")
   attempts              Int       @default(0)
   emailVerifiedAt       DateTime? @map("email_verified_at")
   browserAuthorizedAt   DateTime? @map("browser_authorized_at")
@@ -446,6 +448,7 @@ model PendingRegistration {
   createdAt             DateTime  @default(now()) @map("created_at")
 
   @@index([expiresAt])
+  @@index([contextHash, emailHash])
   @@map("pending_registrations")
 }
 
