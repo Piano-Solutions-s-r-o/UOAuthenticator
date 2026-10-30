@@ -10,7 +10,7 @@ import { pendingRegistrationState, startPendingRegistration, verifyPendingRegist
 import { registrationCookieName, REGISTRATION_TTL_MS } from '../../services/registration-credentials.js';
 import { registrationLinkPageCsp, renderRegistrationLinkPage } from '../../services/registration-link-page.service.js';
 import { resolveEmailLocale } from '../../utils/email-locale.js';
-import { configFetchRateLimiter, registrationCodeRateLimiter, registrationLinkRateLimiter, registrationStartRateLimiter } from './rate-limit-keys.js';
+import { registrationCodeRateLimiter, registrationLinkRateLimiter, registrationStartRateLimiter, registrationStatusRateLimiter } from './rate-limit-keys.js';
 import { registrationContext } from './registration-context.js';
 import { recordAuthFunnelStep } from '../../services/auth-funnel.service.js';
 
@@ -44,7 +44,7 @@ export function registerPendingRegistrationRoutes(app: FastifyInstance): void {
   });
 
   app.get('/auth/registration/status', {
-    preHandler: [requireSameOriginBrowserRequest, configFetchRateLimiter, configVerifier],
+    preHandler: [requireSameOriginBrowserRequest, registrationStatusRateLimiter, configVerifier],
   }, async (request, reply) => {
     const { id } = z.object({ id: idSchema }).parse(request.query);
     reply.header('Cache-Control', 'no-store');

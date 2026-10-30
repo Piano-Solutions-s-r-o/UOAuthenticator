@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import type { FastifyRequest } from 'fastify';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { buildPublicErrorBody } from '../../src/utils/error-response.js';
 import { AppError } from '../../src/utils/errors.js';
@@ -17,5 +18,24 @@ describe('public error body of the registration status route', () => {
     expect(buildPublicErrorBody({
       error: new AppError('BAD_REQUEST', 400, code), statusCode: 400,
     })).toEqual({ error: 'Request failed' });
+  });
+});
+
+// Debug mode rewrites /auth errors into its own codes. The window would then never see the final
+// refusal and would poll for as long as the tab stays open.
+describe('public error body with DEBUG_ENABLED', () => {
+  const original = process.env.DEBUG_ENABLED;
+  beforeEach(() => { process.env.DEBUG_ENABLED = 'true'; });
+  afterEach(() => {
+    if (original === undefined) delete process.env.DEBUG_ENABLED;
+    else process.env.DEBUG_ENABLED = original;
+  });
+
+  it('keeps the code the window acts on', () => {
+    const request = { raw: { url: '/auth/registration/status?id=x' }, query: {} } as unknown as FastifyRequest;
+    const body = buildPublicErrorBody({
+      request, error: new AppError('BAD_REQUEST', 400, 'REGISTRATION_UNAVAILABLE'), statusCode: 400,
+    });
+    expect(body.code).toBe('REGISTRATION_UNAVAILABLE');
   });
 });

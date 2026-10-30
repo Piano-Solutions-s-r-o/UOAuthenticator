@@ -2,8 +2,7 @@
 
 ## Cross-device continuation clarification (2026-10-22)
 
-This clarification supersedes the code-after-link requirement in the earlier
-registration section below. Confirming the secret email link on any device
+Confirming the secret email link on any device
 approves the exact pending registration that sent it. Its original screen receives
 the WebSocket notification, rechecks authoritative state with its original HttpOnly
 cookie and immutable OAuth/config context, and advances without code entry.

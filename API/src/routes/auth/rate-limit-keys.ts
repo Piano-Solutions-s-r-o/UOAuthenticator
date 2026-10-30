@@ -99,6 +99,10 @@ export const registrationCodeRateLimiter = composeRateLimiters(
 
 export const registrationLinkRateLimiter = ipRateLimiter('auth:registration-link', 10, MINUTE_MS);
 
+// A waiting window polls and reconnects for as long as the person is in their mailbox, so it has
+// its own budget and cannot use up the one the /auth page load needs.
+export const registrationStatusRateLimiter = ipRateLimiter('auth:registration-status', 60, MINUTE_MS);
+
 // Phase 3b (design §8): /auth/verify-code is IP- and email-keyed, tighter than login since a
 // 6-digit code has a much smaller search space than a password.
 export const verifyCodeRateLimiter = composeRateLimiters(

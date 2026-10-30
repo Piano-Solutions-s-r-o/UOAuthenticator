@@ -7,7 +7,7 @@ import { pendingRegistrationState } from '../../services/pending-registration.se
 import { registrationCookieName, REGISTRATION_TTL_MS } from '../../services/registration-credentials.js';
 import { subscribeRegistrationChanges } from '../../services/registration-events.service.js';
 import { AppError } from '../../utils/errors.js';
-import { configFetchRateLimiter } from './rate-limit-keys.js';
+import { registrationStatusRateLimiter } from './rate-limit-keys.js';
 import { registrationContext } from './registration-context.js';
 
 export function registerRegistrationWebSocket(app: FastifyInstance): void {
@@ -17,7 +17,7 @@ export function registerRegistrationWebSocket(app: FastifyInstance): void {
     websocket: true,
     preHandler: [async request => {
       if (request.headers.origin !== new URL(getPublicBaseUrl()).origin) throw new AppError('FORBIDDEN', 403, 'REGISTRATION_UNAVAILABLE');
-    }, configFetchRateLimiter, configVerifier, async request => {
+    }, registrationStatusRateLimiter, configVerifier, async request => {
       const { id } = z.object({ id: z.string().uuid() }).parse(request.query);
       await pendingRegistrationState({ ...registrationContext(request), id,
         credential: request.cookies[registrationCookieName(id)] ?? '' }, request.adminDb);
@@ -54,7 +54,7 @@ export function registerRegistrationWebSocket(app: FastifyInstance): void {
     };
     const unsubscribe = subscribeRegistrationChanges(id, () => { void check(); });
     // Local notifications are immediate. A bounded database recheck delivers
-    // changes made on another Cloud Run replica without requiring affinity.
+    // changes made on another replica without requiring affinity.
     const timer = setInterval(() => { void check(); }, 5000);
     const deadline = setTimeout(() => socket.close(1000), REGISTRATION_TTL_MS);
     timer.unref(); deadline.unref();

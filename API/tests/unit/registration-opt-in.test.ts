@@ -26,6 +26,7 @@ import { registrationContext } from '../../src/routes/auth/registration-context.
 import {
   configFetchRateLimiter,
   registerRateLimiter,
+  registrationStatusRateLimiter,
   registrationCodeRateLimiter,
   registrationLinkRateLimiter,
   registrationStartRateLimiter,
@@ -179,9 +180,11 @@ describe('rate-limit namespaces', () => {
     expect(limiterOf('/auth/registration/link')).not.toBe(tokenConsumeRateLimiter);
   });
 
-  // Each poll and upgrade verifies the product config, which is an outbound fetch.
-  it('limits the status poll and the events upgrade like the other config-fetching routes', () => {
-    expect(limiterOf('/auth/registration/status')).toBe(configFetchRateLimiter);
-    expect(eventsPreHandlers()[1]).toBe(configFetchRateLimiter);
+  // Each poll and upgrade verifies the product config, which is an outbound fetch, so both are
+  // limited, but on their own budget: waiting windows must not use up the /auth page load's.
+  it('gives the status poll and the events upgrade one budget of their own', () => {
+    expect(limiterOf('/auth/registration/status')).toBe(registrationStatusRateLimiter);
+    expect(eventsPreHandlers()[1]).toBe(registrationStatusRateLimiter);
+    expect(registrationStatusRateLimiter).not.toBe(configFetchRateLimiter);
   });
 });

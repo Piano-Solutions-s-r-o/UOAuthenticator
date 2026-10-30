@@ -2298,6 +2298,8 @@ paths:
               schema: { $ref: '#/components/schemas/PendingRegistrationState' }
         '400':
           description: Generic invalid registration or browser/context binding.
+        '429':
+          description: Rate limited. Passing, so keep polling.
 
   /auth/registration/code:
     post:

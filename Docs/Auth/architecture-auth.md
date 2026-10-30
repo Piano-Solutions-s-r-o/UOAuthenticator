@@ -8,8 +8,7 @@ For the full product spec, see [brief.md](./brief.md). For tech stack, see [tech
 
 ## Guiding Principles
 
-Registration continuation clarification (2026-10-22): the paragraph below records
-the earlier code-after-link behavior and is superseded here. Explicit link
+Registration continuation (2026-10-22): explicit link
 confirmation on any device authorizes the exact originating flow. Its WebSocket
 hint triggers the existing status read and automatic next-step transition; no
 code is required after link approval. The original cookie and immutable OAuth

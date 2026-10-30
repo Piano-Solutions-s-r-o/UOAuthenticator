@@ -422,7 +422,8 @@ function buildAuthDebugBody(
 
   return {
     error: PUBLIC_ERROR_MESSAGE,
-    code: debug.code,
+    // The waiting registration window acts on this code, so debug mode must not rename it.
+    code: isAppError(error) && error.message === 'REGISTRATION_UNAVAILABLE' ? error.message : debug.code,
     summary: debug.summary,
     details: debug.details.length ? debug.details : undefined,
     hints: debug.hints.length ? debug.hints : undefined,
