@@ -10,65 +10,43 @@ function escapeHtml(value: string): string {
 }
 
 type LinkPageCopy = {
-  title: string;
-  body: string;
-  button: string;
-  verifying: string;
-  successTitle: string;
-  successBody: string;
-  successStatus: string;
-  /** Under the success message when the product signed a restart URL: the original window may be gone. */
-  restartHint: string;
-  restartButton: string;
-  /**
-   * Expired, exhausted or malformed: it can never succeed on retry, so the button goes away.
-   * Replaying an already-used link stays idempotent (the API answers 200 and the page shows
-   * success), which is why this copy does not claim the link was used.
-   */
-  rejected: string;
-  /** No secret in the fragment (a damaged or already-consumed address). */
-  missingSecret: string;
-  network: string;
-  /** 429 and 5xx: the only server answers that keep the retry button. */
-  retryLater: string;
+  opening: string;
+  complete: string;
+  signIn: string;
+  expired: string;
+  restart: string;
+  /** No connection, 429 or 5xx: the only answers that keep the secret and offer a retry. */
+  unreachable: string;
+  retry: string;
 };
 
 /**
  * The page is opened from a mailbox, so its language follows the GET request's Accept-Language
  * (`resolveEmailLocale`, HUGO-1815), like the email that linked to it. Czech is informal (tykání).
+ * Nothing here says where to go: the page sends the person on, or offers the one way on.
  */
 const LINK_PAGE_COPY: Record<EmailLocale, LinkPageCopy> = {
   en: {
-    title: 'Confirm your email',
-    body: 'Confirm to continue registration in the browser where you started. Only confirm if you requested this registration.',
-    button: 'Verify email address',
-    verifying: 'Verifying…',
-    successTitle: 'Email verified',
-    successBody: 'Your email address is confirmed.',
-    successStatus: 'Go back to the window where registration started. It continues there by itself. This device has not been signed in.',
-    restartHint: 'Window closed? Start again here.',
-    restartButton: 'Start again',
-    rejected: 'This link has expired or is no longer valid. Start the registration again.',
-    missingSecret: 'This link cannot be used. Start the registration again.',
-    network: 'We could not reach the server. Check your connection and try again.',
-    retryLater: 'We could not verify this link right now. Try again in a moment.',
+    opening: 'Opening Hugo…',
+    complete: 'Registration is complete.',
+    signIn: 'Sign in',
+    expired: 'This link is no longer valid',
+    restart: 'Start registration again',
+    unreachable: 'We could not reach the server.',
+    retry: 'Try again',
   },
   cs: {
-    title: 'Potvrď svůj e-mail',
-    body: 'Po potvrzení bude registrace pokračovat v prohlížeči, kde začala. Potvrzuj jen registraci, kterou zakládáš ty.',
-    button: 'Ověřit e-mail',
-    verifying: 'Ověřuji…',
-    successTitle: 'E-mail je ověřený',
-    successBody: 'Tvoje e-mailová adresa je potvrzená.',
-    successStatus: 'Vrať se do okna, kde registrace začala. Pokračuje tam sama. Toto zařízení se nepřihlásilo.',
-    restartHint: 'Okno už nemáš otevřené? Začni znovu tady.',
-    restartButton: 'Začít znovu',
-    rejected: 'Odkaz vypršel nebo už neplatí. Začni registraci znovu.',
-    missingSecret: 'Tenhle odkaz nejde použít. Začni registraci znovu.',
-    network: 'Nepodařilo se spojit se serverem. Zkontroluj připojení a zkus to znovu.',
-    retryLater: 'Odkaz teď nejde ověřit. Zkus to za chvíli znovu.',
+    opening: 'Otevírám Hugo…',
+    complete: 'Registrace je hotová.',
+    signIn: 'Přihlásit se',
+    expired: 'Odkaz už neplatí',
+    restart: 'Začít registraci znovu',
+    unreachable: 'Nepodařilo se spojit se serverem.',
+    retry: 'Zkusit znovu',
   },
 };
+
+const BUTTON_STYLE = 'display:none;padding:12px 16px;border:0;border-radius:12px;background:#111827;color:#ffffff;font:inherit;font-weight:600;text-decoration:none;cursor:pointer;';
 
 /** Self-contained card: the mailbox landing has no config, theme or product session to draw on. */
 function renderCard(locale: EmailLocale, copy: LinkPageCopy): string {
@@ -77,14 +55,14 @@ function renderCard(locale: EmailLocale, copy: LinkPageCopy): string {
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>${escapeHtml(copy.title)}</title>
+    <title>${escapeHtml(copy.opening)}</title>
   </head>
   <body style="margin:0;background:#f3f4f6;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827;">
     <div style="max-width:560px;margin:48px auto;padding:24px;">
       <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:32px;">
-        <h1 style="margin:0 0 16px 0;font-size:28px;line-height:1.2;">${escapeHtml(copy.title)}</h1>
-        <p style="margin:0 0 24px 0;font-size:16px;line-height:1.6;">${escapeHtml(copy.body)}</p>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;"><button id="verify" type="button" style="display:inline-block;padding:12px 16px;border:0;border-radius:12px;background:#111827;color:#ffffff;font:inherit;font-weight:600;cursor:pointer;">${escapeHtml(copy.button)}</button></div><p id="result" role="status" aria-live="polite" style="margin:16px 0 0 0;font-size:16px;line-height:1.6;"></p>
+        <h1 id="message" aria-live="polite" style="margin:0;font-size:24px;line-height:1.3;">${escapeHtml(copy.opening)}</h1>
+        <a id="next" style="${BUTTON_STYLE}margin-top:24px;"></a>
+        <button id="retry" type="button" style="${BUTTON_STYLE}margin-top:24px;">${escapeHtml(copy.retry)}</button>
       </div>
     </div>
   </body>
@@ -93,36 +71,43 @@ function renderCard(locale: EmailLocale, copy: LinkPageCopy): string {
 
 /**
  * The page's own Content-Security-Policy (it replaces the global helmet one): only the inline
- * confirmation script carrying this response's nonce may run, and it may only call this origin.
+ * script carrying this response's nonce may run, and it may only call this origin.
  */
 export function registrationLinkPageCsp(nonce: string): string {
   return `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`;
 }
 
-/** Isolated mailbox landing: no config fetch, third-party assets or OAuth redirect. */
+/**
+ * Isolated mailbox landing: no config fetch or third-party assets, and no effect on GET. Its script
+ * takes the secret out of the address, posts it at once and goes wherever the answer says.
+ */
 export function renderRegistrationLinkPage(nonce: string, locale: EmailLocale = 'en'): string {
-  // An empty nonce would render a script the browser blocks (the button would do nothing).
+  // An empty nonce would render a script the browser blocks (the page would stay on its first line).
   if (!/^[A-Za-z0-9+/=_-]+$/.test(nonce)) throw new Error('A CSP nonce is required');
   const copy = LINK_PAGE_COPY[locale] ?? LINK_PAGE_COPY.en;
   // Static copy only, but `<` is escaped so no string can ever close the script element.
   const strings = JSON.stringify(copy).replaceAll('<', '\\u003c');
-  // A rejected link (expired, exhausted or malformed) can never succeed on retry, so only a
-  // transport or server failure keeps the button; every final outcome removes it.
   const script = `<script nonce="${nonce}">
 (() => {
   const copy = ${strings};
-  let token = location.hash.slice(1);
+  const token = location.hash.slice(1);
   history.replaceState(null, '', location.pathname);
-  const button = document.getElementById('verify');
-  const actions = button.parentElement;
-  const body = document.querySelector('h1').nextElementSibling;
-  const result = document.getElementById('result');
-  const finish = message => { token = ''; actions.remove(); body.style.marginBottom = '0'; result.textContent = message; };
-  const retry = message => { button.disabled = false; result.textContent = message; };
-  button.addEventListener('click', async () => {
-    if (!token) { finish(copy.missingSecret); return; }
-    button.disabled = true;
-    result.textContent = copy.verifying;
+  const message = document.getElementById('message');
+  const next = document.getElementById('next');
+  const retry = document.getElementById('retry');
+  const final = (text, href, label) => {
+    message.textContent = text;
+    retry.style.display = 'none';
+    if (!href) return;
+    next.href = href;
+    next.textContent = label;
+    next.style.display = 'inline-block';
+  };
+  const unreachable = () => { message.textContent = copy.unreachable; retry.style.display = 'inline-block'; };
+  const open = async () => {
+    message.textContent = copy.opening;
+    retry.style.display = 'none';
+    if (!token) { final(copy.expired); return; }
     let response;
     try {
       response = await fetch('/auth/registration/link', {
@@ -130,30 +115,19 @@ export function renderRegistrationLinkPage(nonce: string, locale: EmailLocale = 
         body: JSON.stringify({ token }), credentials: 'same-origin'
       });
     } catch {
-      retry(copy.network);
+      unreachable();
       return;
     }
-    if (response.ok) {
-      document.querySelector('h1').textContent = copy.successTitle;
-      body.textContent = copy.successBody;
-      finish(copy.successStatus);
-      const restartUrl = (await response.json().catch(() => ({}))).restart_url;
-      if (restartUrl) {
-        const hint = document.createElement('p');
-        hint.style.cssText = 'margin:16px 0 12px 0;font-size:16px;line-height:1.6;';
-        hint.textContent = copy.restartHint;
-        const restart = document.createElement('a');
-        restart.href = restartUrl;
-        restart.textContent = copy.restartButton;
-        restart.style.cssText = 'display:inline-block;padding:12px 16px;border-radius:12px;background:#111827;color:#ffffff;font-weight:600;text-decoration:none;';
-        result.after(hint, restart);
-      }
-    } else if (response.status === 429 || response.status >= 500) {
-      retry(copy.retryLater);
-    } else {
-      finish(copy.rejected);
-    }
-  });
+    if (response.status === 429 || response.status >= 500) { unreachable(); return; }
+    if (!response.ok) { final(copy.expired); return; }
+    const result = await response.json().catch(() => ({}));
+    if (result.status === 'continue') location.replace(result.next);
+    else if (result.status === 'complete') final(copy.complete, result.next, copy.signIn);
+    else if (result.status === 'expired') final(copy.expired, result.next, copy.restart);
+    else unreachable();
+  };
+  retry.addEventListener('click', open);
+  open();
 })();
 </script>`;
   return renderCard(locale, copy).replace('</body>', () => `${script}</body>`);

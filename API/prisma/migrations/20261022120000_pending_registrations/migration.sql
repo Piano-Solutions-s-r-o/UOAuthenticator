@@ -9,15 +9,24 @@ CREATE TABLE "pending_registrations" (
   "code_hash" TEXT NOT NULL,
   "completion_hash" TEXT NOT NULL UNIQUE,
   "context_hash" TEXT NOT NULL,
+  "config_hash" TEXT NOT NULL,
   "email_hash" TEXT NOT NULL,
-  "restart_url" TEXT,
+  "login_restart_url" TEXT,
+  "registration_restart_url" TEXT NOT NULL,
   "attempts" INTEGER NOT NULL DEFAULT 0 CHECK ("attempts" BETWEEN 0 AND 5),
   "email_verified_at" TIMESTAMP(3),
   "browser_authorized_at" TIMESTAMP(3),
   "link_used_at" TIMESTAMP(3),
+  "completed_at" TIMESTAMP(3),
+  "completed_user_id" TEXT,
+  "completed_epoch" INTEGER,
+  "continued_at" TIMESTAMP(3),
   "expires_at" TIMESTAMP(3) NOT NULL,
   "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CHECK ("browser_authorized_at" IS NULL OR "email_verified_at" IS NOT NULL)
+  CHECK ("browser_authorized_at" IS NULL OR "email_verified_at" IS NOT NULL),
+  CHECK (("completed_at" IS NULL) = ("completed_user_id" IS NULL)),
+  CHECK (("completed_at" IS NULL) = ("completed_epoch" IS NULL)),
+  CHECK ("continued_at" IS NULL OR "completed_at" IS NOT NULL)
 );
 CREATE INDEX "pending_registrations_expires_at_idx" ON "pending_registrations" ("expires_at");
 CREATE INDEX "pending_registrations_context_hash_email_hash_idx" ON "pending_registrations" ("context_hash", "email_hash");

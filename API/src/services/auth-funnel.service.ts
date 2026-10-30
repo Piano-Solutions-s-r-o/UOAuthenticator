@@ -25,6 +25,7 @@ export const AUTH_FUNNEL_STEPS = [
   'set_password',
   'social_started',
   'sign_in_completed',
+  'original_window_continued',
   'code_exchange',
 ] as const;
 

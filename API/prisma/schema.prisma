@@ -425,27 +425,36 @@ model VerificationToken {
   @@map("verification_tokens")
 }
 
-// Mailbox proof and browser authority are separate facts. Explicit confirmation of the secret
-// link on ANY device approves continuation of this one pending flow (sets both timestamps); the
-// confirming browser receives nothing. Only the original browser - holding the HttpOnly cookie
-// and the exact config/OAuth context bound by contextHash - can read or consume the completion
-// proof. The emailed code is an alternative that authorizes the requesting browser itself.
+// A registration can finish in two browsers. Opening the emailed link approves nothing: it only
+// hands the opening browser a short-lived signed cookie, and that browser creates the password
+// through the verification token this row points to (completionHash). The emailed code instead
+// authorizes the original browser, which alone holds the HttpOnly cookie and the exact config/OAuth
+// context bound by contextHash. Completion marks every row of the resend family.
 model PendingRegistration {
-  id                    String    @id
-  domain                String
-  credentialHash        String    @map("credential_hash")
-  linkHash              String    @unique @map("link_hash")
-  codeHash              String    @map("code_hash")
-  completionHash        String    @unique @map("completion_hash")
-  contextHash           String    @map("context_hash")
-  emailHash             String    @map("email_hash")
-  restartUrl            String?   @map("restart_url")
-  attempts              Int       @default(0)
-  emailVerifiedAt       DateTime? @map("email_verified_at")
-  browserAuthorizedAt   DateTime? @map("browser_authorized_at")
-  linkUsedAt            DateTime? @map("link_used_at")
-  expiresAt             DateTime  @map("expires_at")
-  createdAt             DateTime  @default(now()) @map("created_at")
+  id                     String    @id
+  domain                 String
+  credentialHash         String    @map("credential_hash")
+  linkHash               String    @unique @map("link_hash")
+  codeHash               String    @map("code_hash")
+  completionHash         String    @unique @map("completion_hash")
+  contextHash            String    @map("context_hash")
+  configHash             String    @map("config_hash")
+  emailHash              String    @map("email_hash")
+  loginRestartUrl        String?   @map("login_restart_url")
+  registrationRestartUrl String    @map("registration_restart_url")
+  attempts               Int       @default(0)
+  emailVerifiedAt        DateTime? @map("email_verified_at")
+  browserAuthorizedAt    DateTime? @map("browser_authorized_at")
+  // First opened. Opening a link has no other effect.
+  linkUsedAt             DateTime? @map("link_used_at")
+  completedAt            DateTime? @map("completed_at")
+  completedUserId        String?   @map("completed_user_id")
+  // The credential epoch at completion: a password reset or revocation ends the original window's
+  // right to continue.
+  completedEpoch         Int?      @map("completed_epoch")
+  continuedAt            DateTime? @map("continued_at")
+  expiresAt              DateTime  @map("expires_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
 
   @@index([expiresAt])
   @@index([contextHash, emailHash])

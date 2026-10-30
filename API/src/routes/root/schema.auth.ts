@@ -190,7 +190,8 @@ export const authEndpoints: EndpointSchema[] = [
       request_access: 'string (optional) — auto-grant or create a pending access request',
     },
     body: {
-      token: 'string (required) — email verification token',
+      token:
+        'string — email verification token. Required, except that a same-origin browser holding a valid registration handoff cookie on a browser-bound registration product sends none: the server resolves the token',
       password: 'string (optional) — required for password_required registration mode',
     },
     response: {

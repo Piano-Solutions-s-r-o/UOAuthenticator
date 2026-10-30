@@ -39,13 +39,14 @@ export function registerRegistrationWebSocket(app: FastifyInstance): void {
       try {
         const state = await pendingRegistrationState(params, request.adminDb);
         if (closed) return;
-        if (state.status === 'expired' || state.status === 'complete') { socket.close(1000); return; }
         if (state.status !== lastStatus) {
           lastStatus = state.status;
-          if (state.status === 'verified' || state.status === 'authorized') {
-            socket.send(JSON.stringify({ type: 'registration.email_verified', status: 'verified' }));
+          // A hint before any close: a window that hears `complete` goes in straight away.
+          if (state.status === 'authorized' || state.status === 'complete') {
+            socket.send(JSON.stringify({ type: 'registration.changed' }));
           }
         }
+        if (state.status === 'expired' || state.status === 'complete') socket.close(1000);
       } catch { socket.close(1011); }
       finally {
         checking = false;

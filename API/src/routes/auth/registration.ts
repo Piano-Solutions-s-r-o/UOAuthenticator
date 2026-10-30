@@ -6,11 +6,13 @@ import { z } from 'zod';
 import { getPublicBaseUrl } from '../../config/env.js';
 import { configVerifier } from '../../middleware/config-verifier.js';
 import { requireSameOriginBrowserRequest } from '../../middleware/same-origin-browser.js';
-import { pendingRegistrationState, startPendingRegistration, verifyPendingRegistrationCode, verifyPendingRegistrationLink } from '../../services/pending-registration.service.js';
+import { continuePendingRegistration, openPendingRegistrationLink, pendingRegistrationState, startPendingRegistration, verifyPendingRegistrationCode } from '../../services/pending-registration.service.js';
+import { emailContinuationResponse } from '../../services/email-continuation.service.js';
 import { registrationCookieName, REGISTRATION_TTL_MS } from '../../services/registration-credentials.js';
+import { setRegistrationHandoffCookie } from '../../services/registration-handoff.service.js';
 import { registrationLinkPageCsp, renderRegistrationLinkPage } from '../../services/registration-link-page.service.js';
 import { resolveEmailLocale } from '../../utils/email-locale.js';
-import { registrationCodeRateLimiter, registrationLinkRateLimiter, registrationStartRateLimiter, registrationStatusRateLimiter } from './rate-limit-keys.js';
+import { registrationCodeRateLimiter, registrationContinueRateLimiter, registrationLinkRateLimiter, registrationStartRateLimiter, registrationStatusRateLimiter } from './rate-limit-keys.js';
 import { registrationContext } from './registration-context.js';
 import { recordAuthFunnelStep } from '../../services/auth-funnel.service.js';
 
@@ -80,8 +82,22 @@ export function registerPendingRegistrationRoutes(app: FastifyInstance): void {
     preHandler: [requireSameOriginBrowserRequest, registrationLinkRateLimiter],
   }, async (request, reply) => {
     const { token } = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict().parse(request.body);
-    const { restartUrl } = await verifyPendingRegistrationLink(token, request.adminDb);
+    const result = await openPendingRegistrationLink(token, request.adminDb);
     reply.header('Cache-Control', 'no-store');
-    return { status: 'verified', ...(restartUrl ? { restart_url: restartUrl } : {}) };
+    if (result.status === 'continue') setRegistrationHandoffCookie(reply, result.id, result.expiresAt);
+    return { status: result.status, ...(result.next ? { next: result.next } : {}) };
+  });
+
+  app.post('/auth/registration/continue', {
+    preHandler: [requireSameOriginBrowserRequest, registrationContinueRateLimiter, configVerifier],
+  }, async (request, reply) => {
+    const { id } = z.object({ id: idSchema }).strict().parse(request.body);
+    const context = registrationContext(request);
+    const { continuation, userId, authMethod } = await continuePendingRegistration({
+      ...context, id, credential: request.cookies[registrationCookieName(id)] ?? '', ip: request.ip ?? null,
+    }, request.adminDb);
+    await recordAuthFunnelStep({ domain: context.config.domain, step: 'original_window_continued', outcome: 'succeeded' }, { prisma: request.adminDb });
+    reply.header('Cache-Control', 'no-store');
+    return emailContinuationResponse(continuation, { request, domain: context.config.domain, userId, authMethod });
   });
 }

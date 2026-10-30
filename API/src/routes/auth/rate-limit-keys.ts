@@ -97,7 +97,17 @@ export const registrationCodeRateLimiter = composeRateLimiters(
   bodyRateLimiter('auth:registration-code', 'id', 10, 15 * MINUTE_MS),
 );
 
-export const registrationLinkRateLimiter = ipRateLimiter('auth:registration-link', 10, MINUTE_MS);
+// The link page posts by itself and mobile networks share addresses, so the tight budget belongs
+// to the link and the address only gets a wide ceiling.
+export const registrationLinkRateLimiter = composeRateLimiters(
+  ipRateLimiter('auth:registration-link', 60, MINUTE_MS),
+  bodyRateLimiter('auth:registration-link', 'token', 10, MINUTE_MS),
+);
+
+export const registrationContinueRateLimiter = composeRateLimiters(
+  ipRateLimiter('auth:registration-continue', 20, MINUTE_MS),
+  bodyRateLimiter('auth:registration-continue', 'id', 10, 15 * MINUTE_MS),
+);
 
 // A waiting window polls and reconnects for as long as the person is in their mailbox, so it has
 // its own budget and cannot use up the one the /auth page load needs.

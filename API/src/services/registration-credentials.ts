@@ -9,6 +9,11 @@ import { requireEnv } from '../config/env.js';
 export const REGISTRATION_TTL_MS = REGISTRATION_EMAIL_TOKEN_TTL_MS;
 export const REGISTRATION_MAX_ATTEMPTS = 5;
 export const REGISTRATION_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+export const REGISTRATION_TOKEN_PREFIX = 'registration.';
+// How long a browser that opened a link may finish from it, and how long after the password was set
+// the original window may still go in by itself.
+export const REGISTRATION_HANDOFF_TTL_MS = 15 * 60 * 1000;
+export const REGISTRATION_CONTINUE_TTL_MS = 15 * 60 * 1000;
 
 export function registrationDigest(kind: string, value: string): string {
   return createHmac('sha256', requireEnv('SHARED_SECRET').SHARED_SECRET)
@@ -30,7 +35,7 @@ export function equalRegistrationDigest(actual: string, expected: string): boole
 }
 
 export function completionToken(id: string, credential: string): string {
-  return `registration.${registrationDigest('completion', `${id}:${credential}`)}`;
+  return `${REGISTRATION_TOKEN_PREFIX}${registrationDigest('completion', `${id}:${credential}`)}`;
 }
 
 export function registrationCookieName(id: string): string {
