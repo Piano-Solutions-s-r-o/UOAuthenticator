@@ -103,6 +103,7 @@ export function registerAuthVerifyEmailRoute(app: FastifyInstance): void {
           request.adminDb,
         );
         if (!handoff) throw new AppError('BAD_REQUEST', 400, 'REGISTRATION_UNAVAILABLE');
+        if ('completed' in handoff) throw new AppError('BAD_REQUEST', 400, 'REGISTRATION_COMPLETE');
         reference = { tokenHash: handoff.tokenHash };
       }
 

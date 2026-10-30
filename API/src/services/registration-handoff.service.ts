@@ -12,7 +12,7 @@ export const REGISTRATION_HANDOFF_COOKIE = 'uoa_registration_handoff';
 
 const HANDOFF_VALUE = /^([0-9a-f-]{36})\.(\d+)\.(\d+)$/;
 
-export type RegistrationHandoff = { email: string; tokenHash: string };
+export type RegistrationHandoff = { email: string; tokenHash: string } | { completed: true };
 
 function cookieOptions() {
   return {
@@ -69,9 +69,11 @@ export async function resolveRegistrationHandoff(
   if (!id) return null;
   const now = Date.now();
   const row = await prisma.pendingRegistration.findUnique({ where: { id } });
-  if (!row || row.completedAt || row.expiresAt.getTime() <= now || row.attempts >= REGISTRATION_MAX_ATTEMPTS ||
-    row.domain !== params.config.domain ||
+  if (!row || row.domain !== params.config.domain ||
     !equalRegistrationDigest(registrationConfigHash(params.configUrl, params.config), row.configHash)) return null;
+  // The other browser won: this one holds a valid link, so it may hear that, and no more.
+  if (row.completedAt) return { completed: true };
+  if (row.expiresAt.getTime() <= now || row.attempts >= REGISTRATION_MAX_ATTEMPTS) return null;
   const token = await prisma.verificationToken.findUnique({ where: { tokenHash: row.completionHash } });
   if (!token || token.type !== 'VERIFY_EMAIL_SET_PASSWORD' || token.usedAt || token.expiresAt.getTime() <= now ||
     !(await readVerificationTokenEpoch(prisma, token))) return null;

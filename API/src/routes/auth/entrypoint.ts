@@ -97,7 +97,7 @@ export function registerAuthEntrypointRoute(app: FastifyInstance): void {
         config: request.config,
         configUrl: request.configUrl,
         requestUrl,
-        ...(handoff ? { registrationHandoff: { email: handoff.email } } : {}),
+        ...(handoff && 'email' in handoff ? { registrationHandoff: { email: handoff.email } } : {}),
       });
       // The handoff continues a registration already counted, it does not start a flow.
       const outcome = request.method === 'HEAD' || handoff ? null : start;

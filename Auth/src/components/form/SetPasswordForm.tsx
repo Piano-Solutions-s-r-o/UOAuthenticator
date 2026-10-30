@@ -40,6 +40,7 @@ export function SetPasswordForm(props: { registering?: boolean }): React.JSX.Ele
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [finishedElsewhere, setFinishedElsewhere] = useState(false);
 
   // This view is server-rendered, so the password inputs exist as focusable HTML
   // before the JS bundle hydrates. On mobile a user can tap and type into a
@@ -60,6 +61,9 @@ export function SetPasswordForm(props: { registering?: boolean }): React.JSX.Ele
     if (result.ok) return;
 
     switch (result.code) {
+      case 'REGISTRATION_COMPLETE':
+        setFinishedElsewhere(true);
+        return;
       case 'PASSWORD_POLICY_VIOLATION':
       case 'MISSING_PASSWORD':
         setError(t('form.setPassword.tooShort'));
@@ -150,6 +154,24 @@ export function SetPasswordForm(props: { registering?: boolean }): React.JSX.Ele
     });
     if (!applied) setError(t('form.setPassword.error'));
     else beginRegistration(null);
+  }
+
+  if (finishedElsewhere) {
+    return (
+      <div className="mt-6 flex flex-col gap-4">
+        <p role="status" className="text-sm text-[var(--uoa-color-text)]">{t('registration.finished')}</p>
+        <Button
+          type="button"
+          onClick={() => {
+            const restartUrl = loginRestartUrl(config);
+            if (restartUrl) redirectTo(restartUrl);
+            else setView('login');
+          }}
+        >
+          {t('registration.signIn')}
+        </Button>
+      </div>
+    );
   }
 
   if (success) {

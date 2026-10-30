@@ -211,14 +211,14 @@ describe.skipIf(!process.env.DATABASE_URL)('finishing a registration where the l
       expect(await issuedCodes(flow.email)).toHaveLength(1);
     });
 
-    it('lets the first of two browsers win, and fails the other generically', async () => {
+    it('lets the first of two browsers win, and tells the other it is finished', async () => {
       const flow = await h.start();
       const first = await h.open(flow);
       const second = await h.open(flow);
       expect((await h.finish(first)).statusCode).toBe(200);
       const late = await h.finish(second);
       expect(late.statusCode).toBe(400);
-      expect(late.json().code).toBe('REGISTRATION_UNAVAILABLE');
+      expect(late.json().code).toBe('REGISTRATION_COMPLETE');
       expect(await h.db.prisma.user.count({ where: { email: flow.email } })).toBe(1);
     });
 
