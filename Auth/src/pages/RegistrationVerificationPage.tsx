@@ -94,7 +94,6 @@ export function RegistrationVerificationPage(): React.JSX.Element {
         <>
           <p className="mt-3 text-sm text-[var(--uoa-color-text)]">{beforeEmail}<strong>{pending.email}</strong>{afterEmail}</p>
           <p className="mt-2 text-sm text-[var(--uoa-color-muted)]">{t('registration.instructions')}</p>
-          {status === 'verified' ? <p role="status" className="mt-4 text-sm text-[var(--uoa-color-text)]">{t('registration.verifiedElsewhere')}</p> : null}
           <form className="mt-6 flex flex-col gap-4" aria-busy={loading} onSubmit={event => { event.preventDefault(); void submit(code); }}>
             <RegistrationCodeInput value={code} onChange={value => { setCode(value); setError(false); }}
               onComplete={value => { void submit(value); }} disabled={loading || resending} label={t('registration.code')}

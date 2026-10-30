@@ -28,9 +28,8 @@ The production root `https://authentication.unlikeotherai.com/` is a Tailwind ho
 ### Registration verification release note
 
 Registration verification requires the additive `20261022120000_pending_registrations`
-migration and the API/Auth release together. No consuming-product config flag or
-native release is required for the hosted registration screen. Cloud Run must forward
-WebSocket upgrades; clients retain polling when upgrades or connections fail. Database
+migration and the API/Auth release together, and no native release. The host must
+forward WebSocket upgrades; clients retain polling when upgrades or connections fail. Database
 state and original HttpOnly registration cookies remain authoritative across replicas.
 No production credentials or operator records are provisioned by this change.
 The flow ships switched off: a product opts in through `login_flow.registration_code_enabled: true`

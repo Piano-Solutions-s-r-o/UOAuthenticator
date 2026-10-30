@@ -20,9 +20,10 @@ context still gate completion, and the confirming browser only shows success.
 `/auth/register` confirmation) uses the six-field `RegistrationCodeInput` and
 `use-registration-status` for authenticated WSS hints plus authoritative reads and
 polling. `utils/pending-registration.ts` stores only a public ID and display email
-per original OAuth context; the owning credential is an HttpOnly cookie. A cross-device
-link confirms email without authorizing the initiating browser. The emailed code,
-or a link confirmed in the original browser, unlocks the existing password/2FA flow.
+per original OAuth context; the owning credential is an HttpOnly cookie. The emailed
+code, or the link confirmed on any device, unlocks the existing password/2FA flow in
+the window that started the registration; the device that confirmed the link is not
+signed in.
 
 - **No code file longer than 500 lines.** If a file approaches this limit, split it.
 - **Keep the codebase reusable and clean.** This is the hard rule. If a component is reusable, it gets its own file. Small helper components that only serve a single parent can live in the same file if it makes sense.

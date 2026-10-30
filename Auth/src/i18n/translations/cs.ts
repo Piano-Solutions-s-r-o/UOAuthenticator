@@ -4,8 +4,6 @@ export const cs = {
   'registration.checkEmail': 'Zkontroluj e-mail',
   'registration.sent': 'Na {email} jsme ti poslali ověřovací odkaz a šestimístný kód.',
   'registration.instructions': 'Otevři odkaz na jakémkoli zařízení, nebo pokračuj zadáním kódu níže.',
-  'registration.verifiedElsewhere':
-    'Tvůj e-mail je ověřený. Pro bezpečné pokračování v tomto prohlížeči zadej kód z e-mailu.',
   'registration.code': 'Ověřovací kód',
   'registration.error':
     'Kód se nepodařilo ověřit. Zkontroluj ho a zkus to znovu, nebo si nech poslat nový e-mail.',

@@ -24,6 +24,7 @@ import { registerPendingRegistrationRoutes } from '../../src/routes/auth/registr
 import { registerRegistrationWebSocket } from '../../src/routes/auth/registration-websocket.js';
 import { registrationContext } from '../../src/routes/auth/registration-context.js';
 import {
+  configFetchRateLimiter,
   registerRateLimiter,
   registrationCodeRateLimiter,
   registrationLinkRateLimiter,
@@ -126,7 +127,7 @@ describe.each(Object.entries(flows))('with the flag off (login_flow %s)', (_name
   });
 
   it('events refuse before the WebSocket upgrade', async () => {
-    const [, , afterConfig] = eventsPreHandlers();
+    const [, , , afterConfig] = eventsPreHandlers();
     await refusal(afterConfig!(request(loginFlow, { query: { id } })));
     expect(mocks.state).not.toHaveBeenCalled();
   });
@@ -151,7 +152,7 @@ describe('with the flag on', () => {
   });
 
   it('events pass the context preHandler', async () => {
-    const [, , afterConfig] = eventsPreHandlers();
+    const [, , , afterConfig] = eventsPreHandlers();
     await afterConfig!(request(enabled, { query: { id } }));
     expect(mocks.state).toHaveBeenCalledOnce();
   });
@@ -176,5 +177,11 @@ describe('rate-limit namespaces', () => {
     expect(limiterOf('/auth/registration/code')).not.toBe(verifyCodeRateLimiter);
     expect(limiterOf('/auth/registration/link')).toBe(registrationLinkRateLimiter);
     expect(limiterOf('/auth/registration/link')).not.toBe(tokenConsumeRateLimiter);
+  });
+
+  // Each poll and upgrade verifies the product config, which is an outbound fetch.
+  it('limits the status poll and the events upgrade like the other config-fetching routes', () => {
+    expect(limiterOf('/auth/registration/status')).toBe(configFetchRateLimiter);
+    expect(eventsPreHandlers()[1]).toBe(configFetchRateLimiter);
   });
 });

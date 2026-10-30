@@ -95,6 +95,55 @@ it('keeps polling while the registration is still pending', async () => {
   try {
     await act(async () => { root.render(<Harness />); });
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
-    expect(mocks.get.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(mocks.get).toHaveBeenCalledTimes(4); // the first check, then one every 10 s
+  } finally { act(() => root.unmount()); host.remove(); }
+});
+
+// HUGO-2261: the status route verifies the product's config on every poll, so a short product
+// outage answers 400. A registration is still valid then and must survive it.
+it.each([
+  ['a failed config fetch', { ok: false, status: 400, error: 'Request failed', code: null }],
+  ['a rate limit', { ok: false, status: 429, error: 'Request failed', code: null }],
+  ['a server error', { ok: false, status: 502, error: 'Request failed', code: null }],
+  ['no network', { ok: false, status: 0, error: null, code: null }],
+])('keeps waiting through %s and still picks up the authorization', async (_name, failure) => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.useFakeTimers();
+  mocks.get.mockResolvedValueOnce(failure)
+    .mockResolvedValue({ ok: true, data: { status: 'authorized', token: 'token', token_type: 'VERIFY_EMAIL_SET_PASSWORD' } });
+  vi.stubGlobal('WebSocket', undefined);
+  const received = vi.fn();
+  function Harness() {
+    useRegistrationStatus({ id: 'pending-registration', query: { config_url: 'https://product.example/config' }, onState: received });
+    return null;
+  }
+  const host = document.createElement('div'); document.body.appendChild(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => { root.render(<Harness />); });
+    expect(received).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(received).toHaveBeenCalledExactlyOnceWith({ status: 'authorized', token: 'token', token_type: 'VERIFY_EMAIL_SET_PASSWORD' });
+  } finally { act(() => root.unmount()); host.remove(); }
+});
+
+it('stops on the final refusal and shows the registration as over', async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.useFakeTimers();
+  mocks.get.mockResolvedValue({ ok: false, status: 400, error: 'Request failed', code: 'REGISTRATION_UNAVAILABLE' });
+  vi.stubGlobal('WebSocket', undefined);
+  const received = vi.fn();
+  function Harness() {
+    useRegistrationStatus({ id: 'pending-registration', query: { config_url: 'https://product.example/config' }, onState: received });
+    return null;
+  }
+  const host = document.createElement('div'); document.body.appendChild(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => { root.render(<Harness />); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(received).toHaveBeenCalledExactlyOnceWith({ status: 'expired' });
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
   } finally { act(() => root.unmount()); host.remove(); }
 });

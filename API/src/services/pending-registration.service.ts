@@ -136,7 +136,11 @@ export async function verifyPendingRegistrationLink(token: string, prisma: Prism
     ? 'registration_verified' : 'already_used' }, { prisma });
 }
 
-/** The existing completion endpoint remains the single account/session writer. */
+/**
+ * `/auth/verify-email` remains the account and session writer for this flow, and this check ties
+ * it to the browser. `/auth/email/link` can also consume a `registration.` token, but that token
+ * is only ever handed to the browser that already holds the cookie.
+ */
 export async function assertPendingRegistrationCompletion(params: RegistrationContext & { token: string; cookies: Record<string, string | undefined> }, prisma: PrismaClient): Promise<void> {
   if (!params.token.startsWith('registration.')) return;
   const row = await prisma.pendingRegistration.findUnique({ where: {

@@ -4,8 +4,6 @@ export const es = {
   'registration.checkEmail': 'Revisa tu correo',
   'registration.sent': 'Hemos enviado un enlace de verificación y un código de seis caracteres a {email}.',
   'registration.instructions': 'Abre el enlace en cualquier dispositivo o introduce el código para continuar.',
-  'registration.verifiedElsewhere':
-    'Tu correo está verificado. Introduce el código del correo para continuar de forma segura en este navegador.',
   'registration.code': 'Código de verificación',
   'registration.error':
     'No pudimos verificar el código. Revísalo e inténtalo de nuevo o solicita otro correo.',

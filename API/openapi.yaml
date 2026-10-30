@@ -2281,7 +2281,7 @@ paths:
       tags: [Auth]
       operationId: getBrowserRegistrationStatus
       summary: Read current registration state
-      description: Same opt-in as registration/start (`login_flow.registration_code_enabled`; otherwise 400 REGISTRATION_UNAVAILABLE). Requires the original cookie and exact original signed config/OAuth context. Recheck on load, focus and WebSocket reconnect; poll every 10 seconds when needed. A verified mailbox alone never grants a completion proof.
+      description: Same opt-in as registration/start (`login_flow.registration_code_enabled`; otherwise 400 REGISTRATION_UNAVAILABLE). Requires the original cookie and exact original signed config/OAuth context. Recheck on load, focus and WebSocket reconnect; poll every 10 seconds when needed. Only 400 with code REGISTRATION_UNAVAILABLE ends the flow; any other failure (a bare 400 from a failed config fetch, 429, 5xx) is passing, so keep polling. The completion proof goes only to the browser holding the cookie.
       security: [{ registrationBrowser: [] }]
       parameters:
         - $ref: '#/components/parameters/configUrl'

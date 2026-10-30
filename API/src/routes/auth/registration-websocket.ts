@@ -7,6 +7,7 @@ import { pendingRegistrationState } from '../../services/pending-registration.se
 import { registrationCookieName, REGISTRATION_TTL_MS } from '../../services/registration-credentials.js';
 import { subscribeRegistrationChanges } from '../../services/registration-events.service.js';
 import { AppError } from '../../utils/errors.js';
+import { configFetchRateLimiter } from './rate-limit-keys.js';
 import { registrationContext } from './registration-context.js';
 
 export function registerRegistrationWebSocket(app: FastifyInstance): void {
@@ -16,7 +17,7 @@ export function registerRegistrationWebSocket(app: FastifyInstance): void {
     websocket: true,
     preHandler: [async request => {
       if (request.headers.origin !== new URL(getPublicBaseUrl()).origin) throw new AppError('FORBIDDEN', 403, 'REGISTRATION_UNAVAILABLE');
-    }, configVerifier, async request => {
+    }, configFetchRateLimiter, configVerifier, async request => {
       const { id } = z.object({ id: z.string().uuid() }).parse(request.query);
       await pendingRegistrationState({ ...registrationContext(request), id,
         credential: request.cookies[registrationCookieName(id)] ?? '' }, request.adminDb);

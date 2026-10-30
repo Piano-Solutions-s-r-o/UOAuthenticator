@@ -43,7 +43,9 @@ export function useRegistrationStatus(params: {
       if (!stopped && response.ok) {
         callback.current(response.data);
         if (response.data.status === 'expired' || response.data.status === 'complete') stop();
-      } else if (!stopped && !response.ok && [400, 401, 403].includes(response.status)) {
+      } else if (!stopped && !response.ok && response.code === 'REGISTRATION_UNAVAILABLE') {
+        // The server's final refusal. Everything else (a failed config fetch answers a bare 400, a
+        // 429, a 5xx, no network) can pass, so the window keeps waiting for the next check.
         callback.current({ status: 'expired' });
         stop();
       }

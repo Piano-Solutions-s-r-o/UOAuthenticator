@@ -21,11 +21,10 @@ The hosted email registration screen offers (when the product's signed config se
 `login_flow.registration_code_enabled: true`; it is off by default and the original
 `/auth/register` link email stays in use otherwise) one verification link and a six-character
 uppercase alphanumeric code. The secret link confirms the mailbox on any device and
-shows an isolated success page without signing that device in. A link confirmed with
-the original registration cookie can advance that exact flow. A cross-device click
-does not authorize the initiating browser: it still needs the emailed code. This
-prevents an attacker-initiated registration from acquiring credentials when the
-mailbox owner clicks. No extra pairing code is sent. Codes work only in the requesting
+shows an isolated success page without signing that device in. Confirming it, on any
+device, advances the window that started the registration, with no number matching
+(an accepted product decision, HUGO-2261): only a person who recognises the registration
+should confirm, and the email and the page say so. Codes work only in the requesting
 browser's registration, expire after 24 hours (the registration email lifetime,
 `REGISTRATION_EMAIL_TOKEN_TTL_MS`), and allow five persisted guesses. The email and
 the link confirmation page are English or Czech by the request's Accept-Language,

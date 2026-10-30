@@ -43,7 +43,9 @@ GET /auth/registration/status and authenticated WSS /auth/registration/events
 require the original cookie plus exact signed config and OAuth context; WSS
 additionally requires the exact service Origin. Events contain only
 {type:"registration.email_verified",status:"verified"}. Clients treat them as
-hints and re-read database state on load, reconnect and focus. Process-local
+hints and re-read database state on load, reconnect and focus. Only a 400 with
+code REGISTRATION_UNAVAILABLE ends the flow: a bare 400 (a failed config fetch),
+429 or 5xx is passing, so keep polling. Process-local
 events are immediate; connected replicas recheck the database every five seconds.
 A ten-second client poll covers blocked WSS and lost hints. Refresh persists
 only the public pending ID and display email; credentials remain HttpOnly.
