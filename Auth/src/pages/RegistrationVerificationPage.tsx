@@ -70,7 +70,8 @@ export function RegistrationVerificationPage(): React.JSX.Element {
     popup.beginRegistration({ id: result.data.registration_id, email: pending.email });
   }
 
-  // Leaving also forgets the pending registration, so a refresh opens sign-in and not this screen.
+  // Leaving also forgets the pending registration, so a refresh cannot bring this screen back. It
+  // opens the window's entry view: sign-in, or the sign-up form under `prompt=create`.
   function backToLogin() {
     popup.beginRegistration(null);
     popup.setView('login');

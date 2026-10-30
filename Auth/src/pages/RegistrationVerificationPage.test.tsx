@@ -33,14 +33,14 @@ function Screen(): React.JSX.Element {
   return view === 'registration-verification' ? <RegistrationVerificationPage /> : <p data-testid="view">{view}</p>;
 }
 
-async function mount(): Promise<{ host: HTMLElement; unmount: () => void }> {
+async function mount(initialSearch = search): Promise<{ host: HTMLElement; unmount: () => void }> {
   const host = document.createElement('div'); document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => {
     root.render(
       <ThemeProvider config={config} configUrl="">
         <I18nProvider config={config} configUrl="">
-          <PopupProvider configUrl="" config={config} initialSearch={search}><Screen /></PopupProvider>
+          <PopupProvider configUrl="" config={config} initialSearch={initialSearch}><Screen /></PopupProvider>
         </I18nProvider>
       </ThemeProvider>,
     );
@@ -68,6 +68,24 @@ it('resumes a pending registration after a refresh, and forgets it once the pers
   // A refresh (a fresh mount over the same sessionStorage) now opens sign-in.
   const second = await mount();
   expect(second.host.querySelector('[data-testid="view"]')?.textContent).toBe('login');
+  expect(second.host.textContent).not.toContain('person@example.com');
+  second.unmount();
+});
+
+// Hugo's sign-up path carries prompt=create, so its refresh opens the sign-up form. What matters
+// is that the code screen stays gone there too.
+it('does not bring the code screen back on the prompt=create entry either', async () => {
+  const createSearch = `${search}&prompt=create`;
+  savePendingRegistration(registrationStorageKey('', createSearch), { id: '9466e365-206c-49cb-a8d5-aa1342bdd613', email: 'person@example.com' });
+  const first = await mount(createSearch);
+  const back = [...first.host.querySelectorAll('button')].find((b) => b.textContent === 'Back to sign in');
+  if (!back) throw new Error('Back to sign in is missing on the verification screen');
+  await act(async () => { back.click(); });
+  expect(first.host.querySelector('[data-testid="view"]')?.textContent).toBe('login');
+  first.unmount();
+
+  const second = await mount(createSearch);
+  expect(second.host.querySelector('[data-testid="view"]')?.textContent).toBe('register');
   expect(second.host.textContent).not.toContain('person@example.com');
   second.unmount();
 });
