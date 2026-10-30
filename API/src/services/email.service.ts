@@ -38,7 +38,7 @@ export async function sendRegistrationVerificationEmail(params: {
   const env = getEnv();
   return dispatchEmail({
     to: params.to, from: env.EMAIL_FROM, replyTo: env.EMAIL_REPLY_TO,
-    ...buildRegistrationVerificationTemplate(params),
+    ...buildRegistrationVerificationTemplate({ ...params, email: params.to }),
     suppressContentLog: true,
   });
 }

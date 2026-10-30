@@ -4,11 +4,12 @@ import { escapeHtml, logoHtml, resolveTheme, type EmailLocale, type EmailTheme }
 const FONT = 'ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif';
 
 /**
- * The browser-bound registration email: a link that works on any device plus a large code for the
- * window where registration began. Same card, logo and theme plumbing as the other emails;
+ * The browser-bound registration email: a link that finishes registration on any device plus a large
+ * code for the window where it began. Same card, logo and theme plumbing as the other emails;
  * language follows the registration-start request (HUGO-1815 `resolveEmailLocale`).
  */
 export function buildRegistrationVerificationTemplate(params: {
+  email: string;
   link: string;
   code: string;
   theme?: Partial<EmailTheme>;
@@ -17,17 +18,16 @@ export function buildRegistrationVerificationTemplate(params: {
   const t = resolveTheme(params.theme);
   const copy = registrationVerificationCopy(params.locale);
   const expiry = copy.expiry(registrationTokenTtlHours());
+  const body = copy.body(params.email);
   const text = [
     copy.heading,
     '',
-    copy.body,
+    body,
     params.link,
     '',
     `${copy.codeLabel} ${params.code}`,
     '',
     expiry,
-    copy.note,
-    '',
     copy.ignoreLabel,
   ].join('\n');
   const fontLink = t.fontImportUrl
@@ -54,7 +54,7 @@ export function buildRegistrationVerificationTemplate(params: {
             </tr>
             <tr>
               <td style="padding:0 24px 16px 24px;font-family:${FONT};color:${t.text};font-size:14px;line-height:22px;">
-                ${escapeHtml(copy.body)}
+                ${escapeHtml(body)}
               </td>
             </tr>
             <tr>
@@ -74,7 +74,7 @@ export function buildRegistrationVerificationTemplate(params: {
             </tr>
             <tr>
               <td style="padding:0 24px 16px 24px;font-family:${FONT};color:${t.muted};font-size:12px;line-height:18px;">
-                ${escapeHtml(expiry)} ${escapeHtml(copy.note)}
+                ${escapeHtml(expiry)}
               </td>
             </tr>
             <tr>
