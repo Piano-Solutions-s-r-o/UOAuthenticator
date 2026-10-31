@@ -15,6 +15,7 @@ import { registerConfigValidateRoute } from './config-validate.js';
 import { registerConfigVerifyRoute } from './config-verify.js';
 import { registerLlmRoute } from './llm.js';
 import { endpoints } from './schema.js';
+import { registrationVerificationDocumentation } from './schema.registration.js';
 import { readAdminIndexAssetUrls } from '../../services/admin-ui.service.js';
 import { renderRootHoldingPage } from '../../services/root-page.service.js';
 
@@ -52,6 +53,7 @@ export function registerRootRoute(app: FastifyInstance): void {
       home: '/',
       docs: '/llm',
       api: '/api',
+      registration_verification: registrationVerificationDocumentation,
       config_jwt: configJwtDocumentation,
       access_token: accessTokenDocumentation,
       confidential_token_exchange: confidentialTokenExchangeDocumentation,

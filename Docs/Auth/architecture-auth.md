@@ -8,6 +8,28 @@ For the full product spec, see [brief.md](./brief.md). For tech stack, see [tech
 
 ## Guiding Principles
 
+Registration finishes where the link is clicked (HUGO-2261). `/auth` bootstraps
+`__UOA_REGISTRATION_HANDOFF__` (the display address, never a token) for a browser whose handoff
+cookie the server accepted; `readClientBootstrap` hands it to `PopupProvider`, whose
+`deriveInitialView` opens `set-password` for it ahead of the registration form that `prompt=create`
+would open (the server sends it only on `prompt=create`). `SetPasswordForm` then posts that address
+with the password. SSR gets the same value, so hydration matches. The password screen shows
+the address in both browsers, because a forwarded link can reach someone else.
+
+`RegistrationVerificationPage` (reached only when the signed config sets
+`login_flow.registration_code_enabled` and `registration_restart_url`, which
+`isRegistrationCodeEnabled` checks; otherwise `RegisterForm` keeps the original
+`/auth/register` confirmation) uses the six-field `RegistrationCodeInput` and
+`use-registration-status` for authenticated WSS hints plus authoritative reads and
+polling. `utils/pending-registration.ts` stores only a public ID and display email
+per original OAuth context; the owning credential is an HttpOnly cookie. The emailed
+code unlocks the existing password/2FA flow in the window that started the registration.
+When the status says `complete` the window calls `POST /auth/registration/continue` and applies
+the outcome through `applyWorkspaceOutcome`, so 2FA and the chooser work as usual; if that fails it
+offers sign-in through `loginRestartUrl(config)`. The waiting screen has two text actions, `Poslat
+znovu` and `Změnit e-mail`; the second forgets the pending registration and opens the register form.
+No copy mentions windows, devices or going back.
+
 - **No code file longer than 500 lines.** If a file approaches this limit, split it.
 - **Keep the codebase reusable and clean.** This is the hard rule. If a component is reusable, it gets its own file. Small helper components that only serve a single parent can live in the same file if it makes sense.
 - **Components are small and focused.** A component does one thing. If it does two things, consider splitting it.

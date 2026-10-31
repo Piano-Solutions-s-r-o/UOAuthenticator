@@ -84,6 +84,35 @@ export const authStartRateLimiter = composeRateLimiters(
   bodyRateLimiter('auth:start', 'email', 5, HOUR_MS),
 );
 
+// HUGO-2261: browser-bound registration has its own budgets, so it never shares one with
+// /auth/register (start), the sign-in /auth/verify-code (code) or the other token consumers
+// (link). The code body carries the pending registration id, not an email.
+export const registrationStartRateLimiter = composeRateLimiters(
+  ipRateLimiter('auth:registration-start', 10, MINUTE_MS),
+  bodyRateLimiter('auth:registration-start', 'email', 5, HOUR_MS),
+);
+
+export const registrationCodeRateLimiter = composeRateLimiters(
+  ipRateLimiter('auth:registration-code', 10, 15 * MINUTE_MS),
+  bodyRateLimiter('auth:registration-code', 'id', 10, 15 * MINUTE_MS),
+);
+
+// The link page posts by itself and mobile networks share addresses, so the tight budget belongs
+// to the link and the address only gets a wide ceiling.
+export const registrationLinkRateLimiter = composeRateLimiters(
+  ipRateLimiter('auth:registration-link', 60, MINUTE_MS),
+  bodyRateLimiter('auth:registration-link', 'token', 10, MINUTE_MS),
+);
+
+export const registrationContinueRateLimiter = composeRateLimiters(
+  ipRateLimiter('auth:registration-continue', 20, MINUTE_MS),
+  bodyRateLimiter('auth:registration-continue', 'id', 10, 15 * MINUTE_MS),
+);
+
+// A waiting window polls and reconnects for as long as the person is in their mailbox, so it has
+// its own budget and cannot use up the one the /auth page load needs.
+export const registrationStatusRateLimiter = ipRateLimiter('auth:registration-status', 60, MINUTE_MS);
+
 // Phase 3b (design §8): /auth/verify-code is IP- and email-keyed, tighter than login since a
 // 6-digit code has a much smaller search space than a password.
 export const verifyCodeRateLimiter = composeRateLimiters(

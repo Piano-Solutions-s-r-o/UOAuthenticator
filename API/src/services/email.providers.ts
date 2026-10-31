@@ -7,6 +7,7 @@ type SesModule = typeof import('@aws-sdk/client-ses');
 export type EmailProviderName = 'disabled' | 'smtp' | 'ses' | 'sendgrid';
 
 export type EmailMessage = {
+  suppressContentLog?: boolean;
   to: string;
   subject: string;
   text: string;
@@ -55,8 +56,9 @@ function loadSendgridModule(): Promise<unknown> {
 }
 
 export function safeEmailLog(env: Env, message: EmailMessage): void {
-  // Email bodies contain bearer links (tokens). Never log them in production.
-  if (env.NODE_ENV === 'production') {
+  // Email bodies contain bearer links (tokens). Never log them in production, nor for a message
+  // that marks its content as secret (registration links and codes) in any environment.
+  if (env.NODE_ENV === 'production' || message.suppressContentLog) {
     console.info('[email]', { to: message.to, subject: message.subject });
     return;
   }

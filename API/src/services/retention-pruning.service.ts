@@ -2,8 +2,10 @@ import type { PrismaClient } from '@prisma/client';
 
 import { getEnv } from '../config/env.js';
 import { getAdminPrisma } from '../db/prisma.js';
+import { REGISTRATION_EXPIRED_RETENTION_DAYS } from './registration-credentials.js';
 
 type RetentionPrisma = {
+  pendingRegistration: Pick<PrismaClient['pendingRegistration'], 'deleteMany'>;
   authorizationCode: Pick<PrismaClient['authorizationCode'], 'deleteMany'>;
   confidentialAssertionUse: Pick<PrismaClient['confidentialAssertionUse'], 'deleteMany'>;
   handshakeErrorLog: Pick<PrismaClient['handshakeErrorLog'], 'deleteMany'>;
@@ -20,6 +22,7 @@ type RetentionPruneDeps = {
 };
 
 export type RetentionPruneResult = {
+  pendingRegistrationsDeleted: number;
   authorizationCodesDeleted: number;
   confidentialAssertionUsesDeleted: number;
   handshakeErrorLogsDeleted: number;
@@ -35,6 +38,7 @@ function subtractDays(date: Date, days: number): Date {
 
 function emptyResult(): RetentionPruneResult {
   return {
+    pendingRegistrationsDeleted: 0,
     authorizationCodesDeleted: 0,
     confidentialAssertionUsesDeleted: 0,
     handshakeErrorLogsDeleted: 0,
@@ -54,9 +58,11 @@ export async function pruneExpiredSecurityData(
   const prisma = deps?.prisma ?? (getAdminPrisma() as unknown as RetentionPrisma);
   const now = deps?.now ? deps.now() : new Date();
   const tokenCutoff = subtractDays(now, env.TOKEN_PRUNE_RETENTION_DAYS);
+  const registrationCutoff = subtractDays(now, REGISTRATION_EXPIRED_RETENTION_DAYS);
   const loginLogCutoff = subtractDays(now, env.LOG_RETENTION_DAYS);
 
   const [
+    pendingRegistrations,
     refreshTokens,
     authorizationCodes,
     confidentialAssertionUses,
@@ -65,6 +71,7 @@ export async function pruneExpiredSecurityData(
     loginLogs,
     handshakeErrorLogs,
   ] = await Promise.all([
+    prisma.pendingRegistration.deleteMany({ where: { expiresAt: { lt: registrationCutoff } } }),
     prisma.refreshToken.deleteMany({
       where: { expiresAt: { lt: tokenCutoff } },
     }),
@@ -89,6 +96,7 @@ export async function pruneExpiredSecurityData(
   ]);
 
   return {
+    pendingRegistrationsDeleted: pendingRegistrations.count,
     authorizationCodesDeleted: authorizationCodes.count,
     confidentialAssertionUsesDeleted: confidentialAssertionUses.count,
     handshakeErrorLogsDeleted: handshakeErrorLogs.count,

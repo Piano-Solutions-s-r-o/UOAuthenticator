@@ -203,6 +203,9 @@ const AccessRequestConfigSchema = z
 
 const ClientConfigSchema = RequiredConfigSchema.extend({
   login_restart_url: z.string().trim().url().optional(),
+  // HUGO-2261: where an email link starts registration in the browser that opened it. Absent means
+  // the browser-bound registration flow is off, whatever login_flow says.
+  registration_restart_url: z.string().trim().url().optional(),
   // Task 2.5: optional config fields.
   //
   // Note: property name starts with a digit, so it must be accessed using bracket notation.
@@ -231,6 +234,16 @@ const ClientConfigSchema = RequiredConfigSchema.extend({
   login_flow: z
     .object({
       email_code_enabled: z.boolean().default(false),
+      // HUGO-2261: opt-in browser-bound registration (a link finished where it is clicked, or a code
+      // typed in the original window); it also needs registration_restart_url. Deliberately `.optional()` with no default: a default would add a key to every
+      // parsed config and so change fingerprintClientConfig (the login_token's config binding)
+      // across a rolling deploy. An explicit `false` becomes undefined for the same reason (the
+      // fingerprint skips undefined values, and older builds strip the unknown key). Absent means
+      // off; every reader checks `=== true`.
+      registration_code_enabled: z
+        .boolean()
+        .optional()
+        .transform((value) => (value === true ? true : undefined)),
       workspace_selection: z.enum(['off', 'auto']).default('off'),
     })
     .optional()
@@ -314,6 +327,9 @@ const ClientConfigSchema = RequiredConfigSchema.extend({
 }).superRefine((config, ctx) => {
   if (config.login_restart_url && !isValidLoginRestartUrl(config.login_restart_url, config.redirect_urls)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['login_restart_url'], message: 'login_restart_url must use an allowed redirect origin and HTTPS (HTTP only on loopback)' });
+  }
+  if (config.registration_restart_url && !isValidLoginRestartUrl(config.registration_restart_url, config.redirect_urls)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['registration_restart_url'], message: 'registration_restart_url must use an allowed redirect origin and HTTPS (HTTP only on loopback)' });
   }
   const logoUrl = config.ui_theme.logo.url.trim();
   if (logoUrl) {

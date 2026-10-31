@@ -49,6 +49,7 @@ const safeConfigJwtPayloadKeys = new Set([
   'redirect_urls',
   'registration_redirect_urls',
   'login_restart_url',
+  'registration_restart_url',
   'enabled_auth_methods',
   'ui_theme',
   'language_config',
@@ -65,6 +66,7 @@ const safeConfigJwtPayloadKeys = new Set([
   'session',
   'org_features',
   'avatars',
+  'login_flow',
 ]);
 const emptyAllowedKeys = new Set<string>();
 const safeConfigJwtNestedKeys = new Map<string, ReadonlySet<string>>([
@@ -94,6 +96,7 @@ const safeConfigJwtNestedKeys = new Map<string, ReadonlySet<string>>([
     ]),
   ],
   ['payload.avatars', new Set(['default_style'])],
+  ['payload.login_flow', new Set(['email_code_enabled', 'registration_code_enabled', 'workspace_selection'])],
   [
     'payload.session',
     new Set([

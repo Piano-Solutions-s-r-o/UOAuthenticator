@@ -53,3 +53,43 @@ export function registrationCopy(locale?: EmailLocale): RegistrationCopy {
 export function registrationTokenTtlHours(): number {
   return Math.max(1, Math.round(REGISTRATION_EMAIL_TOKEN_TTL_MS / (60 * 60 * 1000)));
 }
+
+export type RegistrationVerificationCopy = {
+  subject: string;
+  heading: string;
+  body: (email: string) => string;
+  buttonLabel: string;
+  codeLabel: string;
+  expiry: (hours: number) => string;
+  ignoreLabel: string;
+};
+
+/**
+ * The browser-bound registration email. The address is in the text because the link finishes the
+ * registration where it is clicked. Czech is informal (tykání). "Hugo" is literal: only Hugo runs
+ * this flow, a product's name has no field in the signed config, and Czech has to decline it.
+ */
+const REGISTRATION_VERIFICATION_COPY: Record<EmailLocale, RegistrationVerificationCopy> = {
+  en: {
+    subject: 'Finish your Hugo registration',
+    heading: 'Finish your registration',
+    body: (email) => `You are registering an account for ${email}.`,
+    buttonLabel: 'Continue registration',
+    codeLabel: 'Or enter this code in Hugo:',
+    expiry: (hours) => `The link and code are valid for ${hours} hours.`,
+    ignoreLabel: 'If you did not request this, do not click anything and ignore this email.',
+  },
+  cs: {
+    subject: 'Dokonči registraci do Huga',
+    heading: 'Dokonči registraci',
+    body: (email) => `Registruješ účet pro ${email}.`,
+    buttonLabel: 'Pokračovat v registraci',
+    codeLabel: 'Nebo zadej v Hugu kód:',
+    expiry: (hours) => `Odkaz i kód platí ${hours} hodin.`,
+    ignoreLabel: 'Pokud o registraci nevíš, na nic neklikej a e-mail ignoruj.',
+  },
+};
+
+export function registrationVerificationCopy(locale?: EmailLocale): RegistrationVerificationCopy {
+  return REGISTRATION_VERIFICATION_COPY[locale ?? 'en'] ?? REGISTRATION_VERIFICATION_COPY.en;
+}

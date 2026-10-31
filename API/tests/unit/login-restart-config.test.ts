@@ -23,3 +23,19 @@ describe('signed login restart config', () => {
     expect(validateConfigFields(payload()).login_restart_url).toBeUndefined();
   });
 });
+
+describe('signed registration restart config', () => {
+  const url = 'https://app.example.com/login?start=1&signup=1';
+  it('preserves an allowed initiation URI, trimmed', () => {
+    expect(validateConfigFields({ ...payload(), registration_restart_url: ` ${url} ` }).registration_restart_url).toBe(url);
+  });
+  it.each(['https://other.example.com/login', 'http://app.example.com/login', 'javascript:alert(1)', 'https://user:pass@app.example.com/login', 'https://app.example.com/login#token', 'https://app.example.com:8443/login', 'blob:https://app.example.com/x'])('rejects unsafe restart %s', (bad) => {
+    expect(() => validateConfigFields({ ...payload(), registration_restart_url: bad })).toThrow();
+  });
+  it('rejects a restart beside a custom-scheme redirect', () => {
+    expect(() => validateConfigFields({ ...payload(), redirect_urls: ['com.acme.app://cb'], registration_restart_url: 'com.acme.app://login' })).toThrow();
+  });
+  it('leaves the key out of a config without the claim', () => {
+    expect('registration_restart_url' in validateConfigFields(payload())).toBe(false);
+  });
+});
