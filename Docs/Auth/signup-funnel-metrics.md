@@ -85,7 +85,8 @@ real step is `set_password`.
 Code verification is an alternative to opening the link and does not increment
 the link counter. Both methods reach the existing `set_password`,
 `sign_in_completed` and `code_exchange` writers. The product's return to `/auth` with a handoff
-cookie continues a registration already counted, so it is not a `flow_started`.
+cookie of a live registration continues one already counted, so it is not a `flow_started`; a cookie
+of a finished registration opens nothing and counts as an ordinary start.
 When the original window then goes in by itself it records `original_device_returned` with
 `continued` and, once it gets a code, a second `sign_in_completed`: it is a real sign-in of a second
 browser, so subtract that outcome to count people. The other counters here are events, not people.

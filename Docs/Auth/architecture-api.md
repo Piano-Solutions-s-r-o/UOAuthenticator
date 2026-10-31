@@ -42,7 +42,7 @@ fragment secrets and posts them at once.
 lifetime is `REGISTRATION_EMAIL_TOKEN_TTL_MS` (`REGISTRATION_TTL_MS` is that
 constant), which the cookie, the row, the WebSocket deadline and the email's "hours" copy
 all follow; retention keeps a row 30 days past that (`REGISTRATION_EXPIRED_RETENTION_DAYS`),
-so an old link still finds its way back to registration. The email (`registrationVerificationCopy`) and
+so an old link still finds its way back to registration, and answers 400 after it. The email (`registrationVerificationCopy`) and
 the link page are English or Czech by the request's Accept-Language
 (`resolveEmailLocale`).
 The link page owns its Content-Security-Policy nonce (the fork's app has no global nonce
