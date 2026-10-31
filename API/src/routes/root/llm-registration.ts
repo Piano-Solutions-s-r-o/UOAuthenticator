@@ -34,13 +34,15 @@ returns {status, next}:
   next is your login_restart_url, absent if you have none.
 - "expired" for an expired or exhausted registration: next is your
   registration_restart_url.
-Unknown or malformed tokens answer 400. Mail scanners cost nothing: GET and HEAD have
+Unknown or malformed tokens answer 400, and so does a link 30 days past its expiry,
+when its row is pruned. Mail scanners cost nothing: GET and HEAD have
 no effect, and one that runs the page only gets a cookie in its own browser.
 
 The handoff cookie uoa_registration_handoff is signed, HttpOnly, SameSite=Lax,
 Path=/auth, host-only and Secure on https. It lasts an hour, never past the
 registration, holds the registration id and two times and no secret or address, and a
-link may reissue it until completion. Your registration_restart_url must start
+link may reissue it until completion. It is not cleared on completion: it then proves
+nothing, and a second open tab hears REGISTRATION_COMPLETE. Your registration_restart_url must start
 registration (prompt=create) with fresh state and PKCE, in the browser it runs in, and
 return to /auth. /auth then opens the password form for that registration when
 prompt=create is present, the cookie verifies, S256 PKCE is present and the row is

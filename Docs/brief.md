@@ -15,7 +15,7 @@ carries one link and a six-character uppercase alphanumeric code.
 The link finishes registration in the browser that opens it, on any device. Opening it
 approves nothing and creates nothing: the isolated page takes the secret out of the fragment,
 posts it at once and sends the browser to the product's `registration_restart_url` with a
-short-lived signed cookie (15 minutes, never past the registration; no secret, no address).
+short-lived signed cookie (one hour, never past the registration; no secret, no address).
 The product starts fresh PKCE in that browser and returns to `/auth`, which opens the themed
 password form when the cookie verifies, S256 PKCE is present, and the registration is live,
 unfinished, on the same domain and on the exact same signed config. The address is shown there

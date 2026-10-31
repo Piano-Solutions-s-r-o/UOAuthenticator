@@ -69,6 +69,16 @@ describe.skipIf(!process.env.DATABASE_URL)('finishing a registration where the l
       expect((await counted())._sum.count ?? 0).toBe(before);
     });
 
+    it('counts a flow start for a cookie whose registration already finished', async () => {
+      const flow = await h.start();
+      const cookie = await h.open(flow);
+      expect((await h.finish(cookie)).statusCode).toBe(200);
+      const counted = () => h.db.prisma.authFunnelDailyCount.aggregate({ _sum: { count: true }, where: { step: 'flow_started', domain: 'client.example.com' } });
+      const before = (await counted())._sum.count ?? 0;
+      await h.auth(cookie);
+      expect((await counted())._sum.count ?? 0).toBe(before + 1);
+    });
+
     it.each([
       ['another product domain', () => `${flowQuery(challengeB, otherDomainConfigUrl)}&prompt=create`],
       ['another config of the same domain', () => `${flowQuery(challengeB, siblingConfigUrl)}&prompt=create`],
@@ -150,7 +160,9 @@ describe.skipIf(!process.env.DATABASE_URL)('finishing a registration where the l
     it('tells a second tab of that browser that the registration is finished', async () => {
       const flow = await h.start();
       const cookie = await h.open(flow);
-      expect((await h.finish(cookie)).statusCode).toBe(200);
+      const done = await h.finish(cookie);
+      expect(done.statusCode).toBe(200);
+      expect(done.headers['set-cookie']).toBeUndefined(); // The second tab sends it after this.
       const second = await h.finish(cookie);
       expect(second.statusCode).toBe(400);
       expect(second.json().code).toBe('REGISTRATION_COMPLETE');

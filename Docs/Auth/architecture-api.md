@@ -17,7 +17,9 @@ transaction that spends the token, so a second token never exists. The original 
 `POST /auth/registration/continue`; a GET never issues a code. It stays out when the link opened in
 another tab of its own browser, because `/auth/verify-email` then sees both cookies and closes the
 continuation in the same step. The form posts back the address it showed, and the server refuses
-any other, so a newer link in that browser cannot change whose account the password creates.
+any other, so a newer link in that browser cannot change whose account the password creates. The
+cookie is not cleared on completion: it then proves nothing, and a second open tab hears
+`REGISTRATION_COMPLETE`.
 
 Browser registration is opt-in per product through the signed config's
 `login_flow.registration_code_enabled` (default false) plus `registration_restart_url`:
