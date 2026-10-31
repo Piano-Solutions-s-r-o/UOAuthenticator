@@ -27,8 +27,8 @@ the window or submitting the form twice counts twice.
 | `registration_link_handoff` | `POST /auth/registration/link`, the first valid opening of a browser-bound link. Once per email. | `opened` |
 | `registration_password_set` | `POST /auth/verify-email`: a browser-bound registration got its password. Once per registration. | `link` (the browser that opened the link), `code` (the window that took the code) |
 | `registration_completed` | `POST /auth/verify-email`: a browser-bound registration finished, including one for an address that already had an account. Once per registration. | `link`, `code` |
-| `clicked_device_returned` | `POST /auth/verify-email`: the browser that opened the link was sent on to the product. | `succeeded` |
-| `original_device_returned` | The window where registration started was sent on to the product. | `succeeded` (it took the code and finished itself), `continued` (`POST /auth/registration/continue`: the password was set elsewhere and it went in by itself) |
+| `clicked_device_returned` | `POST /auth/verify-email`: the browser that opened the link was sent on, to the product or to a 2FA or workspace step. | `succeeded` |
+| `original_device_returned` | The window where registration started was sent on, to the product or to a 2FA or workspace step. | `succeeded` (it took the code and finished itself), `continued` (`POST /auth/registration/continue`: the password was set elsewhere and it went in by itself) |
 | `code_exchange` | The product backend redeems the code at `POST /auth/token` (`authorization_code` grant). | `succeeded`, `rejected_<reason>` (the internal reason behind the opaque `INVALID_AUTH_CODE`: `code_not_found`, `expired`, `already_used`, `pkce_verifier_invalid`, `redirect_url_mismatch`, …), `failed` |
 
 Outcomes are server-chosen identifiers; anything that does not match `^[a-z0-9_]{1,64}$` is stored

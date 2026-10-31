@@ -43,7 +43,8 @@ const PRODUCTION_PUBLIC_ERROR_CODES = new Set([
   // not opted in; all answer the same). The waiting window stops only on this code, so that a bare
   // 400 from a failed config fetch does not end a registration that is still valid (HUGO-2261).
   'REGISTRATION_UNAVAILABLE',
-  // Another browser finished this registration first. Only a browser holding its link hears it.
+  // Another browser finished this registration first. Only a browser holding its link, or the
+  // original window, hears it.
   'REGISTRATION_COMPLETE',
 ]);
 

@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({ post: vi.fn() }));
 vi.mock('../../utils/api.js', async importOriginal => ({
   ...await importOriginal<typeof import('../../utils/api.js')>(), postJson: mocks.post,
 }));
-import { PopupProvider } from '../../hooks/use-popup.js';
+import { PopupProvider, usePopup } from '../../hooks/use-popup.js';
 import { I18nProvider } from '../../i18n/I18nProvider.js';
 import { ThemeProvider } from '../../theme/ThemeProvider.js';
 import { SetPasswordPage } from '../../pages/SetPasswordPage.js';
@@ -121,5 +121,36 @@ it('tells the browser that came second that the registration is finished, and no
   expect(host.textContent).not.toContain('person@example.com');
   expect(host.querySelector('form')).toBeNull();
   expect([...host.querySelectorAll('button')].some(button => button.textContent === 'Sign in')).toBe(true);
+  act(() => root.unmount());
+});
+
+// A refresh must not bring a finished registration's waiting screen back.
+it('forgets the registration when the finished screen leads to sign-in', async () => {
+  mocks.post.mockResolvedValue({ ok: false, status: 400, error: 'Request failed', code: 'REGISTRATION_COMPLETE' });
+  function Pending() {
+    const { pendingRegistration } = usePopup();
+    return <p data-testid="pending">{pendingRegistration?.id ?? 'none'}</p>;
+  }
+  const host = document.createElement('div'); document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <ThemeProvider config={config} configUrl="">
+        <I18nProvider config={config} configUrl="">
+          <PopupProvider configUrl="https://client.example.com/auth-config" config={config}
+            initialSearch={`${search}&email_token=registration.proof&email_token_type=VERIFY_EMAIL_SET_PASSWORD`}
+            initialPendingRegistration={{ id: 'r', email: 'person@example.com' }}>
+            <SetPasswordForm registering /><Pending />
+          </PopupProvider>
+        </I18nProvider>
+      </ThemeProvider>,
+    );
+  });
+  await submit(host);
+  const pending = () => host.querySelector('[data-testid="pending"]')?.textContent;
+  expect(pending()).toBe('r');
+  const signIn = [...host.querySelectorAll('button')].find(button => button.textContent === 'Sign in');
+  await act(async () => { signIn?.click(); });
+  expect(pending()).toBe('none');
   act(() => root.unmount());
 });

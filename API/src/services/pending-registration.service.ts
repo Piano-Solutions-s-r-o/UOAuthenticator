@@ -167,18 +167,22 @@ export async function openPendingRegistrationLink(token: string, prisma: PrismaC
   const initial = await prisma.pendingRegistration.findUnique({ where: { linkHash: registrationDigest('link', token) } });
   if (!initial) refuse();
   // Decided under the lock, so two simultaneous opens count one first open.
-  const { row, status } = await runInTransaction(prisma, async tx => {
+  const { row, status, firstHandoff } = await runInTransaction(prisma, async tx => {
     const locked = await lockRegistration(tx, initial.id);
     if (!locked) refuse();
     const decided = await linkStatus(locked, tx);
+    // A resend is the same registration, so its second link is not a second handoff.
+    const family = { credentialHash: locked.credentialHash, contextHash: locked.contextHash, emailHash: locked.emailHash };
+    const opened = decided === 'continue' &&
+      await tx.pendingRegistration.findFirst({ where: { ...family, linkUsedAt: { not: null } }, select: { id: true } });
     if (decided !== 'expired' && !locked.linkUsedAt) {
       await tx.pendingRegistration.update({ where: { id: locked.id }, data: { linkUsedAt: new Date() } });
     }
-    return { row: locked, status: decided };
+    return { row: locked, status: decided, firstHandoff: decided === 'continue' && !opened };
   });
   await recordAuthFunnelStep({ domain: row.domain, step: 'email_link_opened',
     outcome: status === 'expired' ? 'expired' : row.linkUsedAt ? 'already_used' : 'opened' }, { prisma });
-  if (status === 'continue' && !row.linkUsedAt) {
+  if (firstHandoff) {
     await recordAuthFunnelStep({ domain: row.domain, step: 'registration_link_handoff', outcome: 'opened' }, { prisma });
   }
   if (status === 'continue') return { status, next: row.registrationRestartUrl, id: row.id, expiresAt: row.expiresAt };

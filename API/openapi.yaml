@@ -2413,7 +2413,7 @@ paths:
       tags: [Auth]
       operationId: openRegistrationLink
       summary: Open an emailed registration link
-      description: Approves nothing and creates nothing. For a live, unfinished set-password registration it sets the handoff cookie `uoa_registration_handoff` (signed, HttpOnly, SameSite=Lax, Path=/auth, host-only, Secure on https, 15 minutes and never past the registration, holding only the registration id and two times) and answers the product's registration_restart_url. Back at /auth, when the product starts registration (`prompt=create`) with its fresh S256 PKCE and the exact signed config, that cookie opens the password form, and POST /auth/verify-email takes the password with no token. A link may reissue the cookie until completion. Rate limited per link and, widely, per address. Same-origin POST required.
+      description: Approves nothing and creates nothing. For a live, unfinished set-password registration it sets the handoff cookie `uoa_registration_handoff` (signed, HttpOnly, SameSite=Lax, Path=/auth, host-only, Secure on https, one hour and never past the registration, holding only the registration id and two times) and answers the product's registration_restart_url. Back at /auth, when the product starts registration (`prompt=create`) with its fresh S256 PKCE and the exact signed config, that cookie opens the password form, and POST /auth/verify-email takes the password with no token. A link may reissue the cookie until completion. Rate limited per link and, widely, per address. Same-origin POST required.
       requestBody:
         required: true
         content:

@@ -34,10 +34,6 @@ export function setRegistrationHandoffCookie(reply: FastifyReply, id: string, re
   });
 }
 
-export function clearRegistrationHandoffCookie(reply: FastifyReply): void {
-  reply.clearCookie(REGISTRATION_HANDOFF_COOKIE, cookieOptions());
-}
-
 function handoffRegistrationId(request: FastifyRequest): string | null {
   const raw = request.cookies?.[REGISTRATION_HANDOFF_COOKIE];
   if (!raw) return null;

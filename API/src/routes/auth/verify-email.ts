@@ -19,10 +19,7 @@ import { parseRequestAccessFlag } from '../../services/access-request-flow.servi
 import { parseRequiredPkceChallenge } from '../../utils/pkce.js';
 import { tokenConsumeRateLimiter } from './rate-limit-keys.js';
 import { assertPendingRegistrationCompletion } from '../../services/pending-registration.service.js';
-import {
-  clearRegistrationHandoffCookie,
-  resolveRegistrationHandoff,
-} from '../../services/registration-handoff.service.js';
+import { resolveRegistrationHandoff } from '../../services/registration-handoff.service.js';
 import { REGISTRATION_TOKEN_PREFIX } from '../../services/registration-credentials.js';
 import { isRegistrationFlowEnabled } from './registration-context.js';
 
@@ -150,7 +147,6 @@ export function registerAuthVerifyEmailRoute(app: FastifyInstance): void {
         await recordSetPassword(setPasswordFailureOutcome(err));
         throw err;
       });
-      if (!token) clearRegistrationHandoffCookie(reply);
       const { userId, credentialEpoch, type, twoFaEnabled, acceptedInvite } = verified;
       // Only set-password tokens create password accounts. Browser-authorized
       // registration can also continue an existing-account or passwordless proof.

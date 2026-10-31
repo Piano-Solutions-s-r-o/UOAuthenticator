@@ -11,8 +11,9 @@ For the full product spec, see [brief.md](./brief.md). For tech stack, see [tech
 Registration finishes where the link is clicked (HUGO-2261). `/auth` bootstraps
 `__UOA_REGISTRATION_HANDOFF__` (the display address, never a token) for a browser whose handoff
 cookie the server accepted; `readClientBootstrap` hands it to `PopupProvider`, whose
-`deriveInitialView` opens `set-password` for it ahead of `prompt=create`. `SetPasswordForm` then
-posts only the password. SSR gets the same value, so hydration matches. The password screen shows
+`deriveInitialView` opens `set-password` for it ahead of the registration form that `prompt=create`
+would open (the server sends it only on `prompt=create`). `SetPasswordForm` then posts that address
+with the password. SSR gets the same value, so hydration matches. The password screen shows
 the address in both browsers, because a forwarded link can reach someone else.
 
 `RegistrationVerificationPage` (reached only when the signed config sets

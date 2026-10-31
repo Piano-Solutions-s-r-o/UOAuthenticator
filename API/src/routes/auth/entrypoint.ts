@@ -87,18 +87,19 @@ export function registerAuthEntrypointRoute(app: FastifyInstance): void {
       // HUGO-2261: a browser that opened a registration link finishes it here, when the product
       // starts registration, which is what the link's restart URL does. A plain sign-in in that
       // browser stays a sign-in. Anything else about the cookie is ignored.
-      const handoff =
+      const resolved =
         start === 'shown_register' && hasS256Challenge(request.query)
           ? await resolveRegistrationHandoff(
               { request, config: request.config, configUrl: request.configUrl },
               request.adminDb,
             )
           : null;
+      const handoff = resolved && 'email' in resolved ? resolved : null;
       const html = await renderAuthEntrypointHtml({
         config: request.config,
         configUrl: request.configUrl,
         requestUrl,
-        ...(handoff && 'email' in handoff ? { registrationHandoff: { email: handoff.email } } : {}),
+        ...(handoff ? { registrationHandoff: { email: handoff.email } } : {}),
       });
       // The handoff continues a registration already counted, it does not start a flow.
       const outcome = request.method === 'HEAD' || handoff ? null : start;

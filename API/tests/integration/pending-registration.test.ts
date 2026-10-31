@@ -85,7 +85,7 @@ describe.skipIf(!process.env.DATABASE_URL)('browser-bound pending registration',
     expect(header).toMatch(/; SameSite=Lax/i);
     expect(header).toMatch(/; Path=\/auth(;|$)/i);
     expect(header).not.toMatch(/; Domain=/i);
-    expect(Number(/Max-Age=(\d+)/i.exec(header)?.[1])).toBe(900);
+    expect(Number(/Max-Age=(\d+)/i.exec(header)?.[1])).toBe(3600);
     const value = decodeURIComponent(header.split(';')[0].split('=').slice(1).join('='));
     expect(value.startsWith(`${flow.id}.`)).toBe(true);
     expect(value).not.toContain(flow.email);

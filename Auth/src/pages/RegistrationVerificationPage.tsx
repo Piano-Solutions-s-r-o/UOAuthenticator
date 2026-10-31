@@ -83,6 +83,7 @@ export function RegistrationVerificationPage(): React.JSX.Element {
     busy.current = true; setResending(true); setResent(false); setSendError(false);
     const result = await postJson<{ email: string; previous_id: string }, { registration_id: string }>('/auth/registration/start', { email: pending.email, previous_id: pending.id }, query);
     busy.current = false; setResending(false);
+    if (finishing.current) return; // The registration finished meanwhile.
     if (!result.ok || typeof result.data?.registration_id !== 'string') { setSendError(true); return; }
     setCode(''); setError(false); setStatus('pending'); setResent(true);
     popup.beginRegistration({ id: result.data.registration_id, email: pending.email });

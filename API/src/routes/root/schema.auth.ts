@@ -192,6 +192,8 @@ export const authEndpoints: EndpointSchema[] = [
     body: {
       token:
         'string — email verification token. Required, except that a same-origin browser holding a valid registration handoff cookie on a browser-bound registration product sends none: the server resolves the token',
+      email:
+        'string — only without a token, on a browser-bound registration product: the address the password form showed. Any other address, or none, is refused with REGISTRATION_UNAVAILABLE',
       password: 'string (optional) — required for password_required registration mode',
     },
     response: {

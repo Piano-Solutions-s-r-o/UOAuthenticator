@@ -38,20 +38,24 @@ Unknown or malformed tokens answer 400. Mail scanners cost nothing: GET and HEAD
 no effect, and one that runs the page only gets a cookie in its own browser.
 
 The handoff cookie uoa_registration_handoff is signed, HttpOnly, SameSite=Lax,
-Path=/auth, host-only and Secure on https. It lasts 15 minutes, never past the
+Path=/auth, host-only and Secure on https. It lasts an hour, never past the
 registration, holds the registration id and two times and no secret or address, and a
-link may reissue it until completion. Your registration_restart_url must start your
-normal sign-in with fresh state and PKCE, in the browser it runs in, and return to
-/auth. /auth then opens the password form for that registration when the cookie
-verifies, S256 PKCE is present and the row is live, unfinished, on the same domain and
-on the exact same signed config. It bootstraps only the display address. Anything
-else ignores the cookie and shows the normal view; /auth without PKCE still shows the
-login_restart_url prompt. This wins over prompt=create.
+link may reissue it until completion. Your registration_restart_url must start
+registration (prompt=create) with fresh state and PKCE, in the browser it runs in, and
+return to /auth. /auth then opens the password form for that registration when
+prompt=create is present, the cookie verifies, S256 PKCE is present and the row is
+live, unfinished, on the same domain and on the exact same signed config. It
+bootstraps only the display address. Anything else ignores the cookie and shows the
+normal view, so a plain sign-in in that browser stays a sign-in; /auth without PKCE
+still shows the login_restart_url prompt.
 
-The password form calls POST /auth/verify-email with {password} and no token. The
-server resolves the existing verification token (a second one would race the rule
-that one pre-user token exists) and consumes it, and the authorization code is bound
-to this browser's own PKCE. All the usual workspace, 2FA and epoch checks run.
+The password form calls POST /auth/verify-email with {email,password} and no token,
+where email is the address it showed. Any other address, or none, is refused with
+REGISTRATION_UNAVAILABLE, so a newer link in that browser cannot change whose account
+the password creates. The server resolves the existing verification token (a second
+one would race the rule that one pre-user token exists) and consumes it, and the
+authorization code is bound to this browser's own PKCE. All the usual workspace, 2FA
+and epoch checks run.
 
 A forwarded link puts whoever opens it into the sender's account. The password screen
 shows the address for that reason, and the email says not to click a registration you
@@ -69,10 +73,11 @@ registrations of the same address from the same browser and OAuth context, so a 
 from an older email finishes the window on the newest one. A resend proves the browser
 by sending previous_id to /auth/registration/start with that registration's cookie.
 The older token is the one spent; the newer one dies through the epoch check. Another
-address or browser is never touched. When two browsers race, the first password wins
-and the other gets 400 with code REGISTRATION_COMPLETE: only a link holder or the
-original window can hear that, and it means show that registration is finished, and
-sign-in.
+address or browser is never touched. When one browser finishes first, the other gets
+400 with code REGISTRATION_COMPLETE: only a link holder or the original window can hear
+that, and it means show that registration is finished, and sign-in. Two passwords at
+the very same moment still create one account, and the loser gets the usual token
+error.
 
 The original window, finished elsewhere. When status says complete the window calls
 POST /auth/registration/continue with {id}. Under the row lock that requires the

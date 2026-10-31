@@ -37,9 +37,10 @@ there. Codes expire after 24 hours (the registration email lifetime,
 Completion marks the resend family in the transaction that spends the token: registrations of
 the same address from the same browser and OAuth context, so a link from an older email finishes
 the window on the newest one. A resend keeps the browser's cookie secret, which is what ties the
-family together, and it never reaches another address or browser. If two browsers race, the first
-password wins and the other hears `REGISTRATION_COMPLETE`: only a link holder or the original
-window can, so it says nothing to a stranger.
+family together, and it never reaches another address or browser. If one browser finishes first,
+the other hears `REGISTRATION_COMPLETE`: only a link holder or the original window can, so it says
+nothing to a stranger. Two passwords at the very same moment still create one account, and the
+loser gets the usual token error.
 
 The original window then goes in by itself, with no password, for 15 minutes after completion:
 it calls `POST /auth/registration/continue` with its own cookie and exact OAuth/config context,
@@ -52,7 +53,8 @@ When the link opened in another tab of the browser that started, that tab is the
 and the window stays out, because two tabs of one browser must not both go to the product at once.
 
 The password form posts back the address it showed, and the server refuses it unless that is the
-address the handoff cookie registers now. The cookie opens the form only when the product starts
+address the handoff cookie registers now. The cookie lasts an hour, so an interrupted person can
+still finish, and it stays after completion, so a second open tab hears that it is finished. The cookie opens the form only when the product starts
 registration (`prompt=create`, which the restart URL does), so a plain sign-in stays a sign-in. A
 row outlives its registration by 30 days (`REGISTRATION_EXPIRED_RETENTION_DAYS`), because it is the
 only thing that knows where someone with an old email restarts.

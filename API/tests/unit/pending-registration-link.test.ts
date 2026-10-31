@@ -26,6 +26,7 @@ function fakePrisma(beforeLock: Record<string, unknown>, underLock: Record<strin
     $queryRaw: vi.fn().mockResolvedValue([]),
     pendingRegistration: {
       findUnique: vi.fn().mockResolvedValueOnce({ ...base, ...beforeLock }).mockResolvedValueOnce({ ...base, ...underLock }),
+      findFirst: vi.fn().mockResolvedValue(underLock.linkUsedAt ? { id: 'reg-1' } : null),
       update,
     },
     verificationToken: { findUnique: vi.fn().mockResolvedValue(token) },

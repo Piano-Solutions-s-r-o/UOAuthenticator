@@ -159,7 +159,8 @@ it('goes in on complete even while a resend is on its way, because polling stops
   await act(async () => { button(screen.host, 'Send again').click(); });
   await deliver({ status: 'complete' });
   expect(mocks.post).toHaveBeenCalledWith('/auth/registration/continue', { id }, expect.anything());
-  await act(async () => { finishResend({ ok: true, data: { registration_id: id } }); });
+  await act(async () => { finishResend({ ok: true, data: { registration_id: 'late-registration' } }); });
+  expect(sessionStorage.getItem(key)).not.toContain('late-registration');
   screen.unmount();
 });
 

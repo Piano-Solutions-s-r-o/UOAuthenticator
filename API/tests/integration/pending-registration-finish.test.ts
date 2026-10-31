@@ -11,7 +11,6 @@ vi.mock('../../src/services/ban-policy.service.js', async importOriginal => ({
 }));
 
 import { subscribeRegistrationChanges } from '../../src/services/registration-events.service.js';
-import { REGISTRATION_HANDOFF_COOKIE } from '../../src/services/registration-handoff.service.js';
 import {
   challengeA, challengeB, codeOf, configUrl, createRegistrationHarness, flowQuery, loginRestartUrl, offersPassword,
   origin, otherDomainConfigUrl, password, queryA, queryB, registerQueryB, siblingConfigUrl, type RegistrationHarness,
@@ -104,7 +103,7 @@ describe.skipIf(!process.env.DATABASE_URL)('finishing a registration where the l
     it('ignores a cookie past its own expiry, which the browser may not have enforced', async () => {
       const flow = await h.start();
       const cookie = await h.open(flow);
-      vi.useFakeTimers({ now: Date.now() + 16 * 60 * 1000, toFake: ['Date'] });
+      vi.useFakeTimers({ now: Date.now() + 61 * 60 * 1000, toFake: ['Date'] });
       try {
         expect((await h.auth(cookie)).body).not.toContain('__UOA_REGISTRATION_HANDOFF__');
       } finally { vi.useRealTimers(); }
@@ -148,10 +147,19 @@ describe.skipIf(!process.env.DATABASE_URL)('finishing a registration where the l
       expect((await row(flow.id)).completedAt).not.toBeNull();
     });
 
-    it('clears the handoff cookie and spends the one verification token', async () => {
+    it('tells a second tab of that browser that the registration is finished', async () => {
       const flow = await h.start();
-      const done = await h.finish(await h.open(flow));
-      expect(String(done.headers['set-cookie'])).toContain(`${REGISTRATION_HANDOFF_COOKIE}=;`);
+      const cookie = await h.open(flow);
+      expect((await h.finish(cookie)).statusCode).toBe(200);
+      const second = await h.finish(cookie);
+      expect(second.statusCode).toBe(400);
+      expect(second.json().code).toBe('REGISTRATION_COMPLETE');
+      expect(await issuedCodes(flow.email)).toHaveLength(1);
+    });
+
+    it('spends the one verification token', async () => {
+      const flow = await h.start();
+      expect((await h.finish(await h.open(flow))).statusCode).toBe(200);
       const stored = await row(flow.id);
       const token = await h.db.prisma.verificationToken.findUniqueOrThrow({ where: { tokenHash: stored.completionHash } });
       expect(token.usedAt).not.toBeNull();
@@ -264,8 +272,10 @@ describe.skipIf(!process.env.DATABASE_URL)('finishing a registration where the l
       ] as const;
       const before = await Promise.all(steps.map(([step, outcome]) => counted(step, outcome)));
       const flow = await h.start();
+      const resent = await h.resend(flow);
       await h.open(flow);
-      const cookie = await h.open(flow); // Opening twice is one handoff.
+      await h.open(resent); // The resent email's link is the same registration.
+      const cookie = await h.open(flow); // So is opening one twice.
       expect((await h.finish(cookie)).statusCode).toBe(200);
       const after = await Promise.all(steps.map(([step, outcome]) => counted(step, outcome)));
       expect(after).toEqual(before.map(count => count + 1));

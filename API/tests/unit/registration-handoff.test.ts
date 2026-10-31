@@ -8,15 +8,14 @@ vi.mock('../../src/config/env.js', async importOriginal => ({
 
 import { REGISTRATION_HANDOFF_TTL_MS } from '../../src/services/registration-credentials.js';
 import {
-  clearRegistrationHandoffCookie, hasS256Challenge, REGISTRATION_HANDOFF_COOKIE, setRegistrationHandoffCookie,
+  hasS256Challenge, REGISTRATION_HANDOFF_COOKIE, setRegistrationHandoffCookie,
 } from '../../src/services/registration-handoff.service.js';
 
 const id = '9466e365-206c-49cb-a8d5-aa1342bdd613';
 
 function reply() {
   const setCookie = vi.fn();
-  const clearCookie = vi.fn();
-  return { object: { setCookie, clearCookie } as never, setCookie, clearCookie };
+  return { object: { setCookie } as never, setCookie };
 }
 
 afterEach(() => { env.base = 'https://auth.example.com'; vi.useRealTimers(); });
@@ -28,7 +27,7 @@ describe('registration handoff cookie', () => {
     setRegistrationHandoffCookie(object, id, new Date(1_000_000 + 24 * 60 * 60 * 1000));
     const expires = 1_000_000 + REGISTRATION_HANDOFF_TTL_MS;
     expect(setCookie).toHaveBeenCalledExactlyOnceWith(REGISTRATION_HANDOFF_COOKIE, `${id}.1000000.${expires}`, {
-      httpOnly: true, secure: true, sameSite: 'lax', path: '/auth', signed: true, maxAge: 900,
+      httpOnly: true, secure: true, sameSite: 'lax', path: '/auth', signed: true, maxAge: 3600,
     });
     expect(setCookie.mock.calls[0][2]).not.toHaveProperty('domain');
   });
@@ -46,12 +45,6 @@ describe('registration handoff cookie', () => {
     setRegistrationHandoffCookie(object, id, new Date(1_000_000 + 30_000));
     expect(setCookie.mock.calls[0][1]).toBe(`${id}.1000000.1030000`);
     expect(setCookie.mock.calls[0][2]).toMatchObject({ maxAge: 30 });
-  });
-
-  it('clears with the same scope it was set with', () => {
-    const { object, clearCookie } = reply();
-    clearRegistrationHandoffCookie(object);
-    expect(clearCookie).toHaveBeenCalledExactlyOnceWith(REGISTRATION_HANDOFF_COOKIE, expect.objectContaining({ path: '/auth', sameSite: 'lax' }));
   });
 });
 
