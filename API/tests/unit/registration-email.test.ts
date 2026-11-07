@@ -24,7 +24,9 @@ describe('registration verification email', () => {
     expect(template.text).toContain(`You're one tap away. Use the button below to finish registering the account for ${email}.`);
     expect(template.text).toContain(`Tick tock — the link and code are good for ${hours} hours.`);
     expect(template.text).toContain("Wasn't you? Don't click anything and pretend this never happened.");
-    expect(template.html).toContain(`finish registering the account for ${email}.`);
+    expect(template.html).toContain(`You&#39;re one tap away. Use the button below to finish registering the account for ${email}.`);
+    expect(template.html).toContain(`Tick tock — the link and code are good for ${hours} hours.`);
+    expect(template.html).toContain('Wasn&#39;t you? Don&#39;t click anything and pretend this never happened.');
   });
 
   it('is the exact Czech copy for a Czech request and keeps the button, link and large code', () => {
