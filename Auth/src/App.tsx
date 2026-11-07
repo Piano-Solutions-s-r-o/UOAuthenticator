@@ -7,10 +7,12 @@ export function App(props?: {
   config?: unknown;
   configUrl?: string;
   initialSearch?: string;
+  registrationHandoff?: unknown;
 }) {
   const bootstrap = readClientBootstrap({
     serverConfig: props?.config,
     serverConfigUrl: props?.configUrl,
+    serverRegistrationHandoff: props?.registrationHandoff,
   });
 
   return (
@@ -20,7 +22,12 @@ export function App(props?: {
         configUrl={bootstrap.configUrl}
         initialSearch={props?.initialSearch}
       >
-        <PopupContainer configUrl={bootstrap.configUrl} config={bootstrap.config} initialSearch={props?.initialSearch} />
+        <PopupContainer
+          configUrl={bootstrap.configUrl}
+          config={bootstrap.config}
+          initialSearch={props?.initialSearch}
+          registrationHandoff={bootstrap.registrationHandoff}
+        />
       </I18nProvider>
     </ThemeProvider>
   );

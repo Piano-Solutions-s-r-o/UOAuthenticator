@@ -1,6 +1,24 @@
 import type { Translations } from './en.js';
 
 export const cs = {
+  'registration.checkEmail': 'Zkontroluj e-mail',
+  'registration.sent': 'Na {email} jsme poslali odkaz. Klikni na něj a nastav si heslo.',
+  'registration.code': 'Nebo zadej kód z e-mailu',
+  'registration.error':
+    'Kód se nepodařilo ověřit. Zkontroluj ho a zkus to znovu, nebo si nech poslat nový e-mail.',
+  'registration.verifying': 'Ověřuji…',
+  'registration.expired': 'V téhle registraci už nejde pokračovat. Nech si poslat nový e-mail.',
+  'registration.restart': 'Poslat nový e-mail',
+  'registration.resend': 'Poslat znovu',
+  'registration.resent': 'Poslali jsme nový e-mail.',
+  'registration.changeEmail': 'Změnit e-mail',
+  'registration.sending': 'Posílám e-mail…',
+  'registration.password.title': 'Vytvoř si heslo',
+  'registration.password.text': 'Registruješ účet pro {email}.',
+  'registration.password.submit': 'Vytvořit účet',
+  'registration.continuing': 'Hotovo. Přihlašujeme tě do Huga…',
+  'registration.finished': 'Registrace je hotová.',
+  'registration.signIn': 'Přihlásit se',
   'auth.login.title': 'Přihlášení',
   'auth.register.title': 'Vytvoření účtu',
   'auth.resetPassword.title': 'Obnovení hesla',

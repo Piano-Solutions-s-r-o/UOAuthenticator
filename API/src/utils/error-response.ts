@@ -39,6 +39,13 @@ const PRODUCTION_PUBLIC_ERROR_CODES = new Set([
   // A superuser's sign-up funnel period is malformed, reversed or too long; Admin asks for a valid
   // range. Only the superuser-only /internal/admin/auth-funnel route throws it.
   'INVALID_DATE_RANGE',
+  // The final refusal of a pending registration (no such flow, wrong browser, or the product has
+  // not opted in; all answer the same). The waiting window stops only on this code, so that a bare
+  // 400 from a failed config fetch does not end a registration that is still valid (HUGO-2261).
+  'REGISTRATION_UNAVAILABLE',
+  // Another browser finished this registration first. Only a browser holding its link, or the
+  // original window, hears it.
+  'REGISTRATION_COMPLETE',
 ]);
 
 function defaultExplanation(code: string, statusCode: number): PublicExplanation {
@@ -418,7 +425,8 @@ function buildAuthDebugBody(
 
   return {
     error: PUBLIC_ERROR_MESSAGE,
-    code: debug.code,
+    // The waiting registration window acts on this code, so debug mode must not rename it.
+    code: isAppError(error) && error.message.startsWith('REGISTRATION_') ? error.message : debug.code,
     summary: debug.summary,
     details: debug.details.length ? debug.details : undefined,
     hints: debug.hints.length ? debug.hints : undefined,

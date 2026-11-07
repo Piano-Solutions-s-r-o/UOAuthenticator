@@ -10,6 +10,8 @@ import { registerAuthLoginRoute } from './login.js';
 import { registerAuthDomainMappingRoute } from './domain-mapping.js';
 import { registerAuthRevokeRoute } from './revoke.js';
 import { registerAuthRegisterRoute } from './register.js';
+import { registerPendingRegistrationRoutes } from './registration.js';
+import { registerRegistrationWebSocket } from './registration-websocket.js';
 import { registerAuthResetPasswordRoutes } from './reset-password.js';
 import { registerAuthSelectTeamRoute } from './auth-select-team.js';
 import { registerAuthSessionChoicesRoute } from './auth-session-choices.js';
@@ -22,6 +24,8 @@ import { registerAuthSocialRoute } from './social.js';
 import { registerAuthCallbackRoute } from './callback.js';
 
 export function registerAuthRoutes(app: FastifyInstance): void {
+  registerPendingRegistrationRoutes(app);
+  registerRegistrationWebSocket(app);
   registerAuthEntrypointRoute(app);
   registerAuthCallbackRoute(app);
   registerAuthEmailResetPasswordRoute(app);

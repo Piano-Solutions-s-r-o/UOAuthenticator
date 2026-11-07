@@ -1,10 +1,12 @@
 import React from 'react';
 
 import { PopupProvider, usePopup } from '../../hooks/use-popup.js';
+import type { RegistrationHandoff } from '../../utils/bootstrap.js';
 import { AccessRequestedPage } from '../../pages/AccessRequestedPage.js';
 import { CodeEntryPage } from '../../pages/CodeEntryPage.js';
 import { LoginPage } from '../../pages/LoginPage.js';
 import { RegisterPage } from '../../pages/RegisterPage.js';
+import { RegistrationVerificationPage } from '../../pages/RegistrationVerificationPage.js';
 import { ResetPasswordPage } from '../../pages/ResetPasswordPage.js';
 import { SetPasswordPage } from '../../pages/SetPasswordPage.js';
 import { SignedInPage } from '../../pages/SignedInPage.js';
@@ -31,6 +33,8 @@ function PopupContent(): React.JSX.Element {
   switch (popup.view) {
     case 'register':
       return <RegisterPage />;
+    case 'registration-verification':
+      return <RegistrationVerificationPage />;
     case 'reset-password':
       return <ResetPasswordPage />;
     case 'set-password':
@@ -54,9 +58,15 @@ export function PopupContainer(props: {
   configUrl: string;
   config?: unknown;
   initialSearch?: string;
+  registrationHandoff?: RegistrationHandoff | null;
 }): React.JSX.Element {
   return (
-    <PopupProvider configUrl={props.configUrl} config={props.config} initialSearch={props.initialSearch}>
+    <PopupProvider
+      configUrl={props.configUrl}
+      config={props.config}
+      initialSearch={props.initialSearch}
+      registrationHandoff={props.registrationHandoff}
+    >
       <AuthLayout>
         <PopupContent />
       </AuthLayout>

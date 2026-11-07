@@ -8,6 +8,51 @@ For the full product spec, see [brief.md](./brief.md). For tech stack, see [tech
 
 ## Guiding Principles
 
+Opening a registration link approves nothing. `POST /auth/registration/link` answers where the
+page goes next and, for a live set-password registration, sets the handoff cookie. The password
+is what finishes a registration: in the browser that opened the link (handoff cookie, no token,
+that browser's own PKCE) or in the original window (a code, its cookie and exact context). Both go
+through `/auth/verify-email`, and `verifyEmailToken` marks the resend family complete in the
+transaction that spends the token, so a second token never exists. The original window then calls
+`POST /auth/registration/continue`; a GET never issues a code. It stays out when the link opened in
+another tab of its own browser, because `/auth/verify-email` then sees both cookies and closes the
+continuation in the same step. The form posts back the address it showed, and the server refuses
+any other, so a newer link in that browser cannot change whose account the password creates. The
+cookie is not cleared on completion: it then proves nothing, and a second open tab hears
+`REGISTRATION_COMPLETE`.
+
+Browser registration is opt-in per product through the signed config's
+`login_flow.registration_code_enabled` (default false) plus `registration_restart_url`:
+`registration-context.ts` refuses every start/status/code/continue/events request with 400
+`REGISTRATION_UNAVAILABLE` before any row, email or counter unless both are set, and the hosted
+form keeps using `/auth/register`.
+It uses `routes/auth/registration.ts`, `registration-context.ts`
+and `registration-websocket.ts`; `pending-registration.service.ts` owns the durable
+mailbox/browser state and immutable OAuth binding, `registration-handoff.service.ts` the handoff
+cookie and what `/auth` and `/auth/verify-email` accept from it, `registration-completion.service.ts`
+the family marking inside the token transaction, `registration-credentials.ts`
+the scoped cryptographic helpers, and `registration-events.service.ts` non-secret
+local hints. `email-continuation.service.ts` is the one finaliser after a verified address
+(workspace, 2FA, code), shared by `/auth/verify-email` and `/auth/registration/continue`; it joins
+a caller's transaction, so continuing commits with the row's `continued_at`. Connected replicas
+recheck the database every five seconds. The isolated `registration-link-page.service.ts` removes
+fragment secrets and posts them at once.
+`email.templates.registration.ts`, `root/schema.registration.ts` and
+`root/llm-registration.ts` publish the shared email and API contracts. The pending
+lifetime is `REGISTRATION_EMAIL_TOKEN_TTL_MS` (`REGISTRATION_TTL_MS` is that
+constant), which the cookie, the row, the WebSocket deadline and the email's "hours" copy
+all follow; retention keeps a row 30 days past that (`REGISTRATION_EXPIRED_RETENTION_DAYS`),
+so an old link still finds its way back to registration, and answers 400 after it. The email (`registrationVerificationCopy`) and
+the link page are English or Czech by the request's Accept-Language
+(`resolveEmailLocale`).
+The link page owns its Content-Security-Policy nonce (the fork's app has no global nonce
+hook): one fresh value per response, shared by the header (`registrationLinkPageCsp`) and the
+script tag, plus `Vary: Accept-Language` and `Content-Language`. Start, code, link and continue use
+their own rate-limit namespaces (`registrationStartRateLimiter`, `registrationCodeRateLimiter`,
+`registrationLinkRateLimiter`, `registrationContinueRateLimiter`) rather than sharing the register,
+sign-in code or token budgets. The link budget is keyed on the link, with a wide ceiling per address,
+because the page posts by itself and mobile networks share addresses.
+
 - **No code file longer than 500 lines.** If a file approaches this limit, split it.
 - **One responsibility per file.** A route file handles routing. A service file handles logic. They don't mix.
 - **Thin routes, fat services.** Route handlers validate input, call a service, and return a response. Business logic lives in services.

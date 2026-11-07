@@ -9,6 +9,10 @@ import {
 } from '../../services/auth-ui.service.js';
 import { configFetchRateLimiter } from './rate-limit-keys.js';
 import { recordAuthFunnelStep } from '../../services/auth-funnel.service.js';
+import {
+  hasS256Challenge,
+  resolveRegistrationHandoff,
+} from '../../services/registration-handoff.service.js';
 
 // Gap-fix B Task 2 (design §11.4): `team_hint` is a client-side chooser preselect ONLY — it never
 // grants anything server-side (select-team's ACTIVE-membership + domain check remains the sole
@@ -79,12 +83,26 @@ export function registerAuthEntrypointRoute(app: FastifyInstance): void {
       }
 
       const requestUrl = sanitizeTeamHintInUrl(request.raw.url ?? '');
+      const start = flowStartOutcome(request.query);
+      // HUGO-2261: a browser that opened a registration link finishes it here, when the product
+      // starts registration, which is what the link's restart URL does. A plain sign-in in that
+      // browser stays a sign-in. Anything else about the cookie is ignored.
+      const resolved =
+        start === 'shown_register' && hasS256Challenge(request.query)
+          ? await resolveRegistrationHandoff(
+              { request, config: request.config, configUrl: request.configUrl },
+              request.adminDb,
+            )
+          : null;
+      const handoff = resolved && 'email' in resolved ? resolved : null;
       const html = await renderAuthEntrypointHtml({
         config: request.config,
         configUrl: request.configUrl,
         requestUrl,
+        ...(handoff ? { registrationHandoff: { email: handoff.email } } : {}),
       });
-      const outcome = request.method === 'HEAD' ? null : flowStartOutcome(request.query);
+      // The handoff continues a registration already counted, it does not start a flow.
+      const outcome = request.method === 'HEAD' || handoff ? null : start;
       if (outcome) {
         await recordAuthFunnelStep(
           { domain: request.config.domain, step: 'flow_started', outcome },

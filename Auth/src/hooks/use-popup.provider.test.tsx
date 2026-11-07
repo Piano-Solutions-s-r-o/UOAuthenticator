@@ -83,3 +83,32 @@ describe('PopupProvider — OIDC prompt=create opens account creation', () => {
     expect(renderWithSearch(`${base}&prompt=create&twofa_setup_token=s`)).toContain('login:null');
   });
 });
+
+// HUGO-2261: the server tells a browser that opened a registration link that it may finish here.
+describe('PopupProvider — a registration handoff', () => {
+  const base = '?config_url=https%3A%2F%2Fclient.example.com%2Fauth-config';
+  const render = (search: string, registrationHandoff: { email: string } | null) => renderToString(
+    <PopupProvider configUrl="" initialSearch={search} registrationHandoff={registrationHandoff}>
+      <ViewProbe />
+    </PopupProvider>,
+  );
+  const handoff = { email: 'person@example.com' };
+
+  it('opens the set-password view', () => {
+    expect(render(base, handoff)).toContain('set-password:null');
+  });
+
+  it('wins over prompt=create', () => {
+    expect(render(`${base}&prompt=create`, handoff)).toContain('set-password:null');
+    expect(render(`${base}&prompt=create`, null)).toContain('register:null');
+  });
+
+  it('never overrides a flow-specific view', () => {
+    expect(render(`${base}&flow=signatures&signing_token=cap`, handoff)).toContain('signatures:null');
+    expect(render(`${base}&login_token=bridge.jwt&flow=workspace_chooser`, handoff)).toContain('workspace-chooser:null');
+  });
+
+  it('leaves every view alone without one', () => {
+    expect(render(base, null)).toContain('login:null');
+  });
+});

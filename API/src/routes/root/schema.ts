@@ -6,6 +6,7 @@ import { integrationsEndpoints } from './schema.integrations.js';
 import { internalAdminEndpoints } from './schema.internal-admin.js';
 import { internalAdminAuthFunnelEndpoints } from './schema.internal-admin-auth-funnel.js';
 import { oauthEndpoints } from './schema.oauth.js';
+import { registrationVerificationEndpoints } from './schema.registration.js';
 import { appEndpoints, baseEndpoints, domainEndpoints, emailEndpoints } from './schema.platform.js';
 import { signatureEndpoints } from './schema.signatures.js';
 
@@ -468,6 +469,7 @@ function withOrgContract(list: EndpointSchema[]): EndpointSchema[] {
 }
 
 export const endpoints: EndpointSchema[] = [
+  ...registrationVerificationEndpoints,
   ...baseEndpoints,
   ...configDebugEndpoints,
   ...authEndpoints,

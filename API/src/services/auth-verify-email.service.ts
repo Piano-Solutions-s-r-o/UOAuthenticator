@@ -13,6 +13,9 @@ import { placeUserInConfiguredOrganisation } from './org-placement.service.js';
 import { revokeAllRefreshTokensForUser } from './refresh-token-revocation.service.js';
 import { lockProductWorkspacePolicyShared } from './product-workspace-policy-lock.service.js';
 import { acceptTeamInviteWithinTransaction } from './team-invite.service.js';
+import { completeRegistrationFamily, lockRegistrationIdentity } from './registration-completion.service.js';
+import { REGISTRATION_TOKEN_PREFIX } from './registration-credentials.js';
+import { publishRegistrationChange } from './registration-events.service.js';
 import {
   lockAndReadVerificationTokenEpoch,
   readVerificationTokenEpoch,
@@ -51,6 +54,23 @@ type VerifyEmailTokenRow = Prisma.VerificationTokenGetPayload<{
 }>;
 
 export type VerifyEmailTokenType = 'LOGIN_LINK' | 'VERIFY_EMAIL_SET_PASSWORD' | 'VERIFY_EMAIL';
+
+/**
+ * The raw token a caller was given, or the stored hash of a token the server resolved itself: the
+ * browser that opened a registration link never receives one, and a second token cannot be minted
+ * because the epoch rule allows one pre-user token.
+ */
+export type VerifyEmailTokenReference =
+  | { token: string; tokenHash?: undefined }
+  | { token?: undefined; tokenHash: string };
+
+function referencedTokenHash(
+  reference: VerifyEmailTokenReference,
+  sharedSecret: string,
+  hash: typeof hashEmailToken = hashEmailToken,
+): string {
+  return reference.tokenHash !== undefined ? reference.tokenHash : hash(reference.token, sharedSecret);
+}
 
 export type AcceptedEmailInviteWorkspace = {
   inviteId: string;
@@ -97,8 +117,7 @@ function assertTokenValid(params: {
 }
 
 export async function validateVerifyEmailToken(
-  params: {
-    token: string;
+  params: VerifyEmailTokenReference & {
     configUrl: string;
     config: ClientConfig;
   },
@@ -112,7 +131,7 @@ export async function validateVerifyEmailToken(
   }
 
   const { SHARED_SECRET } = requireEnv('SHARED_SECRET');
-  const tokenHash = hashEmailToken(params.token, SHARED_SECRET);
+  const tokenHash = referencedTokenHash(params, SHARED_SECRET);
 
   const prisma = deps?.prisma ?? (getPrisma() as unknown as VerifyEmailPrisma);
   const row = await prisma.verificationToken.findUnique({
@@ -144,11 +163,11 @@ export async function validateVerifyEmailToken(
 }
 
 export async function verifyEmailToken(
-  params: {
-    token: string;
+  params: VerifyEmailTokenReference & {
     password?: string;
     configUrl: string;
     config: ClientConfig;
+    originalBrowser?: boolean;
   },
   deps?: VerifyEmailDeps,
 ): Promise<VerifyEmailResult> {
@@ -161,12 +180,15 @@ export async function verifyEmailToken(
   const prisma = deps?.prisma ?? (getPrisma() as unknown as VerifyEmailPrisma);
   const readNow = deps?.now ?? (() => new Date());
   const sharedSecret = deps?.sharedSecret ?? requireEnv('SHARED_SECRET').SHARED_SECRET;
-  const tokenHash = (deps?.hashEmailToken ?? hashEmailToken)(params.token, sharedSecret);
+  const tokenHash = referencedTokenHash(params, sharedSecret, deps?.hashEmailToken);
   const hashPasswordFn = deps?.hashPassword ?? hashPassword;
+  const pendingRegistration =
+    params.token === undefined || params.token.startsWith(REGISTRATION_TOKEN_PREFIX);
 
   // Token consumption + user creation/update must be atomic to enforce one-time use.
   const consumed = await runInTransaction(prisma, async (tx) => {
     await lockProductWorkspacePolicyShared(tx);
+    if (pendingRegistration) await lockRegistrationIdentity(tx, tokenHash);
     const tokenRow = await tx.verificationToken.findUnique({
       where: { tokenHash },
       select: {
@@ -362,6 +384,17 @@ export async function verifyEmailToken(
       throw new AppError('BAD_REQUEST', 400, 'INVALID_TOKEN');
     }
 
+    const completedRegistrations = pendingRegistration
+      ? await completeRegistrationFamily(tx, {
+          tokenHash,
+          userId,
+          credentialEpoch: authenticatedUser.tokenVersion,
+          // A raw token only ever reaches the original browser, which needs no continuation.
+          continued: params.token !== undefined || params.originalBrowser === true,
+          now: decisionNow,
+        })
+      : [];
+
     return {
       userId,
       credentialEpoch: authenticatedUser.tokenVersion,
@@ -371,8 +404,12 @@ export async function verifyEmailToken(
       email: tokenRow.email,
       twoFaEnabled: authenticatedUser.twoFaEnabled,
       acceptedInvite,
+      completedRegistrations,
     };
   });
+
+  // After the commit, so a woken window reads the completed row.
+  consumed.completedRegistrations.forEach(publishRegistrationChange);
 
   if (consumed.createdUser && !consumed.acceptedInvite) {
     try {

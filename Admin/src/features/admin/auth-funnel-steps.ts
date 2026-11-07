@@ -16,9 +16,14 @@ export const funnelSteps: FunnelStepInfo[] = [
   { step: 'login_submitted', label: 'Password sign-in submitted', description: 'Email and password submitted on the sign-in form.', reached: ['succeeded'] },
   { step: 'social_started', label: 'Social sign-in started', description: 'Sent to Google, Apple or another provider, by provider.' },
   { step: 'registration_email', label: 'Registration email', description: 'What UOA did with a submitted address. Sent means the email provider accepted it, not that it arrived or was read.', reached: ['verification_sent', 'login_link_sent'] },
-  { step: 'email_link_opened', label: 'Email link opened', description: 'The link from that email was opened. Registration links last 24 hours; expired, used and unknown links land on the sign-in screen.', reached: ['valid_set_password', 'valid_verify_email', 'valid_login_link'] },
+  { step: 'email_link_opened', label: 'Email link opened', description: 'The link from that email was opened. Registration links last 24 hours; expired, used and unknown links land on the sign-in screen, or on a page that says so.', reached: ['valid_set_password', 'valid_verify_email', 'valid_login_link', 'opened'] },
+  { step: 'registration_link_handoff', label: 'Registration link led on', description: 'The first valid opening of a registration link, which sends that browser back through the product to set a password. Once per registration, resends included.' },
   { step: 'set_password', label: 'Password set', description: 'Set-password form submitted from the email link. Succeeded means the account was created.', reached: ['succeeded'] },
+  { step: 'registration_password_set', label: 'Registration password set', description: 'A registration got its password, by link or by code. Once per registration.' },
+  { step: 'registration_completed', label: 'Registration completed', description: 'A registration finished, by link or by code, including one for an address that already had an account. Once per registration.' },
   { step: 'sign_in_completed', label: 'Returned to product', description: 'Sign-in finished and UOA sent the person back to the product with an authorization code, by method.' },
+  { step: 'clicked_device_returned', label: 'Link browser went on', description: 'The browser that opened the registration link was sent on to the product after the password. The same person also counts in the step above.' },
+  { step: 'original_device_returned', label: 'Original window went on', description: 'The window where registration started was sent on to the product: it took the code, or it continued by itself after the password was set elsewhere. The same person also counts in the steps above.' },
   { step: 'code_exchange', label: 'Code redeemed by product', description: "The product's backend exchanged the code for tokens. Rejections show UOA's internal reason.", reached: ['succeeded'] },
 ];
 
@@ -38,6 +43,7 @@ const outcomeLabels: Record<string, string> = {
   login_link_failed: 'Sign-in link: send failed',
   login_link_sent: 'Sign-in link sent (existing account)',
   missing_pkce: 'Damaged link (no PKCE)',
+  opened: 'Registration link opened (first time)',
   password_rejected: 'Password rejected',
   shown: 'Opened on sign-in',
   shown_register: 'Opened on registration',

@@ -1,6 +1,24 @@
 import type { Translations } from './en.js';
 
 export const es = {
+  'registration.checkEmail': 'Revisa tu correo',
+  'registration.sent': 'Hemos enviado un enlace a {email}. Haz clic en él y crea tu contraseña.',
+  'registration.code': 'O introduce el código del correo',
+  'registration.error':
+    'No pudimos verificar el código. Revísalo e inténtalo de nuevo o solicita otro correo.',
+  'registration.verifying': 'Verificando…',
+  'registration.expired': 'Esta inscripción ya no puede continuar. Solicita otro correo.',
+  'registration.restart': 'Solicitar otro correo',
+  'registration.resend': 'Enviar de nuevo',
+  'registration.resent': 'Hemos enviado un correo nuevo.',
+  'registration.changeEmail': 'Cambiar correo',
+  'registration.sending': 'Enviando correo…',
+  'registration.password.title': 'Crea tu contraseña',
+  'registration.password.text': 'Estás registrando una cuenta para {email}.',
+  'registration.password.submit': 'Crear cuenta',
+  'registration.continuing': 'Listo. Iniciando sesión en Hugo…',
+  'registration.finished': 'El registro está completo.',
+  'registration.signIn': 'Iniciar sesión',
   'auth.login.title': 'Iniciar sesion',
   'auth.register.title': 'Crea tu cuenta',
   'auth.resetPassword.title': 'Restablecer tu contrasena',
