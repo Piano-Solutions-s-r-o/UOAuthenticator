@@ -15,33 +15,33 @@ describe('registration verification email', () => {
   it('shows the address, a prominent link and the same spaced code in HTML and text', () => {
     const hours = registrationTokenTtlHours();
     const template = buildRegistrationVerificationTemplate({ email, code: 'AB3K7M', link });
-    expect(template.subject).toBe('Finish your Hugo registration');
+    expect(template.subject).toBe('Your registration link');
     expect(template.html).toContain('<html lang="en">');
-    expect(template.html).toContain('Finish your registration</h1>');
-    expect(template.html).toContain('Continue registration</a>');
+    expect(template.html).toContain('Let&#39;s finish signing you up</h1>');
+    expect(template.html).toContain('Continue</a>');
     expect(template.html).toContain('font-size:32px;font-weight:700;letter-spacing:8px');
     expect(template.text).toContain('AB3K7M'); expect(template.html).toContain('AB3K7M');
-    for (const body of [template.text, template.html]) {
-      expect(body).toContain(`You are registering an account for ${email}.`);
-      expect(body).toContain(`The link and code are valid for ${hours} hours.`);
-    }
+    expect(template.text).toContain(`You're one tap away. Use the button below to finish registering the account for ${email}.`);
+    expect(template.text).toContain(`Tick tock — the link and code are good for ${hours} hours.`);
+    expect(template.text).toContain("Wasn't you? Don't click anything and pretend this never happened.");
+    expect(template.html).toContain(`finish registering the account for ${email}.`);
   });
 
   it('is the exact Czech copy for a Czech request and keeps the button, link and large code', () => {
     const template = buildRegistrationVerificationTemplate({ email, code: 'AB3K7M', link, locale: 'cs' });
-    expect(template.subject).toBe('Dokonči registraci do Huga');
+    expect(template.subject).toBe('Tvůj registrační odkaz');
     expect(template.html).toContain('<html lang="cs">');
-    expect(template.html).toContain('Dokonči registraci</h1>');
-    expect(template.html).toContain('Pokračovat v registraci</a>');
+    expect(template.html).toContain('Pojďme dokončit registraci</h1>');
+    expect(template.html).toContain('Pokračovat</a>');
     expect(template.html).toContain(`href="${link}"`);
-    expect(template.html).toContain('Nebo zadej v Hugu kód:');
+    expect(template.html).toContain('Nebo zadej v Hugovi kód:');
     expect(template.html).toContain('font-size:32px;font-weight:700;letter-spacing:8px');
-    expect(template.text).toContain('Nebo zadej v Hugu kód: AB3K7M');
+    expect(template.text).toContain('Nebo zadej v Hugovi kód: AB3K7M');
     expect(template.text).toContain(link);
     for (const body of [template.text, template.html]) {
-      expect(body).toContain(`Registruješ účet pro ${email}.`);
-      expect(body).toContain(`Odkaz i kód platí ${registrationTokenTtlHours()} hodin.`);
-      expect(body).toContain('Pokud o registraci nevíš, na nic neklikej a e-mail ignoruj.');
+      expect(body).toContain(`Jsi jen jedno kliknutí od cíle. Klikni na tlačítko níže a dokončíš registraci účtu pro ${email}.`);
+      expect(body).toContain(`Tik ťak — odkaz i kód platí ${registrationTokenTtlHours()} hodin.`);
+      expect(body).toContain('Tohle jsi nebyl(a) ty? Na nic neklikej a rychle na to zapomeň.');
     }
   });
 

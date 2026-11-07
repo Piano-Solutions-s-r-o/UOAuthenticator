@@ -66,27 +66,28 @@ export type RegistrationVerificationCopy = {
 
 /**
  * The browser-bound registration email. The address is in the text because the link finishes the
- * registration where it is clicked. Czech is informal (tykání). "Hugo" is literal: only Hugo runs
- * this flow, a product's name has no field in the signed config, and Czech has to decline it.
+ * registration where it is clicked. Czech is informal (tykání), in the voice of the sign-in email
+ * above. "Hugo" is literal: only Hugo runs this flow, a product's name has no field in the signed
+ * config, and Czech declines it as a man's name (`v Hugovi`, `Huga`).
  */
 const REGISTRATION_VERIFICATION_COPY: Record<EmailLocale, RegistrationVerificationCopy> = {
   en: {
-    subject: 'Finish your Hugo registration',
-    heading: 'Finish your registration',
-    body: (email) => `You are registering an account for ${email}.`,
-    buttonLabel: 'Continue registration',
+    subject: 'Your registration link',
+    heading: "Let's finish signing you up",
+    body: (email) => `You're one tap away. Use the button below to finish registering the account for ${email}.`,
+    buttonLabel: 'Continue',
     codeLabel: 'Or enter this code in Hugo:',
-    expiry: (hours) => `The link and code are valid for ${hours} hours.`,
-    ignoreLabel: 'If you did not request this, do not click anything and ignore this email.',
+    expiry: (hours) => `Tick tock — the link and code are good for ${hours} hours.`,
+    ignoreLabel: "Wasn't you? Don't click anything and pretend this never happened.",
   },
   cs: {
-    subject: 'Dokonči registraci do Huga',
-    heading: 'Dokonči registraci',
-    body: (email) => `Registruješ účet pro ${email}.`,
-    buttonLabel: 'Pokračovat v registraci',
-    codeLabel: 'Nebo zadej v Hugu kód:',
-    expiry: (hours) => `Odkaz i kód platí ${hours} hodin.`,
-    ignoreLabel: 'Pokud o registraci nevíš, na nic neklikej a e-mail ignoruj.',
+    subject: 'Tvůj registrační odkaz',
+    heading: 'Pojďme dokončit registraci',
+    body: (email) => `Jsi jen jedno kliknutí od cíle. Klikni na tlačítko níže a dokončíš registraci účtu pro ${email}.`,
+    buttonLabel: 'Pokračovat',
+    codeLabel: 'Nebo zadej v Hugovi kód:',
+    expiry: (hours) => `Tik ťak — odkaz i kód platí ${hours} hodin.`,
+    ignoreLabel: 'Tohle jsi nebyl(a) ty? Na nic neklikej a rychle na to zapomeň.',
   },
 };
 

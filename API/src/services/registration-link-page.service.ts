@@ -36,7 +36,7 @@ const LINK_PAGE_COPY: Record<EmailLocale, LinkPageCopy> = {
     retry: 'Try again',
   },
   cs: {
-    opening: 'Otevírám Hugo…',
+    opening: 'Otevírám Huga…',
     complete: 'Registrace je hotová.',
     signIn: 'Přihlásit se',
     expired: 'Odkaz už neplatí',

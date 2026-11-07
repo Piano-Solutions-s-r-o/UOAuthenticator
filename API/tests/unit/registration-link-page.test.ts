@@ -16,9 +16,9 @@ describe('registration link page', () => {
   it('renders the Czech copy for a Czech request, including every outcome', () => {
     const html = renderRegistrationLinkPage('nonce-123', 'cs');
     expect(html).toContain('<html lang="cs">');
-    expect(html).toContain('<title>Otevírám Hugo…</title>');
+    expect(html).toContain('<title>Otevírám Huga…</title>');
     for (const message of [
-      'Otevírám Hugo…', 'Registrace je hotová.', 'Přihlásit se', 'Odkaz už neplatí',
+      'Otevírám Huga…', 'Registrace je hotová.', 'Přihlásit se', 'Odkaz už neplatí',
       'Začít registraci znovu', 'Nepodařilo se spojit se serverem.', 'Zkusit znovu',
     ]) expect(html).toContain(message);
     expect(html).not.toContain('Opening Hugo');
