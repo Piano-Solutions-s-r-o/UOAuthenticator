@@ -14,6 +14,7 @@ import {
 } from './email.templates.js';
 import { buildLoginCodeTemplate } from './email.templates.login-code.js';
 import { buildRegistrationVerificationTemplate } from './email.templates.registration.js';
+import { buildRegistrationReminderTemplate } from './email.templates.registration-reminder.js';
 import {
   createEmailProvider,
   safeEmailLog,
@@ -39,6 +40,18 @@ export async function sendRegistrationVerificationEmail(params: {
   return dispatchEmail({
     to: params.to, from: env.EMAIL_FROM, replyTo: env.EMAIL_REPLY_TO,
     ...buildRegistrationVerificationTemplate({ ...params, email: params.to }),
+    suppressContentLog: true,
+  });
+}
+
+/** Resolves false when the provider did not accept the message (HUGO-2424). */
+export async function sendRegistrationReminderEmail(params: {
+  to: string; link: string; theme?: Partial<EmailTheme>; locale?: EmailLocale;
+}): Promise<boolean> {
+  const env = getEnv();
+  return dispatchEmail({
+    to: params.to, from: env.EMAIL_FROM, replyTo: env.EMAIL_REPLY_TO,
+    ...buildRegistrationReminderTemplate(params),
     suppressContentLog: true,
   });
 }

@@ -159,6 +159,9 @@ const EnvSchema = z
     // Stripe is an explicitly gated payment processor. Keys may be provisioned
     // ahead of launch, but no customer, Checkout, subscription, or meter call is
     // permitted until the gate is enabled and both credentials are present.
+    // HUGO-2424: one reminder e-mail to an unconfirmed browser-bound registration. Off until the
+    // owner enables it; it applies to every product served by this deployment.
+    UOA_REGISTRATION_REMINDER_ENABLED: z.preprocess(normalizeBoolean, z.boolean().default(false)),
     STRIPE_BILLING_ENABLED: z.preprocess(normalizeBoolean, z.boolean().default(false)),
     STRIPE_SECRET_KEY: z.string().min(1).optional(),
     STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),

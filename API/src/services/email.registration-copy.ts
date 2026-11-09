@@ -94,3 +94,39 @@ const REGISTRATION_VERIFICATION_COPY: Record<EmailLocale, RegistrationVerificati
 export function registrationVerificationCopy(locale?: EmailLocale): RegistrationVerificationCopy {
   return REGISTRATION_VERIFICATION_COPY[locale ?? 'en'] ?? REGISTRATION_VERIFICATION_COPY.en;
 }
+
+export type RegistrationReminderCopy = {
+  subject: string;
+  heading: string;
+  /** Shown above the button. */
+  body: string;
+  /** Shown below the button. */
+  closing: string;
+  ignoreLabel: string;
+};
+
+/**
+ * The one reminder to an unconfirmed registration (HUGO-2424). Czech is the owner's wording,
+ * verbatim. The English is a draft awaiting the owner's approval. The button reuses the
+ * registration e-mail's label, so it is not repeated here.
+ */
+const REGISTRATION_REMINDER_COPY: Record<EmailLocale, RegistrationReminderCopy> = {
+  en: {
+    subject: 'Tick tock, your Hugo sign-in link is waiting',
+    heading: "Let's get you signed in for real! 💛",
+    body: "Your link is only valid for a few more hours, so don't miss it! You're just one click away. Don't be shy — click the button below, finish signing up and let's get going big time",
+    closing: "Then we'll finally get rolling together!",
+    ignoreLabel: "Wasn't this you? Just forget about it!",
+  },
+  cs: {
+    subject: 'Tik ťak, tvůj přihlašovací odkaz do Huga čeká',
+    heading: 'Pojďme tě opravdu přihlásit! 💛',
+    body: 'Odkaz platí už jen pár hodin, tak to neprošvihni! Jsi totiž jen jedno kliknutí od cíle. Nestyď se, klikni na tlačítko níže, dokonči registraci a rozjeď to se mnou ve velkém',
+    closing: 'Pak to spolu konečně rozjedem!',
+    ignoreLabel: 'Tohle jsi nebyl/a ty? Tak na to rychle zapomeň!',
+  },
+};
+
+export function registrationReminderCopy(locale?: EmailLocale): RegistrationReminderCopy {
+  return REGISTRATION_REMINDER_COPY[locale ?? 'en'] ?? REGISTRATION_REMINDER_COPY.en;
+}
