@@ -19,6 +19,7 @@ import { registerErrorHandler } from './middleware/error-handler.js';
 import tenantContextPlugin from './plugins/tenant-context.plugin.js';
 import { registerRoutes } from './routes/index.js';
 import { preloadTariffSnapshotSigningKey } from './services/billing-snapshot.service.js';
+import { startRegistrationReminderScheduler } from './services/registration-reminder-scheduler.service.js';
 import { startStripeBillingScheduler } from './services/billing-stripe-scheduler.service.js';
 import { preloadBillingAssertionSigningKey } from './services/billing-ledger-collector.service.js';
 import { sweepExpiredClaims } from './services/integration-claim.service.js';
@@ -215,6 +216,13 @@ export async function createApp(): Promise<FastifyInstance> {
       app.addHook('onClose', async () => {
         clearInterval(timer);
       });
+
+      if (env.UOA_REGISTRATION_REMINDER_ENABLED) {
+        const registrationReminderScheduler = startRegistrationReminderScheduler({ log: app.log });
+        app.addHook('onClose', async () => {
+          registrationReminderScheduler.stop();
+        });
+      }
 
       if (env.STRIPE_BILLING_ENABLED) {
         const stripeBillingScheduler = startStripeBillingScheduler({ log: app.log });

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type { PendingRegistration, PrismaClient } from '@prisma/client';
+import type { PendingRegistration, Prisma, PrismaClient } from '@prisma/client';
 
 import { getPublicBaseUrl } from '../config/env.js';
 import { runInTransaction } from '../db/tenant-context.js';
@@ -12,6 +12,7 @@ import { recordAuthFunnelStep } from './auth-funnel.service.js';
 import type { ClientConfig } from './config.service.js';
 import { resolveEmailContinuation } from './email-continuation.service.js';
 import type { EmailLocale } from './email.templates.js';
+import { extractEmailTheme } from './email-theme.service.js';
 import { fingerprintClientConfig } from './login-session.service.js';
 import { lockProductWorkspacePolicyShared } from './product-workspace-policy-lock.service.js';
 import { readVerificationTokenEpoch } from './verification-token-epoch.service.js';
@@ -82,6 +83,8 @@ export async function startPendingRegistration(params: RegistrationContext & { e
     contextHash: contextHash(params), configHash: registrationConfigHash(params.configUrl, params.config),
     emailHash: registrationDigest('email', params.email ?? ''),
     loginRestartUrl: params.config.login_restart_url ?? null, registrationRestartUrl, expiresAt,
+    // HUGO-2424: what the one reminder needs to look and read like this e-mail.
+    locale: params.locale ?? 'en', emailTheme: extractEmailTheme(params.config) as Prisma.InputJsonObject,
   } });
   let status: 'sent' | 'existing_user' = 'sent';
   let delivery: RegistrationDelivery | undefined;
@@ -164,7 +167,10 @@ async function linkStatus(row: PendingRegistration, prisma: PrismaClient): Promi
  * page goes next, because this request has no verified config of its own.
  */
 export async function openPendingRegistrationLink(token: string, prisma: PrismaClient): Promise<RegistrationLinkOutcome> {
-  const initial = await prisma.pendingRegistration.findUnique({ where: { linkHash: registrationDigest('link', token) } });
+  // The reminder's link is a second way into the same row (HUGO-2424).
+  const hash = registrationDigest('link', token);
+  const initial = await prisma.pendingRegistration.findUnique({ where: { linkHash: hash } }) ??
+    await prisma.pendingRegistration.findUnique({ where: { reminderLinkHash: hash } });
   if (!initial) refuse();
   // Decided under the lock, so two simultaneous opens count one first open.
   const { row, status, firstHandoff } = await runInTransaction(prisma, async tx => {

@@ -35,7 +35,9 @@ returns {status, next}:
 - "expired" for an expired or exhausted registration: next is your
   registration_restart_url.
 Unknown or malformed tokens answer 400, and so does a link 30 days past its expiry,
-when its row is pruned. Mail scanners cost nothing: GET and HEAD have
+when its row is pruned. The one reminder e-mail (HUGO-2424) carries a second link for
+the same registration: it expires with the first and finishing through either finishes
+both. Mail scanners cost nothing: GET and HEAD have
 no effect, and one that runs the page only gets a cookie in its own browser.
 
 The handoff cookie uoa_registration_handoff is signed, HttpOnly, SameSite=Lax,

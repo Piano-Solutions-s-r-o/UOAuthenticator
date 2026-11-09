@@ -8,6 +8,23 @@ export const EMAIL_TOKEN_TTL_MS = 30 * 60 * 1000;
 // Keep this separate so password resets, 2FA resets, and invites stay short-lived.
 export const REGISTRATION_EMAIL_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
+// HUGO-2424: the one reminder to an unconfirmed registration goes out while the link has between
+// these two bounds left. The upper bound keeps it from nagging right after sign-up. The lower
+// bound is 1 h 30 min, not 2 h, because the reminder is also only sent 09:00-19:00 Prague time:
+// with a 24 h link, a registration made around 11:00 reaches 2 h left at exactly 09:00 the next
+// morning, a window of a single instant. The reminder window is 14.5 h long and the nightly gap in
+// send hours is 14 h, so with 1 h 30 min every registration gets at least 30 minutes of eligible
+// ticks, which one 5-minute tick cannot miss. The one exception is the Saturday before the clocks go
+// back in October: that night is 15 h long, so registrations made between about 10:56 and 11:29
+// CEST (about 34 minutes a year) get no reminder, and those from about 10:30 to 12:00 get less than
+// 30 minutes. The owner accepted this. tests/unit/registration-reminder.test.ts pins its size.
+export const REGISTRATION_REMINDER_MIN_REMAINING_MS = 90 * 60 * 1000;
+export const REGISTRATION_REMINDER_MAX_REMAINING_MS = 16 * 60 * 60 * 1000;
+// Europe/Prague local time, [start, end): 09:00 up to but not including 19:00.
+export const REGISTRATION_REMINDER_SEND_START_HOUR = 9;
+export const REGISTRATION_REMINDER_SEND_END_HOUR = 19;
+export const REGISTRATION_REMINDER_TICK_MS = 5 * 60 * 1000;
+
 // Brief 22.13: authorization codes must be short-lived (OAuth authorization code flow).
 export const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1000;
 

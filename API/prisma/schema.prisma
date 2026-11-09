@@ -455,6 +455,13 @@ model PendingRegistration {
   continuedAt            DateTime? @map("continued_at")
   expiresAt              DateTime  @map("expires_at")
   createdAt              DateTime  @default(now()) @map("created_at")
+  // HUGO-2424: the one reminder. The registration e-mail's language and look are kept here
+  // because the reminder is sent without a request or a signed config. The reminder link is a
+  // second way into this same row, so it shares the expiry and the completion with the first.
+  locale                 String?
+  emailTheme             Json?     @map("email_theme")
+  reminderSentAt         DateTime? @map("reminder_sent_at")
+  reminderLinkHash       String?   @unique @map("reminder_link_hash")
 
   @@index([expiresAt])
   @@index([contextHash, emailHash])
