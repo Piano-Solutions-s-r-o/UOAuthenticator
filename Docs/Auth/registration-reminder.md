@@ -18,7 +18,11 @@ A `PendingRegistration` row (`registration-reminder.service.ts`) when all of the
 - the link has between **1 h 30 min and 16 h** left, and Europe/Prague local time is in **[09:00, 19:00)**
   (`Intl`, so daylight saving is followed). The 1 h 30 min is not 2 h on purpose: with a 24 h link, a
   registration made around 11:00 would reach 2 h left at exactly 09:00 and have a one-instant window. At
-  1 h 30 min every registration gets at least 30 minutes, which a 5-minute tick cannot miss. The bounds are
+  1 h 30 min the 14.5 h reminder window is longer than the 14 h gap in send hours, so every registration
+  gets at least 30 minutes of eligible ticks, which a 5-minute tick cannot miss. **One exception, accepted
+  by the owner:** the Saturday before the clocks go back in October. That night is 15 h long, so
+  registrations made between about 10:56 and 11:29 CEST (about 34 minutes a year) get no reminder, and
+  those from about 10:30 to 12:00 get less than 30 minutes. A unit test pins the size of this gap. The bounds are
   `REGISTRATION_REMINDER_*` in `config/constants.ts`;
 - it is not completed, expired or out of attempts, its e-mail code was not verified, and its browser was not
   authorized. Opening the link does **not** count as confirming it, because mail scanners open links;
@@ -40,7 +44,7 @@ and its completion: finishing through either link completes the registration, an
 
 Per candidate, one transaction takes the per-address advisory lock a completion takes, rechecks everything, and
 claims the row with `UPDATE ... WHERE reminder_sent_at IS NULL` (count 1 wins). The claim commits **before**
-anything is sent. A failed send is logged at `warn` with the row id (never the address) and **not** retried:
+anything is sent. A code verified just after the claim commits still gets its reminder; that race is accepted. A failed send is logged at `warn` with the row id (never the address) and **not** retried:
 at most one reminder, and zero is acceptable.
 
 ## What is stored

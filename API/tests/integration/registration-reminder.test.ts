@@ -33,16 +33,23 @@ import {
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 /**
- * The next 11:00 in Prague, at least an hour from the real clock. The steps that go through the
- * routes (`h.link`, `h.open`, `h.finish`, `h.status`) read the real clock, so a registration that
- * is pinned relative to NOW must still be live then: NOW is never in the past, whatever today is.
+ * Tests that only call the sweep with an injected clock read no real clock, so they use a FIXED
+ * instant: 11:00 in Prague (CET). A rolling date would make them depend on the day they run on, and
+ * the eve of a clock change moves the 09:00 slot by an hour.
+ */
+const NOW = new Date('2026-11-10T10:00:00Z');
+/**
+ * Tests that go through the routes (`h.link`, `h.open`, `h.finish`, `h.status`) read the real
+ * clock, so the registration they pin must still be live then: the next 11:00 in Prague, at least
+ * an hour from the real clock, never in the past. They only reach a reminder with 10-12 h left, which
+ * holds on any day, so the rolling date cannot change what they prove.
  */
 function nextPragueEleven(): Date {
   let t = Math.ceil((Date.now() + HOUR) / MIN) * MIN;
   while (pragueMinuteOfDay(new Date(t)) !== 11 * 60) t += MIN;
   return new Date(t);
 }
-const NOW = nextPragueEleven();
+const LIVE = nextPragueEleven();
 
 type Sent = { to: string; link: string; locale?: string; theme?: unknown };
 
@@ -161,16 +168,17 @@ describe.skipIf(!process.env.DATABASE_URL)('registration reminder', () => {
     expect(await row(flow)).toMatchObject({ reminderSentAt: NOW });
   });
 
-  it('every tick of the day sends exactly one reminder to a registration at 11:00', async () => {
+  // The scheduler's tick has no fixed phase: a deploy or a restart puts it anywhere. Whatever the
+  // phase, a registration at 11:00 is reminded once, at the first tick from 09:00 the next day.
+  it.each([0, 1, 2, 3, 4])('every tick of the day sends exactly one reminder to a registration at 11:00 (ticks %i min past the 5)', async (phase) => {
     const flow = await h.start();
-    const registeredAt = NOW; // 11:00 Prague
+    const registeredAt = NOW; // 11:00 Prague, the day before the clocks go anywhere
     await pin(flow, 24 * HOUR, registeredAt);
-    for (let tick = registeredAt.getTime(); tick < registeredAt.getTime() + 24 * HOUR; tick += 5 * MIN) await sweep(new Date(tick));
+    for (let tick = registeredAt.getTime() + phase * MIN; tick < registeredAt.getTime() + 24 * HOUR; tick += 5 * MIN) await sweep(new Date(tick));
     expect(sent).toHaveLength(1);
     const remindedAt = (await row(flow)).reminderSentAt!;
-    expect(pragueMinuteOfDay(remindedAt)).toBe(9 * 60); // 09:00 Prague, the next day
-    expect(remindedAt.getTime() - registeredAt.getTime()).toBeGreaterThan(21 * HOUR);
-    expect(remindedAt.getTime() - registeredAt.getTime()).toBeLessThan(23 * HOUR);
+    expect(remindedAt.getTime()).toBe(new Date('2026-11-11T08:00:00Z').getTime() + phase * MIN); // 09:00 Prague plus the phase
+    expect(pragueMinuteOfDay(remindedAt)).toBe(9 * 60 + phase);
   });
 
   describe('the reminder link and the first link are one registration', () => {
@@ -182,8 +190,8 @@ describe.skipIf(!process.env.DATABASE_URL)('registration reminder', () => {
 
     it('finishing from the reminder completes it; the original link and window then report used', async () => {
       const flow = await h.start();
-      await pin(flow, 10 * HOUR);
-      await sweep();
+      await pin(flow, 10 * HOUR, LIVE);
+      await sweep(LIVE);
       const reminder = reminderFlow(flow);
       expect((await h.link(reminder)).json().status).toBe('continue');
       expect((await finishFrom(reminder)).statusCode).toBe(200);
@@ -195,8 +203,8 @@ describe.skipIf(!process.env.DATABASE_URL)('registration reminder', () => {
 
     it('finishing from the original completes it; the reminder link then reports used', async () => {
       const flow = await h.start();
-      await pin(flow, 10 * HOUR);
-      await sweep();
+      await pin(flow, 10 * HOUR, LIVE);
+      await sweep(LIVE);
       const reminder = reminderFlow(flow);
       expect((await finishFrom(flow)).statusCode).toBe(200);
       expect((await h.link(reminder)).json()).toMatchObject({ status: 'complete' });
@@ -206,8 +214,8 @@ describe.skipIf(!process.env.DATABASE_URL)('registration reminder', () => {
 
     it('expires with the first link: the same instant, never later', async () => {
       const flow = await h.start();
-      await pin(flow, 10 * HOUR);
-      await sweep();
+      await pin(flow, 10 * HOUR, LIVE);
+      await sweep(LIVE);
       await h.db.prisma.pendingRegistration.update({ where: { id: flow.id }, data: { expiresAt: new Date(Date.now() - MIN) } });
       expect((await h.link(reminderFlow(flow))).json().status).toBe('expired');
       expect((await h.link(flow)).json().status).toBe('expired');
@@ -294,20 +302,20 @@ describe.skipIf(!process.env.DATABASE_URL)('registration reminder', () => {
 
   it('still reminds a registration whose link was opened (a mail scanner opens links too)', async () => {
     const flow = await h.start();
-    await pin(flow, 10 * HOUR);
+    await pin(flow, 10 * HOUR, LIVE);
     await h.link(flow);
     expect((await row(flow)).linkUsedAt).not.toBeNull();
-    await sweep();
+    await sweep(LIVE);
     expect(sent).toHaveLength(1);
   });
 
   it('reminds an address once, for its newest registration, after a resend', async () => {
     const first = await h.start();
     const second = await h.resend(first);
-    await pin(first, 10 * HOUR);
-    await pin(second, 12 * HOUR);
-    await sweep();
-    await sweep(new Date(NOW.getTime() + 5 * MIN));
+    await pin(first, 10 * HOUR, LIVE);
+    await pin(second, 12 * HOUR, LIVE);
+    await sweep(LIVE);
+    await sweep(new Date(LIVE.getTime() + 5 * MIN));
     expect(sent).toHaveLength(1);
     expect((await row(second)).reminderSentAt).not.toBeNull();
     expect((await row(first)).reminderSentAt).toBeNull();

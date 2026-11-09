@@ -128,6 +128,60 @@ describe('time left on the link (HUGO-2424)', () => {
   });
 });
 
+// The 24 h link and the 09:00-19:00 send hours leave a gap of 14 h between one evening's 19:00 and
+// the next morning's 09:00, and the reminder window is 14.5 h long (16 h down to 1 h 30 min), so on an
+// ordinary day it always reaches into the send hours by at least 30 minutes. The night the clocks go
+// back is 15 h long from 19:00 CEST to 09:00 CET, which is longer than the window: registrations made
+// around 11:00 CEST that Saturday have no eligible tick. The owner accepted this (about 34 minutes a
+// year); this test pins how big it is, so the comment on the constants cannot drift from the truth.
+describe('the night the clocks go back (HUGO-2424)', () => {
+  const base = { completedAt: null, emailVerifiedAt: null, browserAuthorizedAt: null, reminderSentAt: null, attempts: 0 };
+  /** Ticks (every 5 minutes, `phase` minutes past) at which a registration made at `registeredAt` is eligible. */
+  function eligibleTicks(registeredAt: number, phase: number): number {
+    const expiresAt = new Date(registeredAt + 24 * HOUR);
+    const first = Math.ceil((registeredAt + 8 * HOUR - phase * MIN) / REGISTRATION_REMINDER_TICK_MS) * REGISTRATION_REMINDER_TICK_MS + phase * MIN;
+    let count = 0;
+    for (let tick = first; tick <= registeredAt + 22.5 * HOUR; tick += REGISTRATION_REMINDER_TICK_MS) {
+      const when = new Date(tick);
+      if (isReminderSendTime(when) && isReminderDue({ ...base, expiresAt }, when)) count += 1;
+    }
+    return count;
+  }
+  function localMidnight(day: string): number {
+    let t = Date.parse(`${day}T00:00:00Z`) - 3 * HOUR;
+    while (pragueMinuteOfDay(new Date(t)) !== 0) t += MIN;
+    return t;
+  }
+  const clock = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+
+  it.each([0, 3])('leaves about 34 minutes around 11:00 on the Saturday before, and nothing like it elsewhere (ticks %i min past the 5)', (phase) => {
+    const midnight = localMidnight('2026-10-24'); // Saturday; the clocks go back on Sunday 2026-10-25
+    const dead: number[] = [];
+    // Every minute around the dead zone, every seventh elsewhere: the full day costs too long.
+    for (let minute = 0; minute < 24 * 60; minute += minute >= 10 * 60 && minute <= 12 * 60 + 30 ? 1 : 7) {
+      const registeredAt = midnight + minute * MIN;
+      const local = pragueMinuteOfDay(new Date(registeredAt));
+      const ticks = eligibleTicks(registeredAt, phase);
+      if (ticks === 0) dead.push(local);
+      // Away from the dead zone and its ramp, the usual 30 minutes (6 ticks) hold.
+      if (local < 10 * 60 + 25 || local > 12 * 60 + 5) expect(ticks, `registered at ${clock(local)}`).toBeGreaterThanOrEqual(6);
+    }
+    expect(dead.length).toBeGreaterThanOrEqual(30);
+    expect(dead.length).toBeLessThanOrEqual(40);
+    expect(dead[0]).toBeGreaterThanOrEqual(10 * 60 + 50);
+    expect(dead.at(-1)).toBeLessThanOrEqual(11 * 60 + 35);
+    expect(dead.at(-1)! - dead[0]! + 1).toBe(dead.length); // One run of minutes
+  });
+
+  it.each(['2026-10-23', '2026-10-25', '2026-10-26', '2027-03-26', '2027-03-27', '2027-03-28', '2027-03-29', '2026-07-14', '2026-12-09'])(
+    'has no dead zone on %s: every registration time keeps its 30 minutes', (day) => {
+      const midnight = localMidnight(day);
+      for (let minute = 0; minute < 24 * 60; minute += 7) {
+        expect(eligibleTicks(midnight + minute * MIN, 0), `registered at ${clock(pragueMinuteOfDay(new Date(midnight + minute * MIN)))}`).toBeGreaterThanOrEqual(6);
+      }
+    });
+});
+
 describe('the reminder e-mail (HUGO-2424)', () => {
   const link = 'https://sso.example.com/auth/registration/link#abc_DEF-123';
 
