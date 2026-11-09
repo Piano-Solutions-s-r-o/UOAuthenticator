@@ -12,16 +12,37 @@ vi.mock('../../src/services/ban-policy.service.js', async importOriginal => ({
   isPrincipalBannedForRegistration: async () => banned.value,
 }));
 
+const epoch = vi.hoisted(() => ({ bypass: false }));
+vi.mock('../../src/services/verification-token-epoch.service.js', async importOriginal => {
+  const original = await importOriginal<typeof import('../../src/services/verification-token-epoch.service.js')>();
+  return {
+    ...original,
+    // Lets one test prove the reminder's own account check, with the epoch check made blind.
+    readVerificationTokenEpoch: (...args: Parameters<typeof original.readVerificationTokenEpoch>) =>
+      epoch.bypass ? Promise.resolve({ kind: 'registration' as const }) : original.readVerificationTokenEpoch(...args),
+  };
+});
+
 import { sweepRegistrationReminders } from '../../src/services/registration-reminder.service.js';
 import { buildUserIdentity } from '../../src/services/user-scope.service.js';
+import { pragueMinuteOfDay } from '../../src/utils/prague-time.js';
 import {
   createRegistrationHarness, origin, queryA, type Flow, type RegistrationHarness,
 } from '../helpers/pending-registration-harness.js';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
-// 11:00 in Prague (CET): inside the send hours.
-const NOW = new Date('2026-11-10T10:00:00Z');
+/**
+ * The next 11:00 in Prague, at least an hour from the real clock. The steps that go through the
+ * routes (`h.link`, `h.open`, `h.finish`, `h.status`) read the real clock, so a registration that
+ * is pinned relative to NOW must still be live then: NOW is never in the past, whatever today is.
+ */
+function nextPragueEleven(): Date {
+  let t = Math.ceil((Date.now() + HOUR) / MIN) * MIN;
+  while (pragueMinuteOfDay(new Date(t)) !== 11 * 60) t += MIN;
+  return new Date(t);
+}
+const NOW = nextPragueEleven();
 
 type Sent = { to: string; link: string; locale?: string; theme?: unknown };
 
@@ -142,11 +163,14 @@ describe.skipIf(!process.env.DATABASE_URL)('registration reminder', () => {
 
   it('every tick of the day sends exactly one reminder to a registration at 11:00', async () => {
     const flow = await h.start();
-    const registeredAt = new Date('2026-11-10T10:00:00Z'); // 11:00 Prague
+    const registeredAt = NOW; // 11:00 Prague
     await pin(flow, 24 * HOUR, registeredAt);
     for (let tick = registeredAt.getTime(); tick < registeredAt.getTime() + 24 * HOUR; tick += 5 * MIN) await sweep(new Date(tick));
     expect(sent).toHaveLength(1);
-    expect((await row(flow)).reminderSentAt).toEqual(new Date('2026-11-11T08:00:00Z')); // 09:00 Prague, the next day
+    const remindedAt = (await row(flow)).reminderSentAt!;
+    expect(pragueMinuteOfDay(remindedAt)).toBe(9 * 60); // 09:00 Prague, the next day
+    expect(remindedAt.getTime() - registeredAt.getTime()).toBeGreaterThan(21 * HOUR);
+    expect(remindedAt.getTime() - registeredAt.getTime()).toBeLessThan(23 * HOUR);
   });
 
   describe('the reminder link and the first link are one registration', () => {
@@ -201,12 +225,41 @@ describe.skipIf(!process.env.DATABASE_URL)('registration reminder', () => {
       expect((await row(flow)).reminderSentAt).toBeNull();
     });
 
+    it('an address with an account made some other way, even when the token epoch cannot tell', async () => {
+      const flow = await h.start();
+      await pin(flow, 10 * HOUR);
+      const identity = buildUserIdentity({ userScope: 'global', email: flow.email, domain: 'client.example.com' });
+      await h.db.prisma.user.create({ data: { userKey: identity.userKey, email: identity.email, domain: identity.domain } });
+      epoch.bypass = true;
+      try {
+        await sweep();
+      } finally {
+        epoch.bypass = false;
+      }
+      expect(sent).toHaveLength(0);
+      expect((await row(flow)).reminderSentAt).toBeNull();
+    });
+
     it('a banned address', async () => {
       const flow = await h.start();
       await pin(flow, 10 * HOUR);
       banned.value = true;
       await sweep();
       expect(sent).toHaveLength(0);
+    });
+
+    it('a registration whose code is verified while the reminder is being claimed', async () => {
+      const flow = await h.start();
+      await pin(flow, 10 * HOUR);
+      // The verification takes the per-row lock, not the per-address one the claim holds, so it can
+      // land between the claim's reads and its update. The ban check runs in exactly that gap.
+      const verifiedMeanwhile = async () => {
+        await h.db.prisma.pendingRegistration.update({ where: { id: flow.id }, data: { emailVerifiedAt: NOW } });
+        return false;
+      };
+      expect(await sweep(NOW, { isBanned: verifiedMeanwhile })).toEqual({ claimed: 0, sent: 0, failed: 0 });
+      expect(sent).toHaveLength(0);
+      expect((await row(flow)).reminderSentAt).toBeNull();
     });
 
     it.each([
@@ -263,6 +316,53 @@ describe.skipIf(!process.env.DATABASE_URL)('registration reminder', () => {
     await h.auth(cookie);
     expect((await h.finish(cookie)).statusCode).toBe(200);
     expect((await h.status(first)).json()).toEqual({ status: 'complete' });
+  });
+
+  describe('one reminder per address (the sibling rule)', () => {
+    it('not while another live registration of the address was already reminded', async () => {
+      const first = await h.start();
+      const second = await h.resend(first);
+      await pin(first, 10 * HOUR);
+      await pin(second, 12 * HOUR); // The newest, so only the "already reminded" branch can stop it
+      await h.db.prisma.pendingRegistration.update({ where: { id: first.id }, data: { reminderSentAt: new Date(NOW.getTime() - HOUR) } });
+      await sweep();
+      expect(sent).toHaveLength(0);
+      expect((await row(second)).reminderSentAt).toBeNull();
+    });
+
+    it('not for an older registration while a newer one of the address is live', async () => {
+      const first = await h.start();
+      const second = await h.resend(first);
+      await pin(first, 10 * HOUR); // In the window
+      await pin(second, 17 * HOUR); // Newer, not in the window yet, so only the "newer sibling" branch can stop the first
+      await sweep();
+      expect(sent).toHaveLength(0);
+      expect((await row(first)).reminderSentAt).toBeNull();
+    });
+
+    it('but an old reminder, long expired, does not stop the next registration of the address', async () => {
+      const first = await h.start();
+      await pin(first, -2 * HOUR);
+      await h.db.prisma.pendingRegistration.update({ where: { id: first.id }, data: { reminderSentAt: new Date(NOW.getTime() - 20 * HOUR) } });
+      const again = await h.start(first.email);
+      await pin(again, 10 * HOUR);
+      await sweep();
+      expect(sent).toHaveLength(1);
+    });
+  });
+
+  it('stops a sweep that runs past 19:00, and stamps each claim with the time of that claim', async () => {
+    const first = await h.start();
+    const second = await h.start();
+    const before = new Date('2026-11-10T17:58:00Z'); // 18:58 Prague
+    await pin(first, 10 * HOUR, before);
+    await pin(second, 11 * HOUR, before);
+    // The clock is read once to list, then once per claim.
+    const times = [before, new Date('2026-11-10T17:59:00Z'), new Date('2026-11-10T18:00:00Z')];
+    expect(await sweep(before, { now: () => times.shift() ?? new Date('2026-11-10T18:01:00Z') })).toEqual({ claimed: 1, sent: 1, failed: 0 });
+    expect((await row(first)).reminderSentAt).toEqual(new Date('2026-11-10T17:59:00Z'));
+    expect((await row(second)).reminderSentAt).toBeNull();
+    expect(sent).toHaveLength(1);
   });
 
   it('does not retry a reminder that was not sent, and logs the row, never the address', async () => {
